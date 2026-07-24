@@ -123,6 +123,10 @@ fn reregister_changed_hotkeys(
         hotkey::register_teleprompter(app, &new.teleprompter_hotkey)?;
         hotkey::unregister_teleprompter(app, &old.teleprompter_hotkey);
     }
+    if old.plugin_settings != new.plugin_settings {
+        crate::window::unregister_plugin_hotkeys(app, old);
+        crate::window::register_plugin_hotkeys(app, new);
+    }
     Ok(())
 }
 

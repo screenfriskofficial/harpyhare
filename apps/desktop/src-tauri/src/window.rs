@@ -2,9 +2,10 @@ use std::sync::atomic::Ordering;
 use std::time::Duration;
 
 use tauri::{AppHandle, Manager, WebviewWindow};
+use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
 
 use crate::app_state::{current_settings, App};
-use crate::{events, hotkey, identity, platform, settings, window_geom};
+use crate::{events, hotkey, identity, platform, plugins, settings, window_geom};
 
 pub const MAIN_WINDOW_LABEL: &str = "main";
 pub const LAUNCHER_WINDOW_LABEL: &str = "launcher";
@@ -108,6 +109,7 @@ pub fn register_main_window_hotkeys(app: &AppHandle, s: &settings::Settings) {
     if let Err(e) = hotkey::register_teleprompter(app, &s.teleprompter_hotkey) {
         eprintln!("не удалось зарегистрировать суфлёр-хоткей {:?}: {e}", s.teleprompter_hotkey);
     }
+    register_plugin_hotkeys(app, s);
 }
 
 fn unregister_main_window_hotkeys(app: &AppHandle, s: &settings::Settings) {
@@ -115,6 +117,37 @@ fn unregister_main_window_hotkeys(app: &AppHandle, s: &settings::Settings) {
     hotkey::unregister_toggle(app, &s.toggle_hotkey);
     hotkey::unregister_teleprompter(app, &s.teleprompter_hotkey);
     hotkey::unregister_esc(app);
+    unregister_plugin_hotkeys(app, s);
+}
+
+pub fn register_plugin_hotkeys(app: &AppHandle, s: &settings::Settings) {
+    let registry = app.state::<App>().plugins.lock().unwrap().clone();
+    for p in &registry {
+        let Some(ps) = s.plugin_settings.iter().find(|x| x.id == p.manifest.id) else { continue };
+        if !ps.enabled {
+            continue;
+        }
+        let Some(shortcut) = hotkey::parse_hotkey(&ps.hotkey) else { continue };
+        let id = p.manifest.id.clone();
+        let res = app.global_shortcut().on_shortcut(shortcut, move |app, _sc, event| {
+            if event.state == ShortcutState::Pressed {
+                let app = app.clone();
+                let id = id.clone();
+                tauri::async_runtime::spawn(async move { plugins::on_activate(&app, &id).await });
+            }
+        });
+        if let Err(e) = res {
+            eprintln!("не удалось зарегистрировать хоткей плагина {}: {e}", p.manifest.id);
+        }
+    }
+}
+
+pub fn unregister_plugin_hotkeys(app: &AppHandle, s: &settings::Settings) {
+    for ps in &s.plugin_settings {
+        if let Some(shortcut) = hotkey::parse_hotkey(&ps.hotkey) {
+            let _ = app.global_shortcut().unregister(shortcut);
+        }
+    }
 }
 
 pub fn on_toggle_visibility(app: &AppHandle) {
