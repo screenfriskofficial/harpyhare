@@ -14,6 +14,7 @@ pub const CURRENT_ARCH_KEY: &str = std::env::consts::ARCH;
 const ICON_ALLOWLIST: &[&str] = &["crop", "camera", "scissors", "image", "aperture"];
 const MANIFEST_FILE_NAME: &str = "plugin.json";
 const INSTALLED_FILE_NAME: &str = "installed.json";
+const SUPPORTED_IMAGE_TYPES: &[&str] = &["image/jpeg", "image/png", "image/gif", "image/webp"];
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "snake_case")]
@@ -233,6 +234,68 @@ pub fn list_plugins(app: AppHandle) -> Vec<PluginDescriptor> {
     let prefs = current_settings(&app).plugin_settings;
     let reg = app.state::<App>().plugins.lock().unwrap().clone();
     reg.iter().map(|p| merge_descriptor(p, &prefs)).collect()
+}
+
+fn is_enabled(prefs: &[PluginSetting], id: &str) -> bool {
+    prefs.iter().find(|s| s.id == id).map(|s| s.enabled).unwrap_or(false)
+}
+
+pub async fn on_activate(app: &AppHandle, id: &str) {
+    let settings = current_settings(app);
+    if !is_enabled(&settings.plugin_settings, id) {
+        return;
+    }
+    let installed = app
+        .state::<App>()
+        .plugins
+        .lock()
+        .unwrap()
+        .iter()
+        .find(|p| p.manifest.id == id)
+        .cloned();
+    let Some(installed) = installed else { return };
+    let Some(bin_name) = installed.manifest.bin.for_current_arch() else { return };
+    let bin_path = installed.dir.join(bin_name);
+
+    match spawn_and_activate(&bin_path).await {
+        PluginResult::Image { media_type, data_base64 } => {
+            if !SUPPORTED_IMAGE_TYPES.contains(&media_type.as_str()) {
+                eprintln!("[plugin:{id}] неподдерживаемый media_type: {media_type}");
+                return;
+            }
+            crate::events::plugin_result(
+                app,
+                crate::events::PluginResultPayload {
+                    plugin_id: id.to_string(),
+                    kind: "image".to_string(),
+                    media_type: Some(media_type),
+                    data_base64: Some(data_base64),
+                    text: None,
+                },
+            );
+            crate::window::show_and_focus_main(app);
+        }
+        PluginResult::Text { text } => {
+            crate::events::plugin_result(
+                app,
+                crate::events::PluginResultPayload {
+                    plugin_id: id.to_string(),
+                    kind: "text".to_string(),
+                    media_type: None,
+                    data_base64: None,
+                    text: Some(text),
+                },
+            );
+        }
+        PluginResult::None => {}
+        PluginResult::Error { message } => eprintln!("[plugin:{id}] {message}"),
+    }
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn activate_plugin(app: AppHandle, id: String) {
+    tauri::async_runtime::spawn(async move { on_activate(&app, &id).await });
 }
 
 #[cfg(test)]

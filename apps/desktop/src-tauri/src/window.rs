@@ -128,6 +128,13 @@ pub fn on_toggle_visibility(app: &AppHandle) {
     }
 }
 
+pub fn show_and_focus_main(app: &AppHandle) {
+    if let Some(w) = main_window(app) {
+        let _ = w.show();
+        let _ = w.set_focus();
+    }
+}
+
 pub fn on_toggle_teleprompter(app: &AppHandle) {
     events::toggle_teleprompter(app);
 }

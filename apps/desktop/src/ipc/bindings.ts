@@ -42,6 +42,7 @@ export const commands = {
 	listIdentities: () => __TAURI_INVOKE<IdentityInfo[]>("list_identities"),
 	setAppIdentity: (identityId: string) => __TAURI_INVOKE<null>("set_app_identity", { identityId }),
 	listPlugins: () => __TAURI_INVOKE<PluginDescriptor[]>("list_plugins"),
+	activatePlugin: (id: string) => __TAURI_INVOKE<void>("activate_plugin", { id }),
 };
 
 /* Constants */
@@ -122,6 +123,14 @@ export type PluginDescriptor = {
 	enabled: boolean,
 	hotkey: string,
 	state: PluginState,
+};
+
+export type PluginResultPayload = {
+	pluginId: string,
+	kind: string,
+	mediaType: string | null,
+	dataBase64: string | null,
+	text: string | null,
 };
 
 export type PluginSetting = {

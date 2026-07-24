@@ -18,6 +18,8 @@ const EVENT_UPDATE_AVAILABLE: &str = "update-available";
 const EVENT_UPDATE_PROGRESS: &str = "update-progress";
 const EVENT_UPDATE_DONE: &str = "update-done";
 const EVENT_OFFICIAL_PRESETS_UPDATED: &str = "official-presets-updated";
+const EVENT_PLUGIN_RESULT: &str = "plugin-result";
+const EVENT_PLUGINS_CHANGED: &str = "plugins-changed";
 
 #[derive(Clone, serde::Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
@@ -73,6 +75,16 @@ pub struct UpdateProgress {
 #[serde(rename_all = "camelCase")]
 pub struct UpdateDone {
     pub version: String,
+}
+
+#[derive(Clone, serde::Serialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct PluginResultPayload {
+    pub plugin_id: String,
+    pub kind: String,
+    pub media_type: Option<String>,
+    pub data_base64: Option<String>,
+    pub text: Option<String>,
 }
 
 pub fn state_changed(app: &AppHandle, state: RecorderState) {
@@ -149,4 +161,12 @@ pub fn update_done(app: &AppHandle, version: String) {
 
 pub fn official_presets_updated(app: &AppHandle, presets: Vec<PromptPreset>) {
     let _ = app.emit(EVENT_OFFICIAL_PRESETS_UPDATED, presets);
+}
+
+pub fn plugin_result(app: &AppHandle, payload: PluginResultPayload) {
+    let _ = app.emit(EVENT_PLUGIN_RESULT, payload);
+}
+
+pub fn plugins_changed(app: &AppHandle) {
+    let _ = app.emit(EVENT_PLUGINS_CHANGED, ());
 }

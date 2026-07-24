@@ -45,6 +45,7 @@ pub fn builder() -> Builder<tauri::Wry> {
             system::list_identities,
             system::set_app_identity,
             plugins::list_plugins,
+            plugins::activate_plugin,
         ])
         .typ::<crate::error::AppError>()
         .typ::<crate::state::RecorderState>()
@@ -56,6 +57,7 @@ pub fn builder() -> Builder<tauri::Wry> {
         .typ::<events::ResizeDim>()
         .typ::<events::UpdateProgress>()
         .typ::<events::UpdateDone>()
+        .typ::<events::PluginResultPayload>()
         .typ::<plugins::PluginDescriptor>()
         .typ::<plugins::PluginState>()
         .typ::<plugins::PluginCapability>()
