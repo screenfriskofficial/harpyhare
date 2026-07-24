@@ -42,3 +42,23 @@ fn rejects_bad_semver() {
     m.version = "1.x".to_string();
     assert!(validate_manifest(&m).is_err());
 }
+
+#[test]
+fn parses_image_result() {
+    let line = r#"{"protocol":1,"kind":"image","media_type":"image/png","data_base64":"AAAA"}"#;
+    assert_eq!(
+        parse_result(line),
+        PluginResult::Image { media_type: "image/png".into(), data_base64: "AAAA".into() }
+    );
+}
+
+#[test]
+fn parses_none_result_ignoring_trailing_whitespace() {
+    assert_eq!(parse_result("{\"protocol\":1,\"kind\":\"none\"}\n"), PluginResult::None);
+}
+
+#[test]
+fn empty_or_garbage_stdout_is_error() {
+    assert!(matches!(parse_result(""), PluginResult::Error { .. }));
+    assert!(matches!(parse_result("not json"), PluginResult::Error { .. }));
+}

@@ -77,5 +77,22 @@ pub fn validate_manifest(m: &PluginManifest) -> Result<(), String> {
     Ok(())
 }
 
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum PluginResult {
+    Image { media_type: String, data_base64: String },
+    Text { text: String },
+    None,
+    Error { message: String },
+}
+
+pub fn parse_result(stdout: &str) -> PluginResult {
+    let line = stdout.trim();
+    match serde_json::from_str::<PluginResult>(line) {
+        Ok(r) => r,
+        Err(e) => PluginResult::Error { message: format!("нераспознанный ответ плагина: {e}") },
+    }
+}
+
 #[cfg(test)]
 mod tests;
