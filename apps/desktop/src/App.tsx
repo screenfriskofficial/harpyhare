@@ -35,6 +35,7 @@ import { useTranscription } from "@/hooks/useTranscription";
 import { useUpdater, type UpdaterApi } from "@/hooks/useUpdater";
 import { useWindowControls } from "@/hooks/useWindowControls";
 import {
+  activatePlugin,
   closeApp,
   hideMainWindow,
   openAudioPermissionSettings,
@@ -400,6 +401,8 @@ function AppHeader({
 interface AppComposerProps {
   chats: ChatsApi;
   models: ModelInfo[];
+  plugins: { id: string; name: string; icon: string }[];
+  onActivatePlugin: (id: string) => void;
   presets: PromptPreset[];
   library: ContextLibrary;
   streaming: boolean;
@@ -412,6 +415,8 @@ interface AppComposerProps {
 function AppComposer({
   chats,
   models,
+  plugins,
+  onActivatePlugin,
   presets,
   library,
   streaming,
@@ -442,9 +447,13 @@ function AppComposer({
       presets={presets}
       library={library}
       models={models}
+      plugins={plugins}
+      onActivatePlugin={onActivatePlugin}
     />
   );
 }
+
+const TOOLBAR_PLUGIN_CAPABILITIES = ["attachment_source"];
 
 export default function App() {
   const {
@@ -506,7 +515,14 @@ export default function App() {
     },
     [chatsRef],
   );
-  usePlugins(onPluginImage);
+  const plugins = usePlugins(onPluginImage);
+  const toolbarPlugins = useMemo(
+    () =>
+      plugins
+        .filter((p) => p.enabled && TOOLBAR_PLUGIN_CAPABILITIES.includes(p.capability))
+        .map((p) => ({ id: p.id, name: p.name, icon: p.icon })),
+    [plugins],
+  );
 
   const onAssistantDone = useCallback(
     (chatId: string, text: string) => {
@@ -673,6 +689,8 @@ export default function App() {
         <AppComposer
           chats={chats}
           models={models}
+          plugins={toolbarPlugins}
+          onActivatePlugin={(id) => void activatePlugin(id)}
           presets={presets}
           library={contextLibrary.library}
           streaming={activeStreaming}

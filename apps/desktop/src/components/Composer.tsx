@@ -45,6 +45,7 @@ import {
   type ContextLibrary,
 } from "@/lib/context-library";
 import { modelLabel, selectableModels, thinkingLocked, type ModelInfo } from "@/lib/models";
+import { pluginIcon } from "@/lib/plugin-icons";
 import { cn } from "@/lib/utils";
 import { AttachmentChip } from "./AttachmentChip";
 
@@ -62,6 +63,8 @@ export interface ComposerProps {
   presets: { id: string; name: string }[];
   library: ContextLibrary;
   models: ModelInfo[];
+  plugins: { id: string; name: string; icon: string }[];
+  onActivatePlugin: (id: string) => void;
 }
 
 const SELECT_TRIGGER_CLASS = "h-7 w-full text-caption";
@@ -306,7 +309,14 @@ function RequestParamsPopover(props: RequestParamsProps) {
 type ComposerToolbarProps = RequestParamsProps &
   Pick<
     ComposerProps,
-    "onClearHistory" | "showRetry" | "onRetry" | "streaming" | "onStop" | "onSend"
+    | "onClearHistory"
+    | "showRetry"
+    | "onRetry"
+    | "streaming"
+    | "onStop"
+    | "onSend"
+    | "plugins"
+    | "onActivatePlugin"
   > & {
     hasContext: boolean;
     onOpenContext: () => void;
@@ -348,6 +358,23 @@ function ComposerToolbar(props: ComposerToolbarProps) {
         thinkingDisabled={props.thinkingDisabled}
         presets={props.presets}
       />
+      {props.plugins.map((p) => {
+        const Icon = pluginIcon(p.icon);
+        return (
+          <Button
+            key={p.id}
+            variant="ghost"
+            size="icon-compact"
+            onClick={() => {
+              props.onActivatePlugin(p.id);
+            }}
+            title={p.name}
+            aria-label={p.name}
+          >
+            <Icon />
+          </Button>
+        );
+      })}
       <div className="flex-1" />
       {props.showRetry && (
         <Button
@@ -556,6 +583,8 @@ export function Composer(props: ComposerProps) {
           streaming={props.streaming}
           onStop={props.onStop}
           onSend={props.onSend}
+          plugins={props.plugins}
+          onActivatePlugin={props.onActivatePlugin}
         />
       </div>
       <ChatContextDialog
