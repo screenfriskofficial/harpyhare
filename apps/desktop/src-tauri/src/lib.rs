@@ -12,6 +12,7 @@ pub mod hotkey;
 pub mod identity;
 pub mod llm;
 pub mod platform;
+pub mod plugins;
 pub mod preferences;
 pub mod preview_protocol;
 pub mod recording;
