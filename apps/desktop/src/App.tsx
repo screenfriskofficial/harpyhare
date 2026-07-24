@@ -34,6 +34,7 @@ import { useSettings } from "@/hooks/useSettings";
 import { useTranscription } from "@/hooks/useTranscription";
 import { useUpdater, type UpdaterApi } from "@/hooks/useUpdater";
 import { useWindowControls } from "@/hooks/useWindowControls";
+import type { PluginCapability } from "@/ipc/bindings";
 import {
   activatePlugin,
   closeApp,
@@ -453,7 +454,7 @@ function AppComposer({
   );
 }
 
-const TOOLBAR_PLUGIN_CAPABILITIES = ["attachment_source"];
+const TOOLBAR_PLUGIN_CAPABILITIES: readonly PluginCapability[] = ["attachment_source"];
 
 export default function App() {
   const {

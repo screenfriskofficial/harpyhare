@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::{
     atomic::{AtomicBool, AtomicU64},
     Arc, Mutex,
@@ -32,6 +32,7 @@ pub struct App {
     pub pending_update: Mutex<Option<tauri_plugin_updater::Update>>,
     pub update_installing: AtomicBool,
     pub plugins: Mutex<Vec<crate::plugins::InstalledPlugin>>,
+    pub plugins_activating: Mutex<HashSet<String>>,
 }
 
 pub struct SttStream {
@@ -148,5 +149,6 @@ pub fn build_app_state(
         pending_update: Mutex::new(None),
         update_installing: AtomicBool::new(false),
         plugins: Mutex::new(Vec::new()),
+        plugins_activating: Mutex::new(HashSet::new()),
     }
 }

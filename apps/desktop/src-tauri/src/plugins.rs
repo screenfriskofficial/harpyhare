@@ -257,7 +257,18 @@ pub async fn on_activate(app: &AppHandle, id: &str) {
     let Some(bin_name) = installed.manifest.bin.for_current_arch() else { return };
     let bin_path = installed.dir.join(bin_name);
 
-    match spawn_and_activate(&bin_path).await {
+    {
+        let app_state = app.state::<App>();
+        let mut active = app_state.plugins_activating.lock().unwrap();
+        if !active.insert(id.to_string()) {
+            return;
+        }
+    }
+
+    let result = spawn_and_activate(&bin_path).await;
+    app.state::<App>().plugins_activating.lock().unwrap().remove(id);
+
+    match result {
         PluginResult::Image { media_type, data_base64 } => {
             if !SUPPORTED_IMAGE_TYPES.contains(&media_type.as_str()) {
                 eprintln!("[plugin:{id}] неподдерживаемый media_type: {media_type}");
