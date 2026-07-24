@@ -1,8 +1,12 @@
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
+use std::path::{Path, PathBuf};
 
 pub const CURRENT_ARCH_KEY: &str = std::env::consts::ARCH;
 
 const ICON_ALLOWLIST: &[&str] = &["crop", "camera", "scissors", "image", "aperture"];
+const MANIFEST_FILE_NAME: &str = "plugin.json";
+const INSTALLED_FILE_NAME: &str = "installed.json";
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "snake_case")]
@@ -75,6 +79,53 @@ pub fn validate_manifest(m: &PluginManifest) -> Result<(), String> {
         return Err(format!("нет бинаря для арх. {CURRENT_ARCH_KEY}"));
     }
     Ok(())
+}
+
+#[derive(Debug, Clone)]
+pub struct InstalledPlugin {
+    pub manifest: PluginManifest,
+    pub dir: PathBuf,
+    pub update_available: Option<String>,
+}
+
+pub fn load_registry(cache_dir: &Path) -> Vec<InstalledPlugin> {
+    let installed_raw = match std::fs::read(cache_dir.join(INSTALLED_FILE_NAME)) {
+        Ok(b) => b,
+        Err(_) => return Vec::new(),
+    };
+    let installed: BTreeMap<String, String> = match serde_json::from_slice(&installed_raw) {
+        Ok(m) => m,
+        Err(e) => {
+            eprintln!("[plugins] битый installed.json: {e}");
+            return Vec::new();
+        }
+    };
+    let mut out = Vec::new();
+    for (id, version) in installed {
+        let dir = cache_dir.join(&id).join(&version);
+        let bytes = match std::fs::read(dir.join(MANIFEST_FILE_NAME)) {
+            Ok(b) => b,
+            Err(e) => {
+                eprintln!("[plugins] манифест {id}@{version} не читается: {e}");
+                continue;
+            }
+        };
+        let manifest = match parse_manifest(&bytes).and_then(|m| {
+            validate_manifest(&m).map(|_| m)
+        }) {
+            Ok(m) if m.id == id => m,
+            Ok(m) => {
+                eprintln!("[plugins] id в манифесте ({}) != каталогу ({id})", m.id);
+                continue;
+            }
+            Err(e) => {
+                eprintln!("[plugins] манифест {id}@{version} невалиден: {e}");
+                continue;
+            }
+        };
+        out.push(InstalledPlugin { manifest, dir, update_available: None });
+    }
+    out
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize)]

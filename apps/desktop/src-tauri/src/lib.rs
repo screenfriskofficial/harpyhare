@@ -78,6 +78,8 @@ fn setup_app(handle: &AppHandle) {
         llm,
         models,
     ));
+    let registry = plugins::load_registry(&app_state::plugin_cache_dir(handle));
+    *handle.state::<App>().plugins.lock().unwrap() = registry;
     if let Err(e) = window::create_launcher_window(handle, &app_state::current_settings(handle)) {
         eprintln!("не удалось создать окно лаунчера: {e}");
     }
