@@ -1,5 +1,6 @@
 use super::*;
 
+use crate::settings::PluginSetting;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU32, Ordering};
@@ -138,4 +139,33 @@ fn id_mismatch_is_skipped() {
     fs::write(cache.join("installed.json"), "{\"other\":\"1.0.0\"}").unwrap();
     assert!(load_registry(&cache).is_empty());
     fs::remove_dir_all(&cache).ok();
+}
+
+fn installed_fixture() -> InstalledPlugin {
+    let m = parse_manifest(valid_manifest_json().as_bytes()).unwrap();
+    InstalledPlugin { manifest: m, dir: PathBuf::from("/tmp/x"), update_available: None }
+}
+
+#[test]
+fn merge_uses_manifest_defaults_when_no_user_setting() {
+    let d = merge_descriptor(&installed_fixture(), &[]);
+    assert_eq!(d.id, "harpyshot");
+    assert!(!d.enabled);
+    assert_eq!(d.hotkey, "Cmd+Shift+S");
+    assert_eq!(d.state, PluginState::Ready);
+}
+
+#[test]
+fn merge_prefers_user_setting() {
+    let prefs = vec![PluginSetting { id: "harpyshot".into(), enabled: true, hotkey: "F7".into() }];
+    let d = merge_descriptor(&installed_fixture(), &prefs);
+    assert!(d.enabled);
+    assert_eq!(d.hotkey, "F7");
+}
+
+#[test]
+fn merge_falls_back_to_default_hotkey_when_user_hotkey_empty() {
+    let prefs = vec![PluginSetting { id: "harpyshot".into(), enabled: true, hotkey: "".into() }];
+    let d = merge_descriptor(&installed_fixture(), &prefs);
+    assert_eq!(d.hotkey, "Cmd+Shift+S");
 }

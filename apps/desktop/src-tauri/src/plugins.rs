@@ -1,6 +1,10 @@
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
+use tauri::{AppHandle, Manager};
+
+use crate::app_state::{current_settings, App};
+use crate::settings::PluginSetting;
 
 pub const CURRENT_ARCH_KEY: &str = std::env::consts::ARCH;
 
@@ -143,6 +147,61 @@ pub fn parse_result(stdout: &str) -> PluginResult {
         Ok(r) => r,
         Err(e) => PluginResult::Error { message: format!("нераспознанный ответ плагина: {e}") },
     }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, specta::Type)]
+#[serde(rename_all = "snake_case")]
+pub enum PluginState {
+    Ready,
+    Downloading,
+    UpdateAvailable,
+}
+
+#[derive(Debug, Clone, Serialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct PluginDescriptor {
+    pub id: String,
+    pub name: String,
+    pub description: String,
+    pub version: String,
+    pub icon: String,
+    pub capability: PluginCapability,
+    pub enabled: bool,
+    pub hotkey: String,
+    pub state: PluginState,
+}
+
+pub fn merge_descriptor(p: &InstalledPlugin, prefs: &[PluginSetting]) -> PluginDescriptor {
+    let pref = prefs.iter().find(|s| s.id == p.manifest.id);
+    let enabled = pref.map(|s| s.enabled).unwrap_or(false);
+    let hotkey = pref
+        .map(|s| s.hotkey.clone())
+        .filter(|h| !h.trim().is_empty())
+        .unwrap_or_else(|| p.manifest.default_hotkey.clone());
+    let state = if p.update_available.is_some() {
+        PluginState::UpdateAvailable
+    } else {
+        PluginState::Ready
+    };
+    PluginDescriptor {
+        id: p.manifest.id.clone(),
+        name: p.manifest.name.clone(),
+        description: p.manifest.description.clone(),
+        version: p.manifest.version.clone(),
+        icon: p.manifest.icon.clone(),
+        capability: p.manifest.capability.clone(),
+        enabled,
+        hotkey,
+        state,
+    }
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn list_plugins(app: AppHandle) -> Vec<PluginDescriptor> {
+    let prefs = current_settings(&app).plugin_settings;
+    let reg = app.state::<App>().plugins.lock().unwrap().clone();
+    reg.iter().map(|p| merge_descriptor(p, &prefs)).collect()
 }
 
 #[cfg(test)]

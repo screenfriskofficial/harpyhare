@@ -41,6 +41,7 @@ export const commands = {
 	getAppVersion: () => __TAURI_INVOKE<string>("get_app_version"),
 	listIdentities: () => __TAURI_INVOKE<IdentityInfo[]>("list_identities"),
 	setAppIdentity: (identityId: string) => __TAURI_INVOKE<null>("set_app_identity", { identityId }),
+	listPlugins: () => __TAURI_INVOKE<PluginDescriptor[]>("list_plugins"),
 };
 
 /* Constants */
@@ -109,11 +110,27 @@ export type OutputDeviceInfo = {
 	name: string,
 };
 
+export type PluginCapability = "attachment_source";
+
+export type PluginDescriptor = {
+	id: string,
+	name: string,
+	description: string,
+	version: string,
+	icon: string,
+	capability: PluginCapability,
+	enabled: boolean,
+	hotkey: string,
+	state: PluginState,
+};
+
 export type PluginSetting = {
 	id: string,
 	enabled: boolean,
 	hotkey: string,
 };
+
+export type PluginState = "ready" | "downloading" | "update_available";
 
 export type PromptPreset = {
 	id: string,

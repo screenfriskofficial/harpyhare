@@ -1,7 +1,7 @@
 use tauri_specta::{collect_commands, Builder, ErrorHandlingMode};
 
 use crate::settings::{self, SettingsLimits};
-use crate::{chat, events, preferences, recording, storage, system, window};
+use crate::{chat, events, plugins, preferences, recording, storage, system, window};
 
 pub const BINDINGS_OUTPUT_PATH: &str = "../src/ipc/bindings.ts";
 const SETTINGS_LIMITS_CONSTANT: &str = "SETTINGS_LIMITS";
@@ -44,6 +44,7 @@ pub fn builder() -> Builder<tauri::Wry> {
             system::get_app_version,
             system::list_identities,
             system::set_app_identity,
+            plugins::list_plugins,
         ])
         .typ::<crate::error::AppError>()
         .typ::<crate::state::RecorderState>()
@@ -55,6 +56,9 @@ pub fn builder() -> Builder<tauri::Wry> {
         .typ::<events::ResizeDim>()
         .typ::<events::UpdateProgress>()
         .typ::<events::UpdateDone>()
+        .typ::<plugins::PluginDescriptor>()
+        .typ::<plugins::PluginState>()
+        .typ::<plugins::PluginCapability>()
         .constant(SETTINGS_LIMITS_CONSTANT, SettingsLimits::current())
         .constant(SETTINGS_DEFAULTS_CONSTANT, settings::Settings::default())
         .constant(MODIFIER_COMBOS_CONSTANT, settings::MODIFIER_COMBOS)
