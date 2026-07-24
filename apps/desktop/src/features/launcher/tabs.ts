@@ -4,6 +4,7 @@ import {
   Library,
   MessageSquareText,
   Palette,
+  Puzzle,
   SlidersHorizontal,
   VenetianMask,
   type LucideIcon,
@@ -17,6 +18,7 @@ export const LAUNCHER_TABS = [
   { id: "appearance", label: "Вид", icon: Palette },
   { id: "identity", label: "Маскировка", icon: VenetianMask },
   { id: "presets", label: "Пресеты", icon: MessageSquareText },
+  { id: "plugins", label: "Плагины", icon: Puzzle },
 ] as const satisfies readonly { id: string; label: string; icon: LucideIcon }[];
 
 export type TabId = (typeof LAUNCHER_TABS)[number]["id"];

@@ -3,6 +3,7 @@ import { ContextLibraryPanel } from "./ContextLibraryPanel";
 import type { SectionProps } from "./contract";
 import { SectionGroup } from "./fields";
 import { IdentityPanel } from "./IdentityPanel";
+import { PluginsPanel } from "./PluginsPanel";
 import { ApiKeysSection } from "./sections/ApiKeysSection";
 import { AppearanceSection } from "./sections/AppearanceSection";
 import { BehaviorSection } from "./sections/BehaviorSection";
@@ -64,6 +65,8 @@ function TabBody({
       return <IdentityPanel currentIdentityId={currentIdentityId} />;
     case "presets":
       return <PresetsSection presets={draft.prompt_presets} onChange={onPresetsChange} />;
+    case "plugins":
+      return <PluginsPanel draft={draft} set={set} />;
   }
 }
 
