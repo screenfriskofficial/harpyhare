@@ -27,6 +27,7 @@ import { useConnectivity } from "@/hooks/useConnectivity";
 import { useContextLibrary } from "@/hooks/useContextLibrary";
 import { useModels } from "@/hooks/useModels";
 import { useOfficialPresets } from "@/hooks/useOfficialPresets";
+import { usePlugins } from "@/hooks/usePlugins";
 import { usePttSuspend } from "@/hooks/usePttSuspend";
 import { useRecorder } from "@/hooks/useRecorder";
 import { useSettings } from "@/hooks/useSettings";
@@ -498,6 +499,14 @@ export default function App() {
   const presetsRef = useLatestRef(presets);
   const chatsRef = useLatestRef(chats);
   const libraryRef = useLatestRef(contextLibrary.library);
+
+  const onPluginImage = useCallback(
+    (dataUrl: string, mediaType: string) => {
+      void chatsRef.current.addDraftImage(chatsRef.current.activeId, dataUrl, mediaType);
+    },
+    [chatsRef],
+  );
+  usePlugins(onPluginImage);
 
   const onAssistantDone = useCallback(
     (chatId: string, text: string) => {

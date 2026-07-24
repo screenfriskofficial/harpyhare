@@ -7,6 +7,7 @@ import { type ChatMessageDto, type Settings, type UpdateInfo } from "./types";
 const IDEMPOTENCY_STORAGE_PREFIX = "redeem-idem:";
 
 export const {
+  activatePlugin,
   cancelStream,
   captureAvailable,
   closeApp,
@@ -18,6 +19,7 @@ export const {
   listAudioOutputDevices,
   listIdentities,
   listModels,
+  listPlugins,
   loadChats,
   loadContextLibrary,
   openAudioPermissionSettings,

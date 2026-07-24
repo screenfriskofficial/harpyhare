@@ -23,6 +23,7 @@ export const queryKeys = {
   officialPresets: ["official-presets"] as const,
   audioDevices: ["audio-devices"] as const,
   identities: ["identities"] as const,
+  plugins: ["plugins"] as const,
   countTokens: (model: string, options: RequestOptions, system: string, messagesKey: string) =>
     ["count-tokens", model, options.thinking, options.webSearch, system, messagesKey] as const,
 };
