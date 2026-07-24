@@ -1,7 +1,10 @@
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
+use std::process::Stdio;
+use std::time::Duration;
 use tauri::{AppHandle, Manager};
+use tokio::io::AsyncWriteExt;
 
 use crate::app_state::{current_settings, App};
 use crate::settings::PluginSetting;
@@ -147,6 +150,34 @@ pub fn parse_result(stdout: &str) -> PluginResult {
         Ok(r) => r,
         Err(e) => PluginResult::Error { message: format!("нераспознанный ответ плагина: {e}") },
     }
+}
+
+const ACTIVATE_REQUEST: &[u8] = b"{\"protocol\":1,\"action\":\"activate\"}\n";
+const ACTIVATION_CEILING: Duration = Duration::from_secs(300);
+
+pub async fn spawn_and_activate(bin_path: &Path) -> PluginResult {
+    let mut child = match tokio::process::Command::new(bin_path)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .kill_on_drop(true)
+        .spawn()
+    {
+        Ok(c) => c,
+        Err(e) => return PluginResult::Error { message: format!("спавн плагина: {e}") },
+    };
+    if let Some(mut stdin) = child.stdin.take() {
+        let _ = stdin.write_all(ACTIVATE_REQUEST).await;
+    }
+    let out = match tokio::time::timeout(ACTIVATION_CEILING, child.wait_with_output()).await {
+        Ok(Ok(o)) => o,
+        Ok(Err(e)) => return PluginResult::Error { message: format!("ожидание плагина: {e}") },
+        Err(_) => return PluginResult::Error { message: "плагин не ответил (таймаут)".into() },
+    };
+    if !out.stderr.is_empty() {
+        eprintln!("[plugin] {}", String::from_utf8_lossy(&out.stderr).trim());
+    }
+    parse_result(&String::from_utf8_lossy(&out.stdout))
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, specta::Type)]

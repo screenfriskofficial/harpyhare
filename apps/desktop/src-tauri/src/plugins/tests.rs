@@ -2,6 +2,7 @@ use super::*;
 
 use crate::settings::PluginSetting;
 use std::fs;
+use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU32, Ordering};
 
@@ -168,4 +169,25 @@ fn merge_falls_back_to_default_hotkey_when_user_hotkey_empty() {
     let prefs = vec![PluginSetting { id: "harpyshot".into(), enabled: true, hotkey: "".into() }];
     let d = merge_descriptor(&installed_fixture(), &prefs);
     assert_eq!(d.hotkey, "Cmd+Shift+S");
+}
+
+fn write_fake_sidecar(body: &str) -> PathBuf {
+    let dir = unique_tmp_dir();
+    let path = dir.join("fake-sidecar");
+    fs::write(&path, format!("#!/bin/sh\n{body}\n")).unwrap();
+    fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).unwrap();
+    path
+}
+
+#[tokio::test]
+async fn spawn_reads_text_result() {
+    let bin = write_fake_sidecar(r#"echo '{"protocol":1,"kind":"text","text":"hi"}'"#);
+    let r = spawn_and_activate(&bin).await;
+    assert_eq!(r, PluginResult::Text { text: "hi".into() });
+}
+
+#[tokio::test]
+async fn spawn_of_missing_binary_is_error() {
+    let r = spawn_and_activate(&PathBuf::from("/nonexistent/harpyshot-xyz")).await;
+    assert!(matches!(r, PluginResult::Error { .. }));
 }
