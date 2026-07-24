@@ -17,7 +17,7 @@ beforeEach(() => {
   saveChats.mockResolvedValue(undefined);
 });
 afterEach(() => {
-  vi.runOnlyPendingTimers();
+  if (vi.isFakeTimers()) vi.runOnlyPendingTimers();
   vi.useRealTimers();
   vi.clearAllMocks();
 });
@@ -203,5 +203,21 @@ describe("useChats", () => {
       vi.advanceTimersByTime(600);
     });
     expect(saveChats).toHaveBeenCalledTimes(1);
+  });
+
+  it("addDraftImage добавляет вложение в черновик активного чата", async () => {
+    vi.useRealTimers();
+    const { result } = renderHook(() => useChats());
+    await waitFor(() => {
+      expect(result.current.chats.length).toBe(1);
+    });
+    const id = result.current.activeId;
+    const dataUrl =
+      "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+M8AAAMBAQDJ/pLvAAAAAElFTkSuQmCC";
+    await act(async () => {
+      await result.current.addDraftImage(id, dataUrl, "image/png");
+    });
+    expect(result.current.active.draftAttachments).toHaveLength(1);
+    expect(result.current.active.draftAttachments[0]?.payload.media_type).toBe("image/png");
   });
 });

@@ -96,4 +96,12 @@ export interface EventMap {
   "toggle-teleprompter": null;
   "resize-key": { dim: "width" | "height"; dir: 1 | -1 };
   "official-presets-updated": PromptPreset[];
+  "plugins-changed": null;
+  "plugin-result": {
+    pluginId: string;
+    kind: string;
+    mediaType: string | null;
+    dataBase64: string | null;
+    text: string | null;
+  };
 }

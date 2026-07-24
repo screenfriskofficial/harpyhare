@@ -99,6 +99,19 @@ async function fileToAttachmentOrNull(file: File): Promise<Attachment | null> {
   }
 }
 
+const DATA_URL_BASE64_MARKER = ";base64,";
+const SCREENSHOT_FILE_NAME = "screenshot";
+
+function dataUrlToFile(dataUrl: string, mediaType: string): File {
+  const markerIdx = dataUrl.indexOf(DATA_URL_BASE64_MARKER);
+  const base64 =
+    markerIdx >= 0 ? dataUrl.slice(markerIdx + DATA_URL_BASE64_MARKER.length) : dataUrl;
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return new File([bytes], SCREENSHOT_FILE_NAME, { type: mediaType });
+}
+
 function useInitialChatsLoad(
   setChats: Dispatch<SetStateAction<Chat[]>>,
   setActiveId: Dispatch<SetStateAction<string>>,
@@ -144,6 +157,7 @@ export interface ChatsApi {
   patchChat: (id: string, patch: ChatPatch) => void;
   selectChat: (id: string) => void;
   addDraftAttachments: (id: string, items: DataTransferItemList) => Promise<void>;
+  addDraftImage: (id: string, dataUrl: string, mediaType: string) => Promise<void>;
   removeDraftAttachment: (id: string, index: number) => void;
   appendUserMessage: (id: string, text: string, images: ImagePayload[]) => void;
   appendAssistantMessage: (id: string, text: string) => void;
@@ -233,6 +247,15 @@ export function useChats(): ChatsApi {
     [draftAttachmentCount, appendDraftAttachment],
   );
 
+  const addDraftImage = useCallback(
+    async (id: string, dataUrl: string, mediaType: string) => {
+      if (acceptedNewAttachments(draftAttachmentCount(id), 1) < 1) return;
+      const att = await fileToAttachmentOrNull(dataUrlToFile(dataUrl, mediaType));
+      if (att) appendDraftAttachment(id, att);
+    },
+    [draftAttachmentCount, appendDraftAttachment],
+  );
+
   const removeDraftAttachment = useCallback(
     (id: string, index: number) => {
       patch(id, (c) => ({
@@ -301,6 +324,7 @@ export function useChats(): ChatsApi {
     patchChat,
     selectChat,
     addDraftAttachments,
+    addDraftImage,
     removeDraftAttachment,
     appendUserMessage,
     appendAssistantMessage,
