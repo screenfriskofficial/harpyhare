@@ -100,3 +100,42 @@ fn missing_cache_yields_empty_registry() {
     let cache = std::env::temp_dir().join("harpyhare-plugins-test-nope-xyz");
     assert!(load_registry(&cache).is_empty());
 }
+
+#[test]
+fn corrupt_installed_json_yields_empty_registry() {
+    let cache = unique_tmp_dir();
+    fs::write(cache.join("installed.json"), "{ not json").unwrap();
+    assert!(load_registry(&cache).is_empty());
+    fs::remove_dir_all(&cache).ok();
+}
+
+#[test]
+fn entry_without_manifest_is_skipped() {
+    let cache = unique_tmp_dir();
+    fs::write(cache.join("installed.json"), "{\"harpyshot\":\"1.0.0\"}").unwrap();
+    assert!(load_registry(&cache).is_empty());
+    fs::remove_dir_all(&cache).ok();
+}
+
+#[test]
+fn invalid_manifest_is_skipped() {
+    let cache = unique_tmp_dir();
+    let dir = cache.join("harpyshot").join("1.0.0");
+    fs::create_dir_all(&dir).unwrap();
+    let bad = valid_manifest_json().replace("\"crop\"", "\"not-an-allowed-icon\"");
+    fs::write(dir.join("plugin.json"), bad).unwrap();
+    fs::write(cache.join("installed.json"), "{\"harpyshot\":\"1.0.0\"}").unwrap();
+    assert!(load_registry(&cache).is_empty());
+    fs::remove_dir_all(&cache).ok();
+}
+
+#[test]
+fn id_mismatch_is_skipped() {
+    let cache = unique_tmp_dir();
+    let dir = cache.join("other").join("1.0.0");
+    fs::create_dir_all(&dir).unwrap();
+    fs::write(dir.join("plugin.json"), valid_manifest_json()).unwrap();
+    fs::write(cache.join("installed.json"), "{\"other\":\"1.0.0\"}").unwrap();
+    assert!(load_registry(&cache).is_empty());
+    fs::remove_dir_all(&cache).ok();
+}
