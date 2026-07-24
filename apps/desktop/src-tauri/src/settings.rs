@@ -110,6 +110,13 @@ pub struct PromptPreset {
     pub text: String,
 }
 
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, specta::Type)]
+pub struct PluginSetting {
+    pub id: String,
+    pub enabled: bool,
+    pub hotkey: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 #[serde(default)]
 pub struct Settings {
@@ -144,6 +151,7 @@ pub struct Settings {
     pub move_modifier: String,
     pub resize_modifier: String,
     pub scroll_modifier: String,
+    pub plugin_settings: Vec<PluginSetting>,
 }
 
 impl Default for Settings {
@@ -180,6 +188,7 @@ impl Default for Settings {
             move_modifier: defaults::MOVE_MODIFIER.into(),
             resize_modifier: defaults::RESIZE_MODIFIER.into(),
             scroll_modifier: defaults::SCROLL_MODIFIER.into(),
+            plugin_settings: Vec::new(),
         }
     }
 }

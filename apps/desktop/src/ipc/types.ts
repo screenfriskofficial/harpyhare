@@ -5,6 +5,12 @@ import { SETTINGS_DEFAULTS } from "./bindings";
 
 export type { AppError, ImagePayload };
 
+export interface PluginSetting {
+  id: string;
+  enabled: boolean;
+  hotkey: string;
+}
+
 export interface Settings {
   anthropic_api_key: string;
   groq_api_key: string;
@@ -37,11 +43,13 @@ export interface Settings {
   move_modifier: string;
   resize_modifier: string;
   scroll_modifier: string;
+  plugin_settings: PluginSetting[];
 }
 
 export const DEFAULT_SETTINGS: Settings = {
   ...SETTINGS_DEFAULTS,
   prompt_presets: [...SETTINGS_DEFAULTS.prompt_presets],
+  plugin_settings: [...SETTINGS_DEFAULTS.plugin_settings],
 };
 
 export interface AudioOutputDevice {

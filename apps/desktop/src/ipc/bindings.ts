@@ -46,7 +46,7 @@ export const commands = {
 /* Constants */
 export const MODIFIER_COMBOS = ["Cmd","Ctrl","Alt","Cmd+Shift","Ctrl+Shift","Alt+Shift"] as const;
 
-export const SETTINGS_DEFAULTS = {"access_token":"","anthropic_api_key":"","auto_preview_html":true,"auto_send":false,"buffer_enabled":true,"buffer_seconds":4,"capture_device_uid":"","chat_font_size":13.5,"groq_api_key":"","hotkey":"F9","identity_id":"","move_modifier":"Cmd","move_step":20,"prompt_presets":[],"resize_modifier":"Cmd+Shift","resize_step":20,"screen_share_visible":false,"scroll_modifier":"Alt","scroll_step":120,"skipped_version":"","stt_language":"ru","stt_translate":false,"teleprompter_font_size":28.0,"teleprompter_hotkey":"F10","teleprompter_resume":true,"teleprompter_speed":40.0,"theme":"gray","toggle_hotkey":"Cmd+Shift+H","window_height":680.0,"window_opacity":0.9,"window_width":960.0} as const;
+export const SETTINGS_DEFAULTS = {"access_token":"","anthropic_api_key":"","auto_preview_html":true,"auto_send":false,"buffer_enabled":true,"buffer_seconds":4,"capture_device_uid":"","chat_font_size":13.5,"groq_api_key":"","hotkey":"F9","identity_id":"","move_modifier":"Cmd","move_step":20,"plugin_settings":[],"prompt_presets":[],"resize_modifier":"Cmd+Shift","resize_step":20,"screen_share_visible":false,"scroll_modifier":"Alt","scroll_step":120,"skipped_version":"","stt_language":"ru","stt_translate":false,"teleprompter_font_size":28.0,"teleprompter_hotkey":"F10","teleprompter_resume":true,"teleprompter_speed":40.0,"theme":"gray","toggle_hotkey":"Cmd+Shift+H","window_height":680.0,"window_opacity":0.9,"window_width":960.0} as const;
 
 export const SETTINGS_LIMITS = {"bufferSeconds":{"default":4,"max":10,"min":4},"chatFontSize":{"default":13.5,"max":20.0,"min":10.0},"moveStep":{"default":20,"max":200,"min":1},"resizeStep":{"default":20,"max":200,"min":1},"scrollStep":{"default":120,"max":1000,"min":10},"teleprompterFontSize":{"default":28.0,"max":48.0,"min":20.0},"teleprompterSpeed":{"default":40.0,"max":150.0,"min":10.0},"windowHeight":{"default":680.0,"max":1100.0,"min":520.0},"windowOpacity":{"default":0.9,"max":1.0,"min":0.2},"windowWidth":{"default":960.0,"max":1600.0,"min":300.0}} as const;
 
@@ -109,6 +109,12 @@ export type OutputDeviceInfo = {
 	name: string,
 };
 
+export type PluginSetting = {
+	id: string,
+	enabled: boolean,
+	hotkey: string,
+};
+
 export type PromptPreset = {
 	id: string,
 	name: string,
@@ -161,6 +167,7 @@ export type Settings = {
 	move_modifier?: string,
 	resize_modifier?: string,
 	scroll_modifier?: string,
+	plugin_settings?: PluginSetting[],
 };
 
 export type UpdateDone = {
