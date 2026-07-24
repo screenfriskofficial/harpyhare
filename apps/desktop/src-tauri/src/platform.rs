@@ -14,6 +14,8 @@ const KEY_CODE_ARROW_UP: u16 = 126;
 const OPEN_COMMAND: &str = "open";
 const AUDIO_CAPTURE_PRIVACY_PANE_URL: &str =
     "x-apple.systempreferences:com.apple.preference.security?Privacy_AudioCapture";
+const SCREEN_CAPTURE_PRIVACY_PANE_URL: &str =
+    "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture";
 const HTTPS_URL_PREFIX: &str = "https://";
 const HTTP_URL_PREFIX: &str = "http://";
 
@@ -134,6 +136,26 @@ pub fn open_audio_capture_privacy_pane() {
     let _ = std::process::Command::new(OPEN_COMMAND)
         .arg(AUDIO_CAPTURE_PRIVACY_PANE_URL)
         .spawn();
+}
+
+pub fn open_screen_capture_privacy_pane() {
+    let _ = std::process::Command::new(OPEN_COMMAND)
+        .arg(SCREEN_CAPTURE_PRIVACY_PANE_URL)
+        .spawn();
+}
+
+#[link(name = "CoreGraphics", kind = "framework")]
+extern "C" {
+    fn CGPreflightScreenCaptureAccess() -> bool;
+    fn CGRequestScreenCaptureAccess() -> bool;
+}
+
+pub fn screen_capture_access() -> bool {
+    unsafe { CGPreflightScreenCaptureAccess() }
+}
+
+pub fn request_screen_capture_access() -> bool {
+    unsafe { CGRequestScreenCaptureAccess() }
 }
 
 fn is_web_url(url: &str) -> bool {

@@ -9,6 +9,7 @@ import { missingKeysNotice } from "@/lib/api-keys";
 import { BRAND_NAME } from "@/lib/brand";
 import { isPresetFilled } from "@/lib/presets";
 import type { LauncherPanelProps, SetSetting } from "./contract";
+import { RequirementsDialog } from "./RequirementsDialog";
 import type { PresetsUpdate } from "./sections/PresetsSection";
 import { TabContent } from "./TabContent";
 import { TabRail } from "./TabRail";
@@ -50,8 +51,18 @@ export function LauncherPanel({
   const [draft, setDraft] = useState<Settings>(settings);
   const [checkState, setCheckState] = useState<CheckState>("idle");
   const [tab, setTab] = useState<TabId>("main");
+  const [requirementsOpen, setRequirementsOpen] = useState(false);
 
-  const { ready, missingKeys, permissionOk, requestPermission } = readiness;
+  const {
+    ready,
+    missingKeys,
+    permissionOk,
+    requestPermission,
+    needsScreenRecording,
+    screenCaptureOk,
+    requestScreenCapture,
+    openScreenCaptureSettings,
+  } = readiness;
 
   useEffect(() => {
     setDraft((d) =>
@@ -154,6 +165,20 @@ export function LauncherPanel({
               </span>
             </WarningBanner>
           )}
+          {needsScreenRecording && !screenCaptureOk && (
+            <WarningBanner actionLabel="Запросить" onAction={() => void requestScreenCapture()}>
+              <span className="inline-flex items-center gap-2">
+                Нет разрешения «Запись экрана» (нужно для harpyshot)
+                <button
+                  type="button"
+                  className="underline underline-offset-2 hover:no-underline"
+                  onClick={openScreenCaptureSettings}
+                >
+                  открыть настройки
+                </button>
+              </span>
+            </WarningBanner>
+          )}
         </div>
       )}
 
@@ -169,10 +194,11 @@ export function LauncherPanel({
             </span>
           )}
           <Button
-            disabled={launching || !ready}
+            disabled={launching}
             className="gap-2 px-5"
             onClick={() => {
-              onLaunch(normalizeDraft(draft));
+              if (ready) onLaunch(normalizeDraft(draft));
+              else setRequirementsOpen(true);
             }}
           >
             <Play className="size-4" aria-hidden />
@@ -180,6 +206,23 @@ export function LauncherPanel({
           </Button>
         </div>
       </footer>
+
+      <RequirementsDialog
+        open={requirementsOpen}
+        onOpenChange={setRequirementsOpen}
+        missingKeys={missingKeys}
+        audioOk={permissionOk}
+        needsScreenRecording={needsScreenRecording}
+        screenCaptureOk={screenCaptureOk}
+        onConfigureKeys={() => {
+          setTab("main");
+          setRequirementsOpen(false);
+        }}
+        onRequestAudio={() => void requestPermission()}
+        onOpenAudioSettings={onOpenAudioSettings}
+        onRequestScreen={() => void requestScreenCapture()}
+        onOpenScreenSettings={openScreenCaptureSettings}
+      />
     </div>
   );
 }

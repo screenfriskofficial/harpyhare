@@ -11,6 +11,24 @@ pub fn open_audio_permission_settings() {
 
 #[tauri::command]
 #[specta::specta]
+pub fn screen_capture_available() -> bool {
+    platform::screen_capture_access()
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn request_screen_capture_permission() -> bool {
+    platform::request_screen_capture_access()
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn open_screen_capture_settings() {
+    platform::open_screen_capture_privacy_pane();
+}
+
+#[tauri::command]
+#[specta::specta]
 pub fn open_external(url: String) {
     platform::open_web_url(&url);
 }

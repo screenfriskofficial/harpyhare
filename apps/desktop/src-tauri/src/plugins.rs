@@ -51,6 +51,8 @@ pub struct PluginManifest {
     pub capability: PluginCapability,
     pub default_hotkey: String,
     pub min_host_version: String,
+    #[serde(default)]
+    pub permissions: Vec<String>,
     pub bin: PluginBins,
 }
 
@@ -198,6 +200,7 @@ pub struct PluginDescriptor {
     pub version: String,
     pub icon: String,
     pub capability: PluginCapability,
+    pub permissions: Vec<String>,
     pub enabled: bool,
     pub hotkey: String,
     pub state: PluginState,
@@ -222,6 +225,7 @@ pub fn merge_descriptor(p: &InstalledPlugin, prefs: &[PluginSetting]) -> PluginD
         version: p.manifest.version.clone(),
         icon: p.manifest.icon.clone(),
         capability: p.manifest.capability.clone(),
+        permissions: p.manifest.permissions.clone(),
         enabled,
         hotkey,
         state,

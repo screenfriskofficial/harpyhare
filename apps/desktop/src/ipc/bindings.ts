@@ -30,6 +30,9 @@ export const commands = {
 	launchMainWindow: () => __TAURI_INVOKE<null>("launch_main_window"),
 	stopMainWindow: () => __TAURI_INVOKE<null>("stop_main_window"),
 	openAudioPermissionSettings: () => __TAURI_INVOKE<void>("open_audio_permission_settings"),
+	screenCaptureAvailable: () => __TAURI_INVOKE<boolean>("screen_capture_available"),
+	requestScreenCapturePermission: () => __TAURI_INVOKE<boolean>("request_screen_capture_permission"),
+	openScreenCaptureSettings: () => __TAURI_INVOKE<void>("open_screen_capture_settings"),
 	openExternal: (url: string) => __TAURI_INVOKE<void>("open_external", { url }),
 	setPreviewHtml: (html: string) => __TAURI_INVOKE<void>("set_preview_html", { html }),
 	checkForUpdate: () => __TAURI_INVOKE<{
@@ -120,6 +123,7 @@ export type PluginDescriptor = {
 	version: string,
 	icon: string,
 	capability: PluginCapability,
+	permissions: string[],
 	enabled: boolean,
 	hotkey: string,
 	state: PluginState,

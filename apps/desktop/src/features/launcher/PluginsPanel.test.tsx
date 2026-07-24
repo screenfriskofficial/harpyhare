@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { act, render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen } from "@testing-library/react";
 import { createElement, type ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { PluginDescriptor } from "@/ipc/bindings";
@@ -29,6 +29,7 @@ describe("PluginsPanel", () => {
         version: "1.0.0",
         icon: "crop",
         capability: "attachment_source",
+        permissions: [],
         enabled: false,
         hotkey: "Cmd+Shift+S",
         state: "ready",
@@ -37,11 +38,13 @@ describe("PluginsPanel", () => {
     const set = vi.fn();
     const draft: Settings = { ...DEFAULT_SETTINGS };
     render(createElement(PluginsPanel, { draft, set }), { wrapper });
-    await waitFor(() => {
-      expect(screen.getByText("harpyshot")).toBeTruthy();
-    });
+    const card = await screen.findByText("harpyshot");
     act(() => {
-      screen.getByRole("switch").click();
+      card.click();
+    });
+    const toggle = await screen.findByRole("switch");
+    act(() => {
+      toggle.click();
     });
     expect(set).toHaveBeenCalledWith("plugin_settings", [
       { id: "harpyshot", enabled: true, hotkey: "Cmd+Shift+S" },

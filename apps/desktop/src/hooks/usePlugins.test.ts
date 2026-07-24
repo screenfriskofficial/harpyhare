@@ -39,6 +39,7 @@ describe("usePlugins", () => {
         version: "1.0.0",
         icon: "crop",
         capability: "attachment_source",
+        permissions: [],
         enabled: true,
         hotkey: "Cmd+Shift+S",
         state: "ready",
