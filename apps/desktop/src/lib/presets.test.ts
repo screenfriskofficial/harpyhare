@@ -45,6 +45,14 @@ describe("mergePresets", () => {
 });
 
 describe("встроенные пресеты объявляют термины для распознавания", () => {
+  it("пресеты укладываются в бюджет 3000 символов после удаления STT-терминов", () => {
+    for (const preset of OFFICIAL_PRESETS_FALLBACK) {
+      const prompt = stripKeywordBlocks(preset.text);
+      expect(prompt.length, preset.id).toBeGreaterThan(0);
+      expect(prompt.length, preset.id).toBeLessThanOrEqual(3000);
+    }
+  });
+
   it("у каждого пресета есть непустой блок [keywords]", () => {
     expect(OFFICIAL_PRESETS_FALLBACK.length).toBeGreaterThan(0);
     for (const preset of OFFICIAL_PRESETS_FALLBACK) {

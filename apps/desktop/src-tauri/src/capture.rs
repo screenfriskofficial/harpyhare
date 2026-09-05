@@ -121,7 +121,9 @@ impl CallbackCtx {
         let room = self.prod.vacant_len();
         let whole = samples.len().min(room) / channels * channels;
         let pushed = self.prod.push_slice(&samples[..whole]);
-        self.shared.produced.fetch_add(pushed as u64, Ordering::Relaxed);
+        self.shared
+            .produced
+            .fetch_add(pushed as u64, Ordering::Relaxed);
         if pushed < samples.len() {
             self.shared
                 .dropped
@@ -136,7 +138,7 @@ impl CallbackCtx {
     }
 }
 
-pub struct SystemAudioCapture {
+pub struct AudioCapture {
     shared: Arc<Shared>,
     consumer: Option<std::thread::JoinHandle<()>>,
     /// `Option` только ради порядка в `Drop`: продюсер глушится ПЕРВЫМ, до
@@ -145,22 +147,40 @@ pub struct SystemAudioCapture {
 }
 
 #[derive(Debug, Clone, serde::Serialize, specta::Type)]
-pub struct OutputDeviceInfo {
+pub struct AudioDeviceInfo {
     pub uid: String,
     pub name: String,
+    pub is_default: bool,
 }
 
-pub fn list_output_devices() -> Vec<OutputDeviceInfo> {
-    backend::list_output_devices()
+#[derive(Debug, Clone, Default, serde::Serialize, specta::Type)]
+pub struct AudioDevices {
+    pub inputs: Vec<AudioDeviceInfo>,
+    pub outputs: Vec<AudioDeviceInfo>,
+}
+
+pub fn list_devices() -> Result<AudioDevices, CaptureError> {
+    backend::list_devices()
 }
 
 pub fn watch_default_output_device(on_change: DeviceChangeHandler) {
     backend::watch_default_output_device(on_change);
 }
 
-impl SystemAudioCapture {
-    pub fn new(output_device_uid: Option<&str>, buffer_secs: u64) -> Result<Self, CaptureError> {
-        let (source, spec) = backend::open(output_device_uid)?;
+impl AudioCapture {
+    pub fn system(output_device_uid: Option<&str>, buffer_secs: u64) -> Result<Self, CaptureError> {
+        Self::from_source(backend::open(output_device_uid)?, buffer_secs)
+    }
+
+    /// Opened only for an active PTT session; never participates in pre-roll.
+    pub fn microphone(input_device_uid: Option<&str>) -> Result<Self, CaptureError> {
+        Self::from_source(backend::open_microphone(input_device_uid)?, 0)
+    }
+
+    fn from_source(
+        (source, spec): (backend::Source, StreamSpec),
+        buffer_secs: u64,
+    ) -> Result<Self, CaptureError> {
         let (mut capture, ctx) = Self::assemble(spec, buffer_secs)?;
         match backend::start(source, ctx) {
             Ok(running) => {
@@ -178,9 +198,14 @@ impl SystemAudioCapture {
     /// Переносимая половина конструктора: кольцо, общее состояние и консьюмер
     /// без единого вызова в бэкенд. Отдельно от `new`, чтобы протокол сессии
     /// тестировался фейковым продюсером, без Core Audio и WASAPI.
-    fn assemble(spec: StreamSpec, buffer_secs: u64) -> Result<(Self, Box<CallbackCtx>), CaptureError> {
+    fn assemble(
+        spec: StreamSpec,
+        buffer_secs: u64,
+    ) -> Result<(Self, Box<CallbackCtx>), CaptureError> {
         if spec.channels == 0 || spec.sample_rate == 0 {
-            return Err(CaptureError::Backend("устройство вывода без каналов или частоты".into()));
+            return Err(CaptureError::Backend(
+                "устройство вывода без каналов или частоты".into(),
+            ));
         }
         let ring = HeapRb::<f32>::new(spec.sample_rate as usize * spec.channels * RING_SECONDS);
         let (prod, cons) = ring.split();
@@ -209,7 +234,14 @@ impl SystemAudioCapture {
                 .spawn(move || consumer_main(&shared, cons))
                 .map_err(|e| CaptureError::Audio(e.to_string()))?
         };
-        Ok((Self { shared, consumer: Some(consumer), running: None }, ctx))
+        Ok((
+            Self {
+                shared,
+                consumer: Some(consumer),
+                running: None,
+            },
+            ctx,
+        ))
     }
 
     fn shutdown_consumer(&mut self) {
@@ -234,7 +266,9 @@ impl SystemAudioCapture {
         match &*s {
             Session::Idle | Session::Done(_) => {}
             Session::Start(_) | Session::Running => {
-                return Err(CaptureError::Audio("предыдущая запись ещё не остановлена".into()));
+                return Err(CaptureError::Audio(
+                    "предыдущая запись ещё не остановлена".into(),
+                ));
             }
         }
         self.shared.stop_requested.store(false, Ordering::Release);
@@ -243,8 +277,21 @@ impl SystemAudioCapture {
         Ok(())
     }
 
-    pub fn stop(&mut self) -> Result<Vec<f32>, CaptureError> {
+    pub fn request_stop(&self) {
         self.shared.stop_requested.store(true, Ordering::Release);
+    }
+
+    /// Finish a one-shot source: release the native device before waiting for
+    /// buffered samples and the STT sink to drain. Consuming self prevents reuse
+    /// of a capture whose producer has already been closed.
+    pub fn finish(mut self) -> Result<Vec<f32>, CaptureError> {
+        self.request_stop();
+        self.running = None;
+        self.stop()
+    }
+
+    pub fn stop(&mut self) -> Result<Vec<f32>, CaptureError> {
+        self.request_stop();
         let mut s = self.shared.session.lock_unpoisoned();
         loop {
             match &mut *s {
@@ -255,11 +302,8 @@ impl SystemAudioCapture {
                 }
                 Session::Idle => return Ok(Vec::new()),
                 _ => {
-                    let (guard, timeout) = self
-                        .shared
-                        .cv
-                        .wait_timeout(s, STOP_WAIT_TIMEOUT)
-                        .unwrap();
+                    let (guard, timeout) =
+                        self.shared.cv.wait_timeout(s, STOP_WAIT_TIMEOUT).unwrap();
                     s = guard;
                     if timeout.timed_out() {
                         // Консьюмер не отвечает — этим капчером больше не
@@ -298,7 +342,10 @@ impl SystemAudioCapture {
     }
 
     pub fn set_buffer_capacity_secs(&self, secs: u64) {
-        self.shared.rolling.lock_unpoisoned().set_capacity_secs(secs);
+        self.shared
+            .rolling
+            .lock_unpoisoned()
+            .set_capacity_secs(secs);
     }
 }
 
@@ -306,7 +353,7 @@ impl SystemAudioCapture {
 /// консьюмеру велят выйти и его ДЖОЙНЯТ — тред, кольцо и rolling-буфер
 /// освобождаются здесь, а не «когда-нибудь». Join безопасен: консьюмер не
 /// берёт ни одного лока за пределами фасада.
-impl Drop for SystemAudioCapture {
+impl Drop for AudioCapture {
     fn drop(&mut self) {
         self.running = None;
         self.shutdown_consumer();
@@ -364,11 +411,7 @@ fn consumer_main(shared: &Shared, mut ring: HeapCons<f32>) {
     }
 }
 
-fn drain_ring_chunk(
-    shared: &Shared,
-    ring: &mut HeapCons<f32>,
-    scratch: &mut Scratch,
-) -> usize {
+fn drain_ring_chunk(shared: &Shared, ring: &mut HeapCons<f32>, scratch: &mut Scratch) -> usize {
     let n = ring.pop_slice(&mut scratch.read_buf);
     if n == 0 {
         return 0;
@@ -385,7 +428,11 @@ fn drain_ring_chunk(
 /// переполнение кольца попадает в stderr, результат кладётся в `Done` и
 /// ожидающий `stop()` будится. Один код-путь на обе сессии (обычную и
 /// буферную), чтобы протокол `recording` нельзя было сломать в одной из копий.
-fn publish_session_result(shared: &Shared, sink: Option<ChunkSink>, result: Result<Vec<f32>, String>) {
+fn publish_session_result(
+    shared: &Shared,
+    sink: Option<ChunkSink>,
+    result: Result<Vec<f32>, String>,
+) {
     shared.recording.store(false, Ordering::Release);
     drop(sink);
     let dropped = shared.dropped.load(Ordering::Relaxed);
@@ -574,7 +621,11 @@ fn run_buffering(shared: &Shared, ring: &mut HeapCons<f32>, scratch: &mut Scratc
             finish_buffered_session(shared, &mut session, Ok(()));
             continue;
         }
-        std::thread::sleep(if session.is_some() { CONSUMER_IDLE_SLEEP } else { BUFFERING_IDLE_SLEEP });
+        std::thread::sleep(if session.is_some() {
+            CONSUMER_IDLE_SLEEP
+        } else {
+            BUFFERING_IDLE_SLEEP
+        });
     }
 }
 

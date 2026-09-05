@@ -25,14 +25,17 @@ pub struct App {
     /// Version of the pool above — the refresh loop refuses to go below it.
     pub official_presets_version: Mutex<u32>,
     pub recorder: Mutex<state::RecorderState>,
-    pub capture: Mutex<Option<capture::SystemAudioCapture>>,
+    pub recording_enabled: AtomicBool,
+    pub transcription_cancel: Mutex<Option<CancellationToken>>,
+    pub capture: Mutex<Option<capture::AudioCapture>>,
+    pub capture_error: Mutex<Option<crate::error::AppError>>,
     // Batch upload and retry share immutable audio; cloning a ten-minute
     // recording here would copy about 38 MB while holding the mutex.
-    pub last_recording: Mutex<Option<Arc<[f32]>>>,
+    pub last_recording: Mutex<Option<Arc<crate::recording::RecordedAudio>>>,
     pub llm_cancel: Mutex<HashMap<String, ActiveLlmStream>>,
     pub stt: Mutex<Arc<dyn stt::SttEngine>>,
     pub llm: Mutex<Arc<dyn llm::LlmProvider>>,
-    pub stt_stream: Mutex<Option<SttStream>>,
+    pub recording_session: Mutex<Option<crate::recording::RecordingSession>>,
     pub models: llm::ModelCatalog,
     pub recording_gen: AtomicU64,
     pub resize_gen: AtomicU64,
@@ -67,7 +70,10 @@ pub struct SttStream {
 }
 
 pub fn app_data_file(app: &AppHandle, file_name: &str) -> std::path::PathBuf {
-    app.path().app_data_dir().expect("app_data_dir").join(file_name)
+    app.path()
+        .app_data_dir()
+        .expect("app_data_dir")
+        .join(file_name)
 }
 
 pub fn settings_path(app: &AppHandle) -> std::path::PathBuf {
@@ -98,28 +104,17 @@ pub fn stt_engine(app: &AppHandle) -> Arc<dyn stt::SttEngine> {
     Arc::clone(&*app.state::<App>().stt.lock_unpoisoned())
 }
 
-pub fn cancel_stt_stream(app: &AppHandle) {
-    if let Some(s) = app.state::<App>().stt_stream.lock_unpoisoned().take() {
-        s.cancel.cancel();
+pub fn build_capture(
+    settings: &settings::Settings,
+) -> Result<Option<capture::AudioCapture>, capture::CaptureError> {
+    if !settings.capture_system_audio {
+        return Ok(None);
     }
-}
-
-pub fn build_capture(settings: &settings::Settings) -> Option<capture::SystemAudioCapture> {
-    let uid = if settings.capture_device_uid.is_empty() {
-        None
-    } else {
-        Some(settings.capture_device_uid.as_str())
-    };
-    match capture::SystemAudioCapture::new(uid, settings.buffer_seconds.into()) {
-        Ok(c) => {
-            c.set_buffering(settings.buffer_enabled);
-            Some(c)
-        }
-        Err(e) => {
-            eprintln!("захват системного звука недоступен: {e}");
-            None
-        }
-    }
+    let uid =
+        (!settings.capture_device_uid.is_empty()).then_some(settings.capture_device_uid.as_str());
+    let capture = capture::AudioCapture::system(uid, settings.buffer_seconds.into())?;
+    capture.set_buffering(settings.buffer_enabled);
+    Ok(Some(capture))
 }
 
 /// What reaching the chosen STT vendor takes right now.
@@ -136,7 +131,10 @@ impl std::fmt::Debug for SttClientPlan {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("SttClientPlan")
             .field("provider_id", &self.provider_id)
-            .field("api_key", &format_args!("<{} симв.>", self.api_key.chars().count()))
+            .field(
+                "api_key",
+                &format_args!("<{} симв.>", self.api_key.chars().count()),
+            )
             .field("proxy_base_url", &self.proxy_base_url)
             .finish()
     }
@@ -179,8 +177,13 @@ pub fn build_stt_client(s: &settings::Settings) -> Arc<dyn stt::SttEngine> {
 /// How a vendor is reached right now: the relay under an access code, the
 /// user's own key otherwise, or not at all.
 pub enum ProviderAccess {
-    Proxied { access_token: String, base_url: String },
-    Direct { api_key: String },
+    Proxied {
+        access_token: String,
+        base_url: String,
+    },
+    Direct {
+        api_key: String,
+    },
 }
 
 /// Resolves a registry row against the current settings. The rule is the same
@@ -201,7 +204,9 @@ pub fn provider_access(
     if api_key.is_empty() {
         return None;
     }
-    Some(ProviderAccess::Direct { api_key: api_key.to_string() })
+    Some(ProviderAccess::Direct {
+        api_key: api_key.to_string(),
+    })
 }
 
 /// Builds the client for a registry row, or `None` for a row whose access mode
@@ -219,17 +224,23 @@ fn build_provider(
     Some(match spec.wire {
         llm::registry::LlmWire::Anthropic { .. } => {
             let client = match access {
-                ProviderAccess::Proxied { access_token, base_url } => {
-                    llm::AnthropicClient::for_proxy(access_token, base_url)
-                }
+                ProviderAccess::Proxied {
+                    access_token,
+                    base_url,
+                } => llm::AnthropicClient::for_proxy(access_token, base_url),
                 ProviderAccess::Direct { api_key } => llm::AnthropicClient::new(api_key),
             };
             Arc::new(client.with_catalog(Arc::clone(catalog)))
         }
         llm::registry::LlmWire::Responses { .. } => match access {
-            ProviderAccess::Proxied { access_token, base_url } => {
-                Arc::new(llm::responses::ResponsesClient::proxied(spec, access_token, base_url))
-            }
+            ProviderAccess::Proxied {
+                access_token,
+                base_url,
+            } => Arc::new(llm::responses::ResponsesClient::proxied(
+                spec,
+                access_token,
+                base_url,
+            )),
             ProviderAccess::Direct { api_key } => {
                 Arc::new(llm::responses::ResponsesClient::direct(spec, api_key))
             }
@@ -243,7 +254,10 @@ fn build_provider(
                 llm::xclis::XclisClient::new(spec, api_key).with_catalog(Arc::clone(catalog)),
             ),
             ProviderAccess::Proxied { .. } => {
-                eprintln!("{}: диалект Xclis не ходит через relay — вендор пропущен", spec.id);
+                eprintln!(
+                    "{}: диалект Xclis не ходит через relay — вендор пропущен",
+                    spec.id
+                );
                 return None;
             }
         },
@@ -272,7 +286,6 @@ pub fn build_llm_client(
     }
     Arc::new(llm::router::ProviderRouter::new(providers, catalog))
 }
-
 
 pub fn note_connectivity_probe(app: &AppHandle, reachable: bool) {
     let st = app.state::<App>();
@@ -303,7 +316,7 @@ fn recycle_pooled_http_clients(app: &AppHandle) {
 pub fn build_app_state(
     settings: settings::Settings,
     official_presets: crate::remote_presets::PresetPool,
-    capture: Option<capture::SystemAudioCapture>,
+    capture: Option<capture::AudioCapture>,
     stt: Arc<dyn stt::SttEngine>,
     llm: Arc<dyn llm::LlmProvider>,
     models: llm::ModelCatalog,
@@ -314,12 +327,15 @@ pub fn build_app_state(
         official_presets_version: Mutex::new(official_presets.version),
         official_presets: Mutex::new(official_presets.presets),
         recorder: Mutex::new(state::RecorderState::Idle),
+        recording_enabled: AtomicBool::new(false),
+        transcription_cancel: Mutex::new(None),
         capture: Mutex::new(capture),
+        capture_error: Mutex::new(None),
         last_recording: Mutex::new(None),
         llm_cancel: Mutex::new(HashMap::new()),
         stt: Mutex::new(stt),
         llm: Mutex::new(llm),
-        stt_stream: Mutex::new(None),
+        recording_session: Mutex::new(None),
         models,
         recording_gen: AtomicU64::new(0),
         resize_gen: AtomicU64::new(0),

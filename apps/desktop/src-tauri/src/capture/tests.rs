@@ -4,9 +4,15 @@ use std::sync::mpsc;
 const SAMPLE_RATE: u32 = 16000;
 const SETTLE: Duration = Duration::from_millis(60);
 
-fn assemble(channels: usize, buffer_secs: u64) -> (SystemAudioCapture, Box<CallbackCtx>) {
-    SystemAudioCapture::assemble(StreamSpec { sample_rate: SAMPLE_RATE, channels }, buffer_secs)
-        .expect("фасад собирается без бэкенда")
+fn assemble(channels: usize, buffer_secs: u64) -> (AudioCapture, Box<CallbackCtx>) {
+    AudioCapture::assemble(
+        StreamSpec {
+            sample_rate: SAMPLE_RATE,
+            channels,
+        },
+        buffer_secs,
+    )
+    .expect("фасад собирается без бэкенда")
 }
 
 fn frames(channels: usize, count: usize, value: f32) -> Vec<f32> {
@@ -16,19 +22,25 @@ fn frames(channels: usize, count: usize, value: f32) -> Vec<f32> {
 /// Бэкенд кладёт сэмплы в кольцо только при поднятом `recording`, а поднимает
 /// его консьюмер в начале сессии — и первым делом сбрасывает всё, что лежало в
 /// кольце до неё. Продюсер теста обязан дождаться того же флага.
-fn wait_until_recording(capture: &SystemAudioCapture) {
+fn wait_until_recording(capture: &AudioCapture) {
     let started = std::time::Instant::now();
     while !capture.shared.recording.load(Ordering::Acquire) {
-        assert!(started.elapsed() < Duration::from_secs(2), "консьюмер не начал сессию");
+        assert!(
+            started.elapsed() < Duration::from_secs(2),
+            "консьюмер не начал сессию"
+        );
         std::thread::sleep(Duration::from_millis(1));
     }
 }
 
 fn collecting_sink() -> (ChunkSink, mpsc::Receiver<Vec<f32>>) {
     let (tx, rx) = mpsc::channel();
-    (Box::new(move |chunk: &[f32]| {
-        let _ = tx.send(chunk.to_vec());
-    }), rx)
+    (
+        Box::new(move |chunk: &[f32]| {
+            let _ = tx.send(chunk.to_vec());
+        }),
+        rx,
+    )
 }
 
 /// Продюсер и консьюмер живут в разных потоках, и «stop раньше, чем консьюмер
@@ -49,8 +61,37 @@ fn a_mono_16k_recording_passes_through_untouched() {
     wait_until_recording(&capture);
     ctx.push_samples(&frames(1, 800, 0.25));
     let recorded = capture.stop().unwrap();
-    assert_eq!(recorded.len(), 800, "16 кГц моно проходит без ресемплинга и без потерь");
+    assert_eq!(
+        recorded.len(),
+        800,
+        "16 кГц моно проходит без ресемплинга и без потерь"
+    );
     assert!(recorded.iter().all(|s| (*s - 0.25).abs() < f32::EPSILON));
+}
+
+#[test]
+fn finishing_a_one_shot_source_drains_audio_closes_the_sink_and_releases_the_consumer() {
+    let (mut capture, mut ctx) = assemble(1, 0);
+    let shared = Arc::downgrade(&capture.shared);
+    let (sink, rx) = collecting_sink();
+    capture.start(Some(sink)).unwrap();
+    wait_until_recording(&capture);
+    let audio = frames(1, 800, 0.25);
+    ctx.push_samples(&audio);
+    drop(ctx);
+
+    let recorded = capture.finish().unwrap();
+    assert_eq!(recorded, audio);
+    let streamed: Vec<f32> = rx.try_iter().flatten().collect();
+    assert_eq!(streamed, recorded);
+    assert!(matches!(
+        rx.try_recv(),
+        Err(mpsc::TryRecvError::Disconnected)
+    ));
+    assert!(
+        shared.upgrade().is_none(),
+        "consumer must be joined before finish returns"
+    );
 }
 
 #[test]
@@ -83,11 +124,18 @@ fn the_preroll_reaches_the_sink_before_any_live_chunk() {
     let recorded = capture.stop().unwrap();
 
     let first = rx.recv().expect("первый чанк — снимок буфера");
-    assert!(first.iter().all(|s| (*s - 0.1).abs() < f32::EPSILON), "преролл идёт первым");
+    assert!(
+        first.iter().all(|s| (*s - 0.1).abs() < f32::EPSILON),
+        "преролл идёт первым"
+    );
     assert_eq!(first.len(), 320);
     assert_eq!(recorded.len(), 640, "аккумулятор = преролл + живой звук");
-    assert!(recorded[..320].iter().all(|s| (*s - 0.1).abs() < f32::EPSILON));
-    assert!(recorded[320..].iter().all(|s| (*s - 0.9).abs() < f32::EPSILON));
+    assert!(recorded[..320]
+        .iter()
+        .all(|s| (*s - 0.1).abs() < f32::EPSILON));
+    assert!(recorded[320..]
+        .iter()
+        .all(|s| (*s - 0.9).abs() < f32::EPSILON));
 }
 
 #[test]
@@ -97,7 +145,10 @@ fn start_refuses_to_stack_a_session_on_a_running_one() {
     std::thread::sleep(SETTLE);
     assert!(matches!(capture.start(None), Err(CaptureError::Audio(_))));
     capture.stop().unwrap();
-    assert!(capture.start(None).is_ok(), "после stop сессия снова доступна");
+    assert!(
+        capture.start(None).is_ok(),
+        "после stop сессия снова доступна"
+    );
     capture.stop().unwrap();
 }
 
@@ -131,10 +182,18 @@ fn dropping_the_capture_stops_the_consumer_thread() {
     let (capture, ctx) = assemble(1, 1);
     capture.set_buffering(true);
     let shared = Arc::clone(&capture.shared);
-    assert_eq!(Arc::strong_count(&shared), 4, "капчер, ctx, консьюмер и тест");
+    assert_eq!(
+        Arc::strong_count(&shared),
+        4,
+        "капчер, ctx, консьюмер и тест"
+    );
     drop(capture);
     assert!(shared.shutting_down());
-    assert_eq!(Arc::strong_count(&shared), 2, "консьюмер вышел и отпустил Shared: остались ctx и тест");
+    assert_eq!(
+        Arc::strong_count(&shared),
+        2,
+        "консьюмер вышел и отпустил Shared: остались ctx и тест"
+    );
     drop(ctx);
 }
 
@@ -150,5 +209,12 @@ fn a_session_interrupted_by_shutdown_does_not_hang_stop() {
 
 #[test]
 fn a_zero_channel_device_is_rejected_up_front() {
-    assert!(SystemAudioCapture::assemble(StreamSpec { sample_rate: SAMPLE_RATE, channels: 0 }, 1).is_err());
+    assert!(AudioCapture::assemble(
+        StreamSpec {
+            sample_rate: SAMPLE_RATE,
+            channels: 0
+        },
+        1
+    )
+    .is_err());
 }

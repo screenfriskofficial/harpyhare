@@ -93,7 +93,10 @@ fn arrow_action(app: &AppHandle, active: ModifierMask) -> Option<ArrowAction> {
     let st = app.state::<App>();
     let s = st.settings.try_lock().ok()?;
     let move_mask = modifier_mask(&hotkeys::effective(&s.hotkeys, hotkeys::ACTION_MOVE_WINDOW));
-    let resize_mask = modifier_mask(&hotkeys::effective(&s.hotkeys, hotkeys::ACTION_RESIZE_WINDOW));
+    let resize_mask = modifier_mask(&hotkeys::effective(
+        &s.hotkeys,
+        hotkeys::ACTION_RESIZE_WINDOW,
+    ));
     if cfg!(debug_assertions) {
         eprintln!("[стрелки] зажато {active}, сдвиг на {move_mask}, размер на {resize_mask}");
     }
@@ -182,3 +185,7 @@ pub fn open_web_url(url: &str) {
 
 #[cfg(test)]
 mod tests;
+
+pub fn open_microphone_privacy_pane() {
+    backend::open_microphone_privacy_pane();
+}

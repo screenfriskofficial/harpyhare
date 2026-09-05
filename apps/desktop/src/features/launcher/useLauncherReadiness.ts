@@ -41,17 +41,35 @@ export function useLauncherReadiness(settings: Settings): LauncherReadiness {
       screen: "settings",
       tab: ACCESS_TAB,
     }));
-    if (!checking && !permissions.audioOk) {
+    if (!checking && settings.capture_system_audio && !permissions.audioOk) {
       list.push({ label: t("launcher.audioBlocker"), screen: AUDIO_BLOCKER_SCREEN });
     }
+    if (!settings.capture_system_audio && !settings.capture_microphone) {
+      list.push({ label: t("launcher.speech.noSources"), screen: "settings", tab: "speech" });
+    }
+    if (!checking && settings.capture_microphone && !permissions.microphoneOk) {
+      list.push({
+        label: t("launcher.speech.microphonePermission"),
+        screen: "settings",
+        tab: "speech",
+      });
+    }
     return list;
-  }, [gaps, checking, permissions.audioOk, t]);
+  }, [
+    gaps,
+    checking,
+    permissions.audioOk,
+    permissions.microphoneOk,
+    settings.capture_system_audio,
+    settings.capture_microphone,
+    t,
+  ]);
 
   return {
     gaps,
     permissions,
     blockers,
     checking,
-    ready: gaps.length === 0 && permissions.audioOk,
+    ready: !checking && blockers.length === 0,
   };
 }

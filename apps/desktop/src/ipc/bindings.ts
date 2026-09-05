@@ -20,7 +20,7 @@ export const commands = {
 	 *  COM-перечисление устройств и Core Audio ходят на blocking-пул: команда
 	 *  синхронной была бы работой на главном потоке.
 	 */
-	listAudioOutputDevices: () => __TAURI_INVOKE<OutputDeviceInfo[]>("list_audio_output_devices"),
+	listAudioDevices: () => __TAURI_INVOKE<AudioDevices>("list_audio_devices"),
 	getSettings: () => __TAURI_INVOKE<Settings>("get_settings"),
 	setSettings: (newSettings: Settings) => __TAURI_INVOKE<Settings>("set_settings", { newSettings }),
 	getOfficialPresets: () => __TAURI_INVOKE<PromptPreset[]>("get_official_presets"),
@@ -79,7 +79,7 @@ export const MODIFIER_COMBOS = {"macos":["Cmd","Ctrl","Alt","Cmd+Shift","Ctrl+Sh
 
 export const QUICK_ACTION_LIMIT = 9 as const;
 
-export const SETTINGS_DEFAULTS = {"access_token":"","anthropic_api_key":"","audio_permission_requested":false,"auto_preview_html":true,"auto_send":false,"buffer_enabled":true,"buffer_seconds":4,"capture_device_uid":"","chat_font_size":13.5,"deepgram_api_key":"","groq_api_key":"","hotkeys":[],"move_step":20,"openai_api_key":"","prompt_presets":[],"quick_action_attachments":false,"quick_actions":[{"id":"detail","prompt":"Расскажи более подробно.","title":"Подробнее"},{"id":"brief","prompt":"Ответь короче, только суть.","title":"Короче"},{"id":"code","prompt":"Покажи пример кода.","title":"Пример кода"}],"resize_step":20,"screen_permission_requested":false,"screen_share_visible":false,"scroll_step":120,"skipped_version":"","stt_language":"ru","stt_provider":"groq","stt_translate":false,"teleprompter_font_size":28.0,"teleprompter_resume":true,"teleprompter_speed":40.0,"theme":"gray","ui_language":"","window_height":680.0,"window_opacity":0.9,"window_width":960.0,"xai_api_key":"","xclis_api_key":""} as const;
+export const SETTINGS_DEFAULTS = {"access_token":"","anthropic_api_key":"","audio_permission_requested":false,"auto_preview_html":true,"auto_send":false,"buffer_enabled":true,"buffer_seconds":4,"capture_device_uid":"","capture_microphone":false,"capture_system_audio":true,"chat_font_size":13.5,"deepgram_api_key":"","groq_api_key":"","hotkeys":[],"microphone_device_uid":"","move_step":20,"openai_api_key":"","prompt_presets":[],"quick_action_attachments":false,"quick_actions":[{"id":"detail","prompt":"Расскажи более подробно.","title":"Подробнее"},{"id":"brief","prompt":"Ответь короче, только суть.","title":"Короче"},{"id":"code","prompt":"Покажи пример кода.","title":"Пример кода"}],"resize_step":20,"screen_permission_requested":false,"screen_share_visible":false,"scroll_step":120,"skipped_version":"","stt_language":"ru","stt_provider":"groq","stt_translate":false,"teleprompter_font_size":28.0,"teleprompter_resume":true,"teleprompter_speed":40.0,"theme":"gray","ui_language":"","window_height":680.0,"window_opacity":0.9,"window_width":960.0,"xai_api_key":"","xclis_api_key":""} as const;
 
 export const SETTINGS_LIMITS = {"bufferSeconds":{"default":4,"max":10,"min":1},"chatFontSize":{"default":13.5,"max":20.0,"min":10.0},"moveStep":{"default":20,"max":200,"min":1},"resizeStep":{"default":20,"max":200,"min":1},"scrollStep":{"default":120,"max":1000,"min":10},"teleprompterFontSize":{"default":28.0,"max":48.0,"min":20.0},"teleprompterSpeed":{"default":40.0,"max":150.0,"min":10.0},"windowHeight":{"default":680.0,"max":1100.0,"min":520.0},"windowOpacity":{"default":0.9,"max":1.0,"min":0.2},"windowWidth":{"default":960.0,"max":1600.0,"min":300.0}} as const;
 
@@ -92,6 +92,19 @@ export type AppError = {
 	code: ErrorCode,
 	message: string,
 };
+
+export type AudioDeviceInfo = {
+	uid: string,
+	name: string,
+	is_default: boolean,
+};
+
+export type AudioDevices = {
+	inputs: AudioDeviceInfo[],
+	outputs: AudioDeviceInfo[],
+};
+
+export type AudioSource = "system" | "microphone";
 
 export type ChatMessage = {
 	role: string,
@@ -159,17 +172,13 @@ export type ModelInfo = {
 	maxInputTokens: number,
 };
 
-export type OutputDeviceInfo = {
-	uid: string,
-	name: string,
-};
-
-export type PermissionKind = "audio" | "screen";
+export type PermissionKind = "audio" | "microphone" | "screen";
 
 export type PermissionState = "unknown" | "granted" | "denied";
 
 export type PermissionsStatus = {
 	audio: PermissionState,
+	microphone: PermissionState,
 	screen: PermissionState,
 };
 
@@ -238,6 +247,9 @@ export type Settings = {
 	window_height?: number | null,
 	resize_step?: number,
 	capture_device_uid?: string,
+	microphone_device_uid?: string,
+	capture_system_audio?: boolean,
+	capture_microphone?: boolean,
 	theme?: string,
 	ui_language?: string,
 	scroll_step?: number,
@@ -245,6 +257,16 @@ export type Settings = {
 	buffer_seconds?: number,
 	quick_actions?: QuickAction[],
 	quick_action_attachments?: boolean,
+};
+
+export type TranscriptReady = {
+	segments: TranscriptSegment[],
+	separated: boolean,
+};
+
+export type TranscriptSegment = {
+	source: AudioSource,
+	text: string,
 };
 
 export type UpdateDone = {

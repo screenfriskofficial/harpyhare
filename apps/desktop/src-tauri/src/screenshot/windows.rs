@@ -15,7 +15,7 @@ use windows::Win32::UI::Input::KeyboardAndMouse::{SetFocus, VK_ESCAPE};
 use windows::Win32::UI::WindowsAndMessaging::{
     CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW, GetMessageW,
     GetSystemMetrics, GetWindowLongPtrW, LoadCursorW, RegisterClassW, SetForegroundWindow,
-    SetWindowLongPtrW, ShowWindow, TranslateMessage, CREATESTRUCTW, GWLP_USERDATA, IDC_CROSS, MSG,
+    SetWindowLongPtrW, ShowWindow, TranslateMessage, CREATESTRUCTW, GWLP_USERDATA, IDC_ARROW, MSG,
     SM_CXVIRTUALSCREEN, SM_CYVIRTUALSCREEN, SM_XVIRTUALSCREEN, SM_YVIRTUALSCREEN, SW_SHOW,
     WM_ERASEBKGND, WM_KEYDOWN, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MOUSEMOVE, WM_NCCREATE, WM_PAINT,
     WM_RBUTTONDOWN, WNDCLASSW, WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_POPUP,
@@ -356,7 +356,7 @@ fn register_overlay_class() -> u16 {
     let Ok(instance) = (unsafe { GetModuleHandleW(None) }) else {
         return UNREGISTERED_CLASS_ATOM;
     };
-    let Ok(cursor) = (unsafe { LoadCursorW(None, IDC_CROSS) }) else {
+    let Ok(cursor) = (unsafe { LoadCursorW(None, IDC_ARROW) }) else {
         return UNREGISTERED_CLASS_ATOM;
     };
     let class = WNDCLASSW {

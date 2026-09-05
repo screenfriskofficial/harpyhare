@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
+import type { PermissionsApi } from "@/hooks/usePermissions";
 import type { SectionProps } from "../contract";
 import { ScreenShell } from "../ScreenShell";
 import { ApiKeysSection } from "../sections/ApiKeysSection";
@@ -14,6 +15,7 @@ import { SettingsTabsRail } from "../SettingsTabsRail";
 
 type SettingsScreenProps = SectionProps & {
   tab: SettingsTabId;
+  permissions: PermissionsApi;
   onRedeem: (code: string) => Promise<string | null>;
   onUnlink: () => Promise<void>;
   onTabChange: (tab: SettingsTabId) => void;
@@ -21,6 +23,7 @@ type SettingsScreenProps = SectionProps & {
 
 export function SettingsScreen({
   draft,
+  permissions,
   set,
   tab,
   onRedeem,
@@ -30,7 +33,7 @@ export function SettingsScreen({
   useTranslation();
   const sections: Record<SettingsTabId, ReactNode> = {
     access: <ApiKeysSection draft={draft} set={set} onRedeem={onRedeem} onUnlink={onUnlink} />,
-    speech: <SttSection draft={draft} set={set} />,
+    speech: <SttSection draft={draft} set={set} permissions={permissions} />,
     hotkeys: <HotkeysSection draft={draft} set={set} />,
     window: <WindowSection draft={draft} set={set} />,
     "quick-actions": <QuickActionsSection draft={draft} set={set} />,

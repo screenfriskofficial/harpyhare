@@ -3,6 +3,7 @@ import { CodeBlock } from "@/components/CodeBlock";
 import { HtmlBlockChip } from "@/components/HtmlBlockChip";
 import { hasPreviewLanguageClass } from "@/components/markdown-config";
 import { languageFromClassName } from "@/lib/code-block";
+import { previewHtml } from "@/lib/html-blocks";
 
 /**
  * Сырой текст блока нужен и счётчику строк, и кнопке копирования, а после
@@ -28,14 +29,16 @@ export function makePre(onTogglePreview: (code: string) => void) {
       : null;
     const text = code?.props.children;
     if (code && hasPreviewLanguageClass(code.props.className ?? "") && typeof text === "string") {
-      return (
-        <HtmlBlockChip
-          code={text}
-          onToggle={() => {
-            onTogglePreview(text);
-          }}
-        />
-      );
+      const html = previewHtml(languageFromClassName(code.props.className), text);
+      if (html !== null)
+        return (
+          <HtmlBlockChip
+            code={html}
+            onToggle={() => {
+              onTogglePreview(html);
+            }}
+          />
+        );
     }
     if (!code) return <pre>{children}</pre>;
     return (

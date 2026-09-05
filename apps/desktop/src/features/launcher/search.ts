@@ -76,9 +76,24 @@ const WINDOW_STEP_ACTIONS = ["move_window", "resize_window", "scroll_chat"] as c
 
 // Reuse the visible field copy so search follows the interface language.
 const SETTINGS_ROWS = [
+  {
+    title: "launcher.speech.systemSource",
+    hint: "launcher.speech.systemSourceHint",
+    tab: "speech",
+  },
+  {
+    title: "launcher.speech.microphoneSource",
+    hint: "launcher.speech.microphoneSourceHint",
+    tab: "speech",
+  },
   { title: "launcher.access.code", hint: "launcher.access.codeHint", tab: "access" },
   { title: "launcher.access.codeActive", hint: "launcher.access.unlinkHint", tab: "access" },
   { title: "launcher.speech.device", hint: "launcher.speech.deviceHint", tab: "speech" },
+  {
+    title: "launcher.speech.microphoneDevice",
+    hint: "launcher.speech.microphoneDeviceHint",
+    tab: "speech",
+  },
   { title: "launcher.speech.provider", hint: "launcher.speech.providerHint", tab: "speech" },
   { title: "launcher.speech.language", hint: "launcher.speech.languageHint", tab: "speech" },
   { title: "launcher.speech.translate", hint: "launcher.speech.translateHint", tab: "speech" },

@@ -47,7 +47,10 @@ pub fn apply_content_protection_all(app: &AppHandle, settings: &settings::Settin
     }
 }
 
-pub fn create_launcher_window(app: &AppHandle, settings: &settings::Settings) -> Result<(), String> {
+pub fn create_launcher_window(
+    app: &AppHandle,
+    settings: &settings::Settings,
+) -> Result<(), String> {
     if launcher_window(app).is_some() {
         return Ok(());
     }
@@ -100,7 +103,9 @@ fn create_main_window(app: &AppHandle, settings: &settings::Settings) -> Result<
     .center()
     .build()
     .map_err(|e| e.to_string())?;
-    app.state::<App>().window_mini.store(false, Ordering::SeqCst);
+    app.state::<App>()
+        .window_mini
+        .store(false, Ordering::SeqCst);
     platform::clip_native_window_corners(app);
     Ok(())
 }
@@ -111,11 +116,26 @@ type GlobalRegistrar = fn(&AppHandle, &str) -> Result<(), String>;
 /// `global_shortcuts::unregister` по сочетанию.
 const GLOBAL_HOTKEYS: &[(&str, GlobalRegistrar)] = &[
     (hotkeys::ACTION_RECORD, global_shortcuts::register_ptt),
-    (hotkeys::ACTION_TOGGLE_WINDOW, global_shortcuts::register_toggle),
-    (hotkeys::ACTION_TELEPROMPTER, global_shortcuts::register_teleprompter),
-    (hotkeys::ACTION_SCREENSHOT, global_shortcuts::register_screenshot),
-    (hotkeys::ACTION_FOCUS_PROMPT, global_shortcuts::register_focus_prompt),
-    (hotkeys::ACTION_DUPLICATE_CHAT, global_shortcuts::register_duplicate_chat),
+    (
+        hotkeys::ACTION_TOGGLE_WINDOW,
+        global_shortcuts::register_toggle,
+    ),
+    (
+        hotkeys::ACTION_TELEPROMPTER,
+        global_shortcuts::register_teleprompter,
+    ),
+    (
+        hotkeys::ACTION_SCREENSHOT,
+        global_shortcuts::register_screenshot,
+    ),
+    (
+        hotkeys::ACTION_FOCUS_PROMPT,
+        global_shortcuts::register_focus_prompt,
+    ),
+    (
+        hotkeys::ACTION_DUPLICATE_CHAT,
+        global_shortcuts::register_duplicate_chat,
+    ),
 ];
 
 /// Регистрирует глобальные хоткеи HUD. Каждый провал уходит пользователю
@@ -148,7 +168,10 @@ pub fn unregister_main_window_hotkeys_for(app: &AppHandle, s: &settings::Setting
             global_shortcuts::unregister(app, &combo);
         }
     }
-    global_shortcuts::unregister_cancel(app, &hotkeys::effective(&s.hotkeys, hotkeys::ACTION_CANCEL_RECORDING));
+    global_shortcuts::unregister_cancel(
+        app,
+        &hotkeys::effective(&s.hotkeys, hotkeys::ACTION_CANCEL_RECORDING),
+    );
 }
 
 pub fn hide_main_window_for_capture(app: &AppHandle) -> bool {
@@ -212,6 +235,9 @@ fn swap_to_main_window(app: &AppHandle) -> Result<(), String> {
     let settings = current_settings(app);
     create_main_window(app, &settings)?;
     register_main_window_hotkeys(app, &settings);
+    app.state::<App>()
+        .recording_enabled
+        .store(true, Ordering::Release);
     if let Some(w) = launcher_window(app) {
         let _ = w.destroy();
     }
@@ -223,12 +249,13 @@ fn swap_to_main_window(app: &AppHandle) -> Result<(), String> {
 }
 
 fn swap_to_launcher_window(app: &AppHandle) -> Result<(), String> {
+    let settings = current_settings(app);
+    create_launcher_window(app, &settings)?;
+    crate::recording::stop_for_launcher(app);
     // Окна больше нет — некому читать дельты; недочитанная генерация иначе
     // шла бы до конца и оплачивалась (и на relay тоже).
     crate::chat::cancel_all_streams(app);
-    let settings = current_settings(app);
     unregister_main_window_hotkeys_for(app, &settings);
-    create_launcher_window(app, &settings)?;
     if let Some(w) = main_window(app) {
         let _ = w.destroy();
     }
@@ -265,7 +292,11 @@ pub fn collapse_main_window(app: AppHandle) {
         MINI_WINDOW_HEIGHT_LOGICAL_PX,
     )));
     let _ = w.set_resizable(false);
-    set_window_size(app, MINI_WINDOW_WIDTH_LOGICAL_PX, MINI_WINDOW_HEIGHT_LOGICAL_PX);
+    set_window_size(
+        app,
+        MINI_WINDOW_WIDTH_LOGICAL_PX,
+        MINI_WINDOW_HEIGHT_LOGICAL_PX,
+    );
 }
 
 #[tauri::command]
@@ -274,7 +305,9 @@ pub fn expand_main_window(app: AppHandle, width: f64, height: f64) {
     let Some(w) = main_window(&app) else {
         return;
     };
-    app.state::<App>().window_mini.store(false, Ordering::SeqCst);
+    app.state::<App>()
+        .window_mini
+        .store(false, Ordering::SeqCst);
     let _ = w.set_resizable(true);
     let _ = w.show();
     let _ = w.set_focus();
@@ -324,9 +357,17 @@ pub fn set_window_size(app: AppHandle, width: f64, height: f64) {
     };
     let scale = w.scale_factor().unwrap_or(1.0);
     let (width, height) = clamped_to_work_area(&w, scale, width, height);
-    let from_width = w.inner_size().map(|s| s.width as f64 / scale).unwrap_or(width);
-    let from_height = w.inner_size().map(|s| s.height as f64 / scale).unwrap_or(height);
-    let from_pos = w.outer_position().unwrap_or(tauri::PhysicalPosition::new(0, 0));
+    let from_width = w
+        .inner_size()
+        .map(|s| s.width as f64 / scale)
+        .unwrap_or(width);
+    let from_height = w
+        .inner_size()
+        .map(|s| s.height as f64 / scale)
+        .unwrap_or(height);
+    let from_pos = w
+        .outer_position()
+        .unwrap_or(tauri::PhysicalPosition::new(0, 0));
 
     if (from_width - width).abs() < RESIZE_EPSILON_LOGICAL_PX
         && (from_height - height).abs() < RESIZE_EPSILON_LOGICAL_PX

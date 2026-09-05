@@ -16,7 +16,7 @@ import type { PromptPreset } from "@/lib/presets";
 import type * as Rust from "./bindings";
 import type {
   HotkeyBinding,
-  AudioOutputDevice,
+  AudioDeviceInfo,
   EventMap,
   QuickAction,
   RecorderState,
@@ -40,13 +40,14 @@ type SameShape<Ours, Generated> = [Ours] extends [Generated]
 
 const contract = {
   Settings: true satisfies SameShape<Settings, Rust.Settings>,
-  OutputDeviceInfo: true satisfies SameShape<AudioOutputDevice, Rust.OutputDeviceInfo>,
+  AudioDeviceInfo: true satisfies SameShape<AudioDeviceInfo, Rust.AudioDeviceInfo>,
   UpdateInfo: true satisfies SameShape<UpdateInfo, Rust.UpdateInfo>,
   RecorderState: true satisfies SameShape<RecorderState, Rust.RecorderState>,
   PromptPreset: true satisfies SameShape<PromptPreset, Rust.PromptPreset>,
   AppError: true satisfies SameShape<AppError, Rust.AppError>,
   ModelInfo: true satisfies SameShape<ModelInfo, Rust.ModelInfo>,
   RequestOptions: true satisfies SameShape<RequestOptions, Rust.RequestOptions>,
+  TranscriptReady: true satisfies SameShape<EventMap["transcript-ready"], Rust.TranscriptReady>,
   LlmDelta: true satisfies SameShape<EventMap["llm-delta"], Rust.LlmDelta>,
   LlmDone: true satisfies SameShape<EventMap["llm-done"], Rust.LlmDone>,
   LlmUsage: true satisfies SameShape<EventMap["llm-usage"], Rust.LlmUsage>,

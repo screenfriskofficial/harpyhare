@@ -26,19 +26,28 @@ fn any_other_stream_failure_falls_back_to_the_batch_upload() {
 
 #[test]
 fn a_successful_stream_is_delivered_as_is() {
-    assert!(matches!(stream_verdict(Ok("текст".into())), StreamVerdict::Deliver(t) if t == "текст"));
+    assert!(
+        matches!(stream_verdict(Ok("текст".into())), StreamVerdict::Deliver(t) if t == "текст")
+    );
 }
 
 #[test]
 fn chunks_are_coalesced_and_the_tail_is_flushed_on_drop() {
     let (tx, mut rx) = tokio::sync::mpsc::channel::<SttBodyChunk>(8);
     let broken = Arc::new(AtomicBool::new(false));
-    let mut coalescer = ChunkCoalescer { pending: Vec::new(), tx, broken: Arc::clone(&broken) };
+    let mut coalescer = ChunkCoalescer {
+        pending: Vec::new(),
+        tx,
+        broken: Arc::clone(&broken),
+    };
     let frame = vec![0.1f32; 341];
     for _ in 0..4 {
         coalescer.push(&frame);
     }
-    assert!(rx.try_recv().is_err(), "4 кадра по 682 байта не дотягивают до порога");
+    assert!(
+        rx.try_recv().is_err(),
+        "4 кадра по 682 байта не дотягивают до порога"
+    );
     coalescer.push(&frame);
     let first = rx.try_recv().expect("пятый кадр перевалил порог").unwrap();
     assert_eq!(first.len(), 341 * 2 * 5);
@@ -53,12 +62,19 @@ fn chunks_are_coalesced_and_the_tail_is_flushed_on_drop() {
 fn a_full_channel_marks_the_stream_broken_instead_of_blocking() {
     let (tx, _rx) = tokio::sync::mpsc::channel::<SttBodyChunk>(1);
     let broken = Arc::new(AtomicBool::new(false));
-    let mut coalescer = ChunkCoalescer { pending: Vec::new(), tx, broken: Arc::clone(&broken) };
+    let mut coalescer = ChunkCoalescer {
+        pending: Vec::new(),
+        tx,
+        broken: Arc::clone(&broken),
+    };
     let big = vec![0.1f32; STT_CHUNK_TARGET_BYTES];
     coalescer.push(&big);
     assert!(!broken.load(Ordering::Relaxed), "первый чанк влез в канал");
     coalescer.push(&big);
-    assert!(broken.load(Ordering::Relaxed), "второй не влез — стрим помечен неполным");
+    assert!(
+        broken.load(Ordering::Relaxed),
+        "второй не влез — стрим помечен неполным"
+    );
 }
 
 #[tokio::test]
@@ -66,7 +82,35 @@ async fn transcription_supervision_catches_panics_after_suspension() {
     let outcome = supervise_transcription(async {
         tokio::task::yield_now().await;
         panic!("provider panic during retry");
-    }).await;
-    assert_eq!(outcome, Err(AppError::new(ErrorCode::Internal, ERR_TRANSCRIPTION_CRASHED)));
+    })
+    .await;
+    assert_eq!(
+        outcome,
+        Err(AppError::new(
+            ErrorCode::Retryable,
+            ERR_TRANSCRIPTION_CRASHED
+        ))
+    );
     assert_eq!(supervise_transcription(async {}).await, Ok(()));
+}
+
+#[test]
+fn a_native_microphone_permission_error_does_not_ask_for_system_audio_access() {
+    assert_eq!(
+        microphone_capture_error(capture::CaptureError::PermissionDenied),
+        AppError::new(ErrorCode::Permission, ERR_MICROPHONE_PERMISSION)
+    );
+    let backend = capture::CaptureError::Backend("input disconnected".into());
+    let expected = AppError::from(&backend);
+    assert_eq!(microphone_capture_error(backend), expected);
+}
+
+#[test]
+fn dropping_a_transcription_job_cancels_all_of_its_channel_transports() {
+    let system = CancellationToken::new();
+    let microphone = CancellationToken::new();
+    let guard = StreamCancellation(vec![system.clone(), microphone.clone()]);
+    drop(guard);
+    assert!(system.is_cancelled());
+    assert!(microphone.is_cancelled());
 }

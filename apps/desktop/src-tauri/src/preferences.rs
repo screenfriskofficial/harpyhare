@@ -47,7 +47,10 @@ pub fn get_settings(app: AppHandle) -> settings::Settings {
 #[tauri::command]
 #[specta::specta]
 pub fn get_official_presets(app: AppHandle) -> Vec<settings::PromptPreset> {
-    app.state::<App>().official_presets.lock_unpoisoned().clone()
+    app.state::<App>()
+        .official_presets
+        .lock_unpoisoned()
+        .clone()
 }
 
 #[tauri::command]
@@ -65,7 +68,8 @@ pub fn set_settings(
     // токена (автосейв, взведённый до активации кода), и принять его значение
     // значило бы стереть только что выданный токен — а код на relay уже потрачен.
     new_settings.access_token = old.access_token.clone();
-    let capture_device_changed = old.capture_device_uid != new_settings.capture_device_uid;
+    let capture_device_changed = old.capture_device_uid != new_settings.capture_device_uid
+        || old.capture_system_audio != new_settings.capture_system_audio;
     new_settings
         .save(&settings_path(&app))
         .map_err(|e| e.to_string())?;
@@ -142,11 +146,7 @@ fn apply_access_token(app: &AppHandle, token: String) -> Result<settings::Settin
     Ok(new_settings)
 }
 
-fn reregister_changed_hotkeys(
-    app: &AppHandle,
-    old: &settings::Settings,
-    new: &settings::Settings,
-) {
+fn reregister_changed_hotkeys(app: &AppHandle, old: &settings::Settings, new: &settings::Settings) {
     if main_window(app).is_none() {
         return;
     }

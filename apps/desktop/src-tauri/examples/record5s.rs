@@ -14,7 +14,7 @@ fn counting_sink(streamed: Arc<AtomicUsize>) -> harpyhare_lib::capture::ChunkSin
 
 fn main() {
     const EXAMPLE_BUFFER_SECS: u64 = 10;
-    let mut cap = harpyhare_lib::capture::SystemAudioCapture::new(None, EXAMPLE_BUFFER_SECS)
+    let mut cap = harpyhare_lib::capture::AudioCapture::system(None, EXAMPLE_BUFFER_SECS)
         .expect("создание tap");
 
     let streamed = Arc::new(AtomicUsize::new(0));
@@ -32,11 +32,18 @@ fn main() {
         s16k.len() as f32 / SAMPLE_RATE_HZ,
         via_sink
     );
-    assert_eq!(s16k.len(), via_sink, "sink получает ровно то же, что и буфер");
+    assert_eq!(
+        s16k.len(),
+        via_sink,
+        "sink получает ровно то же, что и буфер"
+    );
     std::fs::write(
         OUTPUT_WAV_PATH,
         harpyhare_lib::audio::encode_wav_16k_mono(&s16k).unwrap(),
     )
     .unwrap();
-    println!("rms={} → {OUTPUT_WAV_PATH}", harpyhare_lib::audio::rms(&s16k));
+    println!(
+        "rms={} → {OUTPUT_WAV_PATH}",
+        harpyhare_lib::audio::rms(&s16k)
+    );
 }

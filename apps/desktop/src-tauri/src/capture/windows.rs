@@ -7,8 +7,8 @@ use windows::core::PCWSTR;
 use windows::Win32::Devices::FunctionDiscovery::PKEY_Device_FriendlyName;
 use windows::Win32::Foundation::{E_ACCESSDENIED, RPC_E_CHANGED_MODE};
 use windows::Win32::Media::Audio::{
-    eConsole, eRender, IAudioCaptureClient, IAudioClient, IMMDevice, IMMDeviceEnumerator,
-    MMDeviceEnumerator, AUDCLNT_BUFFERFLAGS_SILENT, AUDCLNT_SHAREMODE_SHARED,
+    eCapture, eConsole, eRender, EDataFlow, IAudioCaptureClient, IAudioClient, IMMDevice,
+    IMMDeviceEnumerator, MMDeviceEnumerator, AUDCLNT_BUFFERFLAGS_SILENT, AUDCLNT_SHAREMODE_SHARED,
     AUDCLNT_STREAMFLAGS_LOOPBACK, DEVICE_STATE_ACTIVE, WAVEFORMATEX, WAVEFORMATEXTENSIBLE,
 };
 use windows::Win32::Media::KernelStreaming::WAVE_FORMAT_EXTENSIBLE;
@@ -18,7 +18,9 @@ use windows::Win32::System::Com::{
     COINIT_MULTITHREADED, STGM_READ,
 };
 
-use super::{CallbackCtx, CaptureError, DeviceChangeHandler, OutputDeviceInfo, StreamSpec};
+use super::{
+    AudioDeviceInfo, AudioDevices, CallbackCtx, CaptureError, DeviceChangeHandler, StreamSpec,
+};
 
 const CAPTURE_THREAD_NAME: &str = "wasapi-loopback";
 const DEVICE_WATCH_THREAD_NAME: &str = "wasapi-device-watch";
@@ -104,33 +106,36 @@ fn device_name(device: &IMMDevice) -> Result<String, CaptureError> {
     }
 }
 
-fn collect_output_devices() -> Result<Vec<OutputDeviceInfo>, CaptureError> {
-    let _com = ComGuard::enter()?;
-    let devices = unsafe {
-        enumerator()?
-            .EnumAudioEndpoints(eRender, DEVICE_STATE_ACTIVE)
-            .map_err(backend_error)?
-    };
-    let count = unsafe { devices.GetCount().map_err(backend_error)? };
+fn collect_devices(
+    enumerator: &IMMDeviceEnumerator,
+    flow: EDataFlow,
+) -> Result<Vec<AudioDeviceInfo>, CaptureError> {
+    let default_uid = unsafe { enumerator.GetDefaultAudioEndpoint(flow, eConsole) }
+        .ok()
+        .and_then(|d| device_id(&d).ok());
+    let devices = unsafe { enumerator.EnumAudioEndpoints(flow, DEVICE_STATE_ACTIVE) }
+        .map_err(backend_error)?;
+    let count = unsafe { devices.GetCount() }.map_err(backend_error)?;
     let mut out = Vec::with_capacity(count as usize);
     for index in 0..count {
-        let device = unsafe { devices.Item(index).map_err(backend_error)? };
-        out.push(OutputDeviceInfo {
-            uid: device_id(&device)?,
+        let device = unsafe { devices.Item(index) }.map_err(backend_error)?;
+        let uid = device_id(&device)?;
+        out.push(AudioDeviceInfo {
+            is_default: default_uid.as_deref() == Some(&uid),
+            uid,
             name: device_name(&device)?,
         });
     }
     Ok(out)
 }
 
-pub fn list_output_devices() -> Vec<OutputDeviceInfo> {
-    match collect_output_devices() {
-        Ok(devices) => devices,
-        Err(e) => {
-            eprintln!("список устройств вывода недоступен: {e}");
-            Vec::new()
-        }
-    }
+pub fn list_devices() -> Result<AudioDevices, CaptureError> {
+    let _com = ComGuard::enter()?;
+    let enumerator = enumerator()?;
+    Ok(AudioDevices {
+        inputs: collect_devices(&enumerator, eCapture)?,
+        outputs: collect_devices(&enumerator, eRender)?,
+    })
 }
 
 fn default_output_device(enumerator: &IMMDeviceEnumerator) -> Result<IMMDevice, CaptureError> {
@@ -152,13 +157,7 @@ fn resolve_output_device(
     let Some(uid) = uid else {
         return default_output_device(enumerator);
     };
-    match device_by_id(enumerator, uid) {
-        Ok(device) => Ok(device),
-        Err(_) => {
-            eprintln!("устройство захвата {uid:?} не найдено — используется системный вывод");
-            default_output_device(enumerator)
-        }
-    }
+    device_by_id(enumerator, uid)
 }
 
 fn current_default_device_id(enumerator: &IMMDeviceEnumerator) -> Option<String> {
@@ -268,6 +267,7 @@ fn activate_client(device: &IMMDevice) -> Result<(IAudioClient, SampleFormat), C
 
 pub struct Source {
     device_id: String,
+    loopback: bool,
 }
 
 pub struct Running {
@@ -300,9 +300,30 @@ pub fn open(output_device_uid: Option<&str>) -> Result<(Source, StreamSpec), Cap
     let device = resolve_output_device(&enumerator, output_device_uid)?;
     let source = Source {
         device_id: device_id(&device)?,
+        loopback: true,
     };
     let (_client, format) = activate_client(&device)?;
     Ok((source, format.spec()))
+}
+
+pub fn open_microphone(
+    input_device_uid: Option<&str>,
+) -> Result<(Source, StreamSpec), CaptureError> {
+    let _com = ComGuard::enter()?;
+    let enumerator = enumerator()?;
+    let device = match input_device_uid {
+        Some(uid) => device_by_id(&enumerator, uid)?,
+        None => unsafe { enumerator.GetDefaultAudioEndpoint(eCapture, eConsole) }
+            .map_err(backend_error)?,
+    };
+    let (_client, format) = activate_client(&device)?;
+    Ok((
+        Source {
+            device_id: device_id(&device)?,
+            loopback: false,
+        },
+        format.spec(),
+    ))
 }
 
 pub fn start(source: Source, ctx: Box<CallbackCtx>) -> Result<Running, CaptureError> {
@@ -320,7 +341,10 @@ pub fn start(source: Source, ctx: Box<CallbackCtx>) -> Result<Running, CaptureEr
 
     let started = ready_rx.recv_timeout(START_TIMEOUT);
     if let Ok(Ok(())) = started {
-        return Ok(Running { stop, thread: Some(thread) });
+        return Ok(Running {
+            stop,
+            thread: Some(thread),
+        });
     }
     stop.store(true, Ordering::Release);
     let _ = thread.join();
@@ -363,25 +387,33 @@ fn poll_interval(client: &IAudioClient) -> Duration {
     Duration::from_nanos(nanos).clamp(MIN_POLL_INTERVAL, MAX_POLL_INTERVAL)
 }
 
-fn open_stream(device_id: &str, spec: &StreamSpec) -> Result<LoopbackStream, ReopenFailure> {
+fn open_stream(source: &Source, spec: &StreamSpec) -> Result<LoopbackStream, ReopenFailure> {
     let enumerator = enumerator().map_err(ReopenFailure::Transient)?;
-    let device = device_by_id(&enumerator, device_id).map_err(ReopenFailure::Transient)?;
+    let device = device_by_id(&enumerator, &source.device_id).map_err(ReopenFailure::Transient)?;
     let (client, format) = activate_client(&device).map_err(ReopenFailure::Transient)?;
     if !format.matches(spec) {
         return Err(ReopenFailure::Fatal(CaptureError::Backend(
             "формат устройства вывода изменился — захват пересоздаётся".to_string(),
         )));
     }
-    open_stream_with(client, format).map_err(ReopenFailure::Transient)
+    open_stream_with(client, format, source.loopback).map_err(ReopenFailure::Transient)
 }
 
-fn open_stream_with(client: IAudioClient, format: SampleFormat) -> Result<LoopbackStream, CaptureError> {
+fn open_stream_with(
+    client: IAudioClient,
+    format: SampleFormat,
+    loopback: bool,
+) -> Result<LoopbackStream, CaptureError> {
     let mix = MixFormat(unsafe { client.GetMixFormat() }.map_err(backend_error)?);
     let buffer_duration = (CLIENT_BUFFER_SECONDS * REFERENCE_TIMES_PER_SECOND as f64) as i64;
     unsafe {
         client.Initialize(
             AUDCLNT_SHAREMODE_SHARED,
-            AUDCLNT_STREAMFLAGS_LOOPBACK,
+            if loopback {
+                AUDCLNT_STREAMFLAGS_LOOPBACK
+            } else {
+                Default::default()
+            },
             buffer_duration,
             0,
             mix.0,
@@ -407,9 +439,7 @@ fn decode_samples(out: &mut Vec<f32>, data: *const u8, frames: usize, format: Sa
     for index in 0..count {
         let sample = unsafe { data.add(index * format.bytes_per_sample) };
         let value = match (format.is_float, format.bytes_per_sample) {
-            (true, FLOAT_SAMPLE_BYTES) => unsafe {
-                std::ptr::read_unaligned(sample as *const f32)
-            },
+            (true, FLOAT_SAMPLE_BYTES) => unsafe { std::ptr::read_unaligned(sample as *const f32) },
             (false, INT16_SAMPLE_BYTES) => {
                 let raw = unsafe { std::ptr::read_unaligned(sample as *const i16) };
                 f32::from(raw) / I16_SCALE
@@ -572,7 +602,7 @@ fn capture_main(
     let mut announced = false;
 
     while !stop.load(Ordering::Acquire) {
-        match open_stream(&source.device_id, &spec) {
+        match open_stream(&source, &spec) {
             Ok(stream) => {
                 if !announced {
                     announced = true;

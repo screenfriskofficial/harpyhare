@@ -16,7 +16,7 @@ export const {
   getOfficialPresets,
   installUpdate,
   launchMainWindow,
-  listAudioOutputDevices,
+  listAudioDevices,
   listModels,
   loadChats,
   loadContextLibrary,

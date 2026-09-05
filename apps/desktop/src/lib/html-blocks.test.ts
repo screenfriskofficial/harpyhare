@@ -1,5 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { extractHtmlBlocks } from "./html-blocks";
+import { systemDesignHtml } from "./system-design";
+
+const DIAGRAM = JSON.stringify({
+  version: 1,
+  TITLE: "API v1",
+  NODES: [{ id: "api", col: 0, kind: "service", title: "API" }],
+  EDGES: [],
+});
 
 describe("extractHtmlBlocks", () => {
   it("извлекает одиночный закрытый блок", () => {
@@ -31,5 +39,10 @@ describe("extractHtmlBlocks", () => {
 
   it("текст без блоков — пустой массив", () => {
     expect(extractHtmlBlocks("обычный ответ про <html> без fence")).toEqual([]);
+  });
+
+  it("сохраняет порядок HTML и схем, пропускает ошибочную и незавершённую схему", () => {
+    const md = `\`\`\`html\n<p>old</p>\n\`\`\`\n\`\`\`system-design\n{}\n\`\`\`\n\`\`\`SYSTEM-DESIGN\n${DIAGRAM}\n\`\`\`\n\`\`\`system-design\n${DIAGRAM}`;
+    expect(extractHtmlBlocks(md)).toEqual(["<p>old</p>", systemDesignHtml(DIAGRAM)]);
   });
 });

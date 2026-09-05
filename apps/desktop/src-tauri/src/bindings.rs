@@ -32,7 +32,7 @@ pub fn builder() -> Builder<tauri::Wry> {
             storage::read_context_import_file,
             storage::read_context_pdf_bytes,
             recording::retry_transcription,
-            recording::list_audio_output_devices,
+            recording::list_audio_devices,
             preferences::get_settings,
             preferences::set_settings,
             preferences::get_official_presets,
@@ -68,6 +68,7 @@ pub fn builder() -> Builder<tauri::Wry> {
         .typ::<events::UpdateProgress>()
         .typ::<events::UpdateDone>()
         .typ::<events::ScreenshotReady>()
+        .typ::<crate::recording::TranscriptReady>()
         .typ::<permissions::PermissionsStatus>()
         .typ::<permissions::PermissionState>()
         .typ::<permissions::PermissionKind>()
@@ -79,7 +80,10 @@ pub fn builder() -> Builder<tauri::Wry> {
         .constant(SETTINGS_DEFAULTS_CONSTANT, settings::Settings::default())
         .constant(MODIFIER_COMBOS_CONSTANT, hotkeys::MODIFIER_COMBOS)
         .constant(HOTKEY_ACTIONS_CONSTANT, hotkeys::HOTKEY_ACTIONS)
-        .constant(QUICK_ACTION_LIMIT_CONSTANT, settings::QUICK_ACTION_LIMIT as u32)
+        .constant(
+            QUICK_ACTION_LIMIT_CONSTANT,
+            settings::QUICK_ACTION_LIMIT as u32,
+        )
         .constant(LLM_PROVIDERS_CONSTANT, llm::registry::PROVIDERS)
         .constant(STT_PROVIDERS_CONSTANT, stt::registry::PROVIDERS)
         .constant(DEFAULT_MODEL_CONSTANT, llm::DEFAULT_MODEL)

@@ -1,6 +1,7 @@
 import type { ImagePayload } from "@/lib/composer";
 import type { AppError } from "@/lib/errors";
 import type { PromptPreset } from "@/lib/presets";
+import type { TranscriptReady } from "./bindings";
 import { SETTINGS_DEFAULTS } from "./bindings";
 
 export type { AppError, ImagePayload };
@@ -45,6 +46,9 @@ export interface Settings {
   window_height: number;
   resize_step: number;
   capture_device_uid: string;
+  microphone_device_uid: string;
+  capture_system_audio: boolean;
+  capture_microphone: boolean;
   theme: string;
   ui_language: string;
   scroll_step: number;
@@ -61,9 +65,10 @@ export const DEFAULT_SETTINGS: Settings = {
   quick_actions: [...SETTINGS_DEFAULTS.quick_actions],
 };
 
-export interface AudioOutputDevice {
+export interface AudioDeviceInfo {
   uid: string;
   name: string;
+  is_default: boolean;
 }
 
 export type RecorderState = "idle" | "recording" | "transcribing";
@@ -87,7 +92,7 @@ export interface UpdateProgress {
 
 export interface EventMap {
   "state-changed": RecorderState;
-  "transcript-ready": string;
+  "transcript-ready": TranscriptReady;
   "stt-error": AppError;
   "llm-delta": { chatId: string; streamId: string; delta: string };
   "llm-done": { chatId: string; streamId: string };

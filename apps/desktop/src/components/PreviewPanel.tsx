@@ -1,10 +1,13 @@
 import { X } from "lucide-react";
+import { useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import { IconButton } from "@/components/IconButton";
 import { SectionLabel } from "@/components/SectionLabel";
 import { Button } from "@/components/ui/button";
 import { usePreviewSrc } from "@/hooks/usePreviewSrc";
 import { copyTextReportingError } from "@/lib/clipboard-text";
+import { withDiagramViewport } from "@/lib/diagram-viewport";
+import { withPreviewCursor } from "@/lib/preview-cursor";
 
 export interface PreviewPanelProps {
   html: string;
@@ -56,12 +59,13 @@ function PreviewBody({ html, src }: { html: string; src: string }) {
 }
 
 export function PreviewPanel({ html, onClose }: PreviewPanelProps) {
-  const src = usePreviewSrc(html);
+  const preparedHtml = useMemo(() => withPreviewCursor(withDiagramViewport(html)), [html]);
+  const src = usePreviewSrc(preparedHtml);
 
   return (
     <aside className="flex flex-col gap-2.5" style={{ width: PREVIEW_PANEL_WIDTH_PX }}>
-      <PreviewHeader html={html} onClose={onClose} />
-      <PreviewBody html={html} src={src} />
+      <PreviewHeader html={preparedHtml} onClose={onClose} />
+      <PreviewBody html={preparedHtml} src={src} />
     </aside>
   );
 }

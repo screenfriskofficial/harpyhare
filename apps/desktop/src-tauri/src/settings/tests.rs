@@ -20,8 +20,26 @@ fn defaults_match_spec() {
     assert_eq!(s.window_height, 680.0);
     assert_eq!(s.resize_step, 20);
     assert_eq!(s.capture_device_uid, "");
+    assert_eq!(s.microphone_device_uid, "");
     assert!(s.buffer_enabled);
     assert_eq!(s.buffer_seconds, 4);
+}
+
+#[test]
+fn source_devices_are_saved_independently_without_replacing_the_legacy_choice() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("settings.json");
+    std::fs::write(&path, r#"{"capture_device_uid":"chosen-output"}"#).unwrap();
+    let mut settings = Settings::load(&path).unwrap();
+    assert_eq!(settings.capture_device_uid, "chosen-output");
+    assert!(settings.microphone_device_uid.is_empty());
+    settings.microphone_device_uid = "chosen-microphone".into();
+    settings.capture_microphone = true;
+    settings.save(&path).unwrap();
+    let loaded = Settings::load(&path).unwrap();
+    assert_eq!(loaded.capture_device_uid, "chosen-output");
+    assert_eq!(loaded.microphone_device_uid, "chosen-microphone");
+    assert!(loaded.capture_microphone);
 }
 
 #[test]
@@ -41,7 +59,10 @@ fn load_saved_empty_quick_actions_stays_empty() {
     let path = dir.path().join("s.json");
     std::fs::write(&path, r#"{"quick_actions":[]}"#).unwrap();
     let s = Settings::load(&path).unwrap();
-    assert!(s.quick_actions.is_empty(), "удалённые пользователем действия не возвращаются сидами");
+    assert!(
+        s.quick_actions.is_empty(),
+        "удалённые пользователем действия не возвращаются сидами"
+    );
 }
 
 #[test]
@@ -52,7 +73,10 @@ fn clamp_limits_quick_actions_to_the_digit_row() {
     };
     s.clamp();
     assert_eq!(s.quick_actions.len(), QUICK_ACTION_LIMIT);
-    assert_eq!(s.quick_actions.last().unwrap(), &test_quick_action(QUICK_ACTION_LIMIT - 1));
+    assert_eq!(
+        s.quick_actions.last().unwrap(),
+        &test_quick_action(QUICK_ACTION_LIMIT - 1)
+    );
 }
 
 #[test]
@@ -67,7 +91,10 @@ fn load_missing_buffer_fields_default() {
 
 #[test]
 fn clamp_limits_buffer_seconds() {
-    let mut s = Settings { buffer_seconds: 0, ..Default::default() };
+    let mut s = Settings {
+        buffer_seconds: 0,
+        ..Default::default()
+    };
     s.clamp();
     assert_eq!(s.buffer_seconds, 1);
     s.buffer_seconds = 120;
@@ -77,8 +104,11 @@ fn clamp_limits_buffer_seconds() {
 
 #[test]
 fn clamp_limits_teleprompter_speed_and_font() {
-    let mut s =
-        Settings { teleprompter_speed: 5.0, teleprompter_font_size: 4.0, ..Default::default() };
+    let mut s = Settings {
+        teleprompter_speed: 5.0,
+        teleprompter_font_size: 4.0,
+        ..Default::default()
+    };
     s.clamp();
     assert_eq!(s.teleprompter_speed, 10.0);
     assert_eq!(s.teleprompter_font_size, 20.0);
@@ -104,7 +134,10 @@ fn load_missing_teleprompter_fields_default() {
 
 #[test]
 fn clamp_limits_chat_font_size() {
-    let mut s = Settings { chat_font_size: 5.0, ..Default::default() };
+    let mut s = Settings {
+        chat_font_size: 5.0,
+        ..Default::default()
+    };
     s.clamp();
     assert_eq!(s.chat_font_size, 10.0);
     s.chat_font_size = 99.0;
@@ -117,7 +150,11 @@ fn clamp_limits_chat_font_size() {
 
 #[test]
 fn clamp_limits_window_size() {
-    let mut s = Settings { window_width: 100.0, window_height: 100.0, ..Default::default() };
+    let mut s = Settings {
+        window_width: 100.0,
+        window_height: 100.0,
+        ..Default::default()
+    };
     s.clamp();
     assert_eq!(s.window_width, 300.0);
     assert_eq!(s.window_height, 520.0);
@@ -150,7 +187,10 @@ fn load_missing_window_size_defaults() {
 
 #[test]
 fn clamp_limits_scroll_step() {
-    let mut s = Settings { scroll_step: 1, ..Default::default() };
+    let mut s = Settings {
+        scroll_step: 1,
+        ..Default::default()
+    };
     s.clamp();
     assert_eq!(s.scroll_step, 10);
     s.scroll_step = 100_000;
@@ -160,7 +200,10 @@ fn clamp_limits_scroll_step() {
 
 #[test]
 fn clamp_limits_resize_step() {
-    let mut s = Settings { resize_step: 1000, ..Default::default() };
+    let mut s = Settings {
+        resize_step: 1000,
+        ..Default::default()
+    };
     s.clamp();
     assert_eq!(s.resize_step, 200);
     s.resize_step = 0;
@@ -173,19 +216,34 @@ fn clamp_resolves_hotkey_collisions_in_favour_of_the_latest_binding() {
     use crate::hotkeys::{HotkeyBinding, ACTION_RECORD, ACTION_TOGGLE_WINDOW};
     let mut s = Settings {
         hotkeys: vec![
-            HotkeyBinding { action: ACTION_TOGGLE_WINDOW.into(), combo: "Cmd+Shift+X".into() },
-            HotkeyBinding { action: ACTION_RECORD.into(), combo: "Cmd+Shift+X".into() },
+            HotkeyBinding {
+                action: ACTION_TOGGLE_WINDOW.into(),
+                combo: "Cmd+Shift+X".into(),
+            },
+            HotkeyBinding {
+                action: ACTION_RECORD.into(),
+                combo: "Cmd+Shift+X".into(),
+            },
         ],
         ..Default::default()
     };
     s.clamp();
-    assert_eq!(crate::hotkeys::effective(&s.hotkeys, ACTION_RECORD), "Cmd+Shift+X");
-    assert_eq!(crate::hotkeys::effective(&s.hotkeys, ACTION_TOGGLE_WINDOW), "");
+    assert_eq!(
+        crate::hotkeys::effective(&s.hotkeys, ACTION_RECORD),
+        "Cmd+Shift+X"
+    );
+    assert_eq!(
+        crate::hotkeys::effective(&s.hotkeys, ACTION_TOGGLE_WINDOW),
+        ""
+    );
 }
 
 #[test]
 fn clamp_resets_unknown_ui_language_to_system() {
-    let mut s = Settings { ui_language: "de".into(), ..Default::default() };
+    let mut s = Settings {
+        ui_language: "de".into(),
+        ..Default::default()
+    };
     s.clamp();
     assert_eq!(s.ui_language, UI_LANGUAGE_SYSTEM);
     for language in UI_LANGUAGES {
@@ -197,7 +255,10 @@ fn clamp_resets_unknown_ui_language_to_system() {
 
 #[test]
 fn clamp_resets_unknown_theme() {
-    let mut s = Settings { theme: "neon".into(), ..Default::default() };
+    let mut s = Settings {
+        theme: "neon".into(),
+        ..Default::default()
+    };
     s.clamp();
     assert_eq!(s.theme, "gray");
     s.theme = "black".into();
@@ -237,7 +298,10 @@ fn load_missing_stt_and_screen_share_fields_default() {
 
 #[test]
 fn clamp_resets_unknown_stt_provider() {
-    let mut s = Settings { stt_provider: "elevenlabs".into(), ..Default::default() };
+    let mut s = Settings {
+        stt_provider: "elevenlabs".into(),
+        ..Default::default()
+    };
     s.clamp();
     assert_eq!(s.stt_provider, STT_PROVIDER_GROQ);
     s.stt_provider = STT_PROVIDER_OPENAI.into();
@@ -246,7 +310,12 @@ fn clamp_resets_unknown_stt_provider() {
 }
 
 fn env_of<'a>(values: &'a [(&'a str, &'a str)]) -> impl Fn(&str) -> Option<String> + 'a {
-    move |key_id| values.iter().find(|(id, _)| *id == key_id).map(|(_, v)| (*v).to_string())
+    move |key_id| {
+        values
+            .iter()
+            .find(|(id, _)| *id == key_id)
+            .map(|(_, v)| (*v).to_string())
+    }
 }
 
 #[test]
@@ -280,17 +349,33 @@ fn env_fallback_under_an_access_token_follows_the_registries() {
     // Ключ вендора, которого relay проксирует, под кодом доступа не берётся:
     // код его и так глушит. Ключ вендора без роута на relay берётся всегда —
     // иначе код запирал бы его у того, кто ключ как раз положил.
-    let mut s = Settings { access_token: "itk_x".into(), ..Default::default() };
+    let mut s = Settings {
+        access_token: "itk_x".into(),
+        ..Default::default()
+    };
     s.apply_key_fallback(|key_id| Some(format!("env-{key_id}")));
     let ids = registry_key_ids();
-    assert!(ids.iter().any(|(_, proxied)| *proxied), "в реестрах нет ни одного проксируемого ключа");
-    assert!(ids.iter().any(|(_, proxied)| !*proxied), "в реестрах нет ни одного непроксируемого ключа");
+    assert!(
+        ids.iter().any(|(_, proxied)| *proxied),
+        "в реестрах нет ни одного проксируемого ключа"
+    );
+    assert!(
+        ids.iter().any(|(_, proxied)| !*proxied),
+        "в реестрах нет ни одного непроксируемого ключа"
+    );
     for (key_id, proxied_everywhere) in ids {
         let value = api_key_for(&s, key_id);
         if proxied_everywhere {
-            assert_eq!(value, "", "{key_id}: проксируемый вендор под кодом ключ из окружения не берёт");
+            assert_eq!(
+                value, "",
+                "{key_id}: проксируемый вендор под кодом ключ из окружения не берёт"
+            );
         } else {
-            assert_eq!(value, format!("env-{key_id}"), "{key_id}: непроксируемый вендор берёт ключ и под кодом");
+            assert_eq!(
+                value,
+                format!("env-{key_id}"),
+                "{key_id}: непроксируемый вендор берёт ключ и под кодом"
+            );
         }
     }
 }
@@ -328,7 +413,10 @@ fn load_missing_access_token_defaults_empty() {
 
 #[test]
 fn env_fallback_does_not_override_saved_keys() {
-    let mut s = Settings { anthropic_api_key: "saved".into(), ..Default::default() };
+    let mut s = Settings {
+        anthropic_api_key: "saved".into(),
+        ..Default::default()
+    };
     s.apply_key_fallback(env_of(&[
         (API_KEY_ANTHROPIC, "env-ant"),
         (API_KEY_GROQ, "env-groq"),
@@ -358,7 +446,10 @@ fn debug_output_hides_secrets_but_names_the_fields() {
     };
     let printed = format!("{s:?}");
     for secret in ["sk-ant-secret", "dg-secret", "itk_secret"] {
-        assert!(!printed.contains(secret), "{secret} утёк в Debug: {printed}");
+        assert!(
+            !printed.contains(secret),
+            "{secret} утёк в Debug: {printed}"
+        );
     }
     assert!(printed.contains("anthropic_api_key"));
     assert!(printed.contains("access_token"));
@@ -368,21 +459,35 @@ fn debug_output_hides_secrets_but_names_the_fields() {
 fn load_quarantines_a_corrupt_file_instead_of_silently_defaulting() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("settings.json");
-    std::fs::write(&path, r#"{"auto_send": "not a bool", "anthropic_api_key": "keep-me"#).unwrap();
+    std::fs::write(
+        &path,
+        r#"{"auto_send": "not a bool", "anthropic_api_key": "keep-me"#,
+    )
+    .unwrap();
 
     let s = Settings::load_or_quarantine(&path);
 
     assert_eq!(s.anthropic_api_key, "", "битый файл даёт дефолты");
-    assert!(!path.exists(), "битый файл обязан уйти с места, иначе автосейв его затрёт");
+    assert!(
+        !path.exists(),
+        "битый файл обязан уйти с места, иначе автосейв его затрёт"
+    );
     let quarantined: Vec<_> = std::fs::read_dir(dir.path())
         .unwrap()
         .filter_map(Result::ok)
         .map(|e| e.file_name().to_string_lossy().into_owned())
         .filter(|name| name.starts_with(&format!("settings.json.{QUARANTINE_SUFFIX}-")))
         .collect();
-    assert_eq!(quarantined.len(), 1, "рядом должна лежать ровно одна копия: {quarantined:?}");
+    assert_eq!(
+        quarantined.len(),
+        1,
+        "рядом должна лежать ровно одна копия: {quarantined:?}"
+    );
     let kept = std::fs::read_to_string(dir.path().join(&quarantined[0])).unwrap();
-    assert!(kept.contains("keep-me"), "содержимое карантина — исходный файл байт в байт");
+    assert!(
+        kept.contains("keep-me"),
+        "содержимое карантина — исходный файл байт в байт"
+    );
 }
 
 #[test]
@@ -391,7 +496,11 @@ fn load_or_quarantine_leaves_a_missing_file_alone() {
     let path = dir.path().join("settings.json");
     let s = Settings::load_or_quarantine(&path);
     assert_eq!(s.window_width, limits::window::WIDTH.default);
-    assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 0, "карантину нечего откладывать");
+    assert_eq!(
+        std::fs::read_dir(dir.path()).unwrap().count(),
+        0,
+        "карантину нечего откладывать"
+    );
 }
 
 #[test]
@@ -405,12 +514,19 @@ fn load_tolerates_a_malformed_hotkey_binding() {
     .unwrap();
     let s = Settings::load(&path).expect("одна битая запись не валит весь файл");
     assert_eq!(s.anthropic_api_key, "k");
-    assert_eq!(crate::hotkeys::effective(&s.hotkeys, crate::hotkeys::ACTION_RECORD), "F8");
+    assert_eq!(
+        crate::hotkeys::effective(&s.hotkeys, crate::hotkeys::ACTION_RECORD),
+        "F8"
+    );
 }
 
 #[test]
 fn clamp_limits_opacity_and_step() {
-    let mut s = Settings { window_opacity: 0.05, move_step: 1000, ..Default::default() };
+    let mut s = Settings {
+        window_opacity: 0.05,
+        move_step: 1000,
+        ..Default::default()
+    };
     s.clamp();
     assert_eq!(s.window_opacity, 0.2);
     assert_eq!(s.move_step, 200);
@@ -466,8 +582,14 @@ fn load_migrates_legacy_hotkey_fields_into_bindings() {
     let path = dir.path().join("s.json");
     std::fs::write(&path, r#"{"hotkey":"Cmd+Shift+X","scroll_modifier":"Cmd"}"#).unwrap();
     let s = Settings::load(&path).unwrap();
-    assert_eq!(crate::hotkeys::effective(&s.hotkeys, crate::hotkeys::ACTION_RECORD), "Cmd+Shift+X");
-    assert_eq!(crate::hotkeys::effective(&s.hotkeys, crate::hotkeys::ACTION_SCROLL_CHAT), "Cmd");
+    assert_eq!(
+        crate::hotkeys::effective(&s.hotkeys, crate::hotkeys::ACTION_RECORD),
+        "Cmd+Shift+X"
+    );
+    assert_eq!(
+        crate::hotkeys::effective(&s.hotkeys, crate::hotkeys::ACTION_SCROLL_CHAT),
+        "Cmd"
+    );
 }
 
 #[test]
@@ -498,7 +620,11 @@ fn save_creates_parent_directories() {
 }
 
 fn test_preset() -> PromptPreset {
-    PromptPreset { id: "p1".into(), name: "Тест".into(), text: "текст".into() }
+    PromptPreset {
+        id: "p1".into(),
+        name: "Тест".into(),
+        text: "текст".into(),
+    }
 }
 
 fn test_quick_action(index: usize) -> QuickAction {
@@ -529,7 +655,11 @@ fn load_old_system_prompt_is_ignored() {
 
 #[test]
 fn bounds_clamp_keeps_value_inside_range() {
-    let b = Bounds { default: 5.0, min: 1.0, max: 10.0 };
+    let b = Bounds {
+        default: 5.0,
+        min: 1.0,
+        max: 10.0,
+    };
     assert_eq!(b.clamp(7.0), 7.0);
     assert_eq!(b.clamp(0.5), 1.0);
     assert_eq!(b.clamp(99.0), 10.0);
@@ -537,7 +667,11 @@ fn bounds_clamp_keeps_value_inside_range() {
 
 #[test]
 fn bounds_clamp_falls_back_to_default_on_non_finite() {
-    let b = Bounds { default: 5.0, min: 1.0, max: 10.0 };
+    let b = Bounds {
+        default: 5.0,
+        min: 1.0,
+        max: 10.0,
+    };
     assert_eq!(b.clamp(f64::NAN), 5.0);
     assert_eq!(b.clamp(f64::INFINITY), 5.0);
     assert_eq!(b.clamp(f64::NEG_INFINITY), 5.0);
@@ -554,7 +688,10 @@ fn every_bound_default_sits_inside_its_own_range() {
         limits::teleprompter::FONT_SIZE,
     ];
     for b in checked_f64 {
-        assert!(b.min <= b.default && b.default <= b.max, "нарушен диапазон: {b:?}");
+        assert!(
+            b.min <= b.default && b.default <= b.max,
+            "нарушен диапазон: {b:?}"
+        );
     }
     let checked_u32 = [
         limits::window::MOVE_STEP,
@@ -563,7 +700,10 @@ fn every_bound_default_sits_inside_its_own_range() {
         limits::capture::BUFFER_SECONDS,
     ];
     for b in checked_u32 {
-        assert!(b.min <= b.default && b.default <= b.max, "нарушен диапазон: {b:?}");
+        assert!(
+            b.min <= b.default && b.default <= b.max,
+            "нарушен диапазон: {b:?}"
+        );
     }
 }
 
@@ -584,7 +724,9 @@ fn concurrent_saves_publish_whole_files_and_leave_no_temporary_files() {
     use std::sync::{Arc, Barrier};
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("shared.json");
-    let payloads: Vec<String> = (0..8).map(|i| format!("{i}:{}", "x".repeat(128 * 1024))).collect();
+    let payloads: Vec<String> = (0..8)
+        .map(|i| format!("{i}:{}", "x".repeat(128 * 1024)))
+        .collect();
     let barrier = Arc::new(Barrier::new(payloads.len()));
     std::thread::scope(|scope| {
         for payload in &payloads {
@@ -622,5 +764,35 @@ fn atomic_save_does_not_touch_a_preexisting_shared_temporary_file() {
     let legacy_tmp = path.with_extension("tmp");
     std::fs::write(&legacy_tmp, "belongs to another writer").unwrap();
     write_atomic_owner_only(&path, "new settings").unwrap();
-    assert_eq!(std::fs::read_to_string(legacy_tmp).unwrap(), "belongs to another writer");
+    assert_eq!(
+        std::fs::read_to_string(legacy_tmp).unwrap(),
+        "belongs to another writer"
+    );
+}
+
+#[test]
+fn old_settings_keep_system_audio_and_do_not_enable_the_microphone() {
+    let settings: Settings = serde_json::from_str("{}").unwrap();
+    assert!(settings.capture_system_audio);
+    assert!(!settings.capture_microphone);
+}
+
+#[test]
+fn source_switches_are_independent_and_survive_persistence() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("settings.json");
+    for (system, microphone) in [(true, false), (true, true), (false, true), (false, false)] {
+        let mut settings = Settings {
+            capture_system_audio: system,
+            capture_microphone: microphone,
+            ..Default::default()
+        };
+        settings.clamp();
+        settings.save(&path).unwrap();
+        let loaded = Settings::load(&path).unwrap();
+        assert_eq!(
+            (loaded.capture_system_audio, loaded.capture_microphone),
+            (system, microphone)
+        );
+    }
 }

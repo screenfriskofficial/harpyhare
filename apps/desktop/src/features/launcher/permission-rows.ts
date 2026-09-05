@@ -1,4 +1,4 @@
-import { AudioLines, Monitor, type LucideIcon } from "lucide-react";
+import { AudioLines, Mic, Monitor, type LucideIcon } from "lucide-react";
 import { t } from "@/i18n";
 import type { PermissionKind } from "@/ipc/bindings";
 
@@ -10,7 +10,8 @@ export interface PermissionRow {
 }
 
 export const PERMISSION_ROWS: PermissionRow[] = [
-  { kind: "audio", icon: AudioLines, required: true },
+  { kind: "audio", icon: AudioLines, required: false },
+  { kind: "microphone", icon: Mic, required: false },
   { kind: "screen", icon: Monitor, required: false },
 ];
 

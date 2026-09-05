@@ -35,15 +35,22 @@ export function SettingRow({
   label,
   hint,
   htmlFor,
+  className,
   children,
 }: {
   label: string;
   hint?: string;
   htmlFor?: string;
+  className?: string;
   children: ReactNode;
 }) {
   return (
-    <div className="grid min-h-9 grid-cols-[minmax(0,1fr)_14rem] items-center gap-x-4 px-3 py-2">
+    <div
+      className={cn(
+        "grid min-h-9 grid-cols-[minmax(0,1fr)_14rem] items-center gap-x-4 px-3 py-2",
+        className,
+      )}
+    >
       <div className="min-w-0">
         <Label htmlFor={htmlFor} className="text-body font-normal text-foreground">
           {label}

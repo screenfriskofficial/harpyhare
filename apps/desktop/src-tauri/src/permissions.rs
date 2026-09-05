@@ -17,6 +17,7 @@ pub enum PermissionState {
 #[serde(rename_all = "snake_case")]
 pub enum PermissionKind {
     Audio,
+    Microphone,
     Screen,
 }
 
@@ -24,6 +25,7 @@ pub enum PermissionKind {
 #[serde(rename_all = "camelCase")]
 pub struct PermissionsStatus {
     pub audio: PermissionState,
+    pub microphone: PermissionState,
     pub screen: PermissionState,
 }
 
@@ -50,6 +52,53 @@ fn audio_state(app: &AppHandle) -> PermissionState {
     state_from_granted(recording::ensure_capture(app))
 }
 
+/// Reading authorization never opens the device or prompts the user.
+pub fn microphone_state() -> PermissionState {
+    #[cfg(target_os = "macos")]
+    {
+        use cidre::av;
+        match av::CaptureDevice::authorization_status_for_media_type(av::MediaType::audio()) {
+            Ok(av::AuthorizationStatus::Authorized) => PermissionState::Granted,
+            Ok(av::AuthorizationStatus::NotDetermined) => PermissionState::Unknown,
+            _ => PermissionState::Denied,
+        }
+    }
+    #[cfg(target_os = "windows")]
+    {
+        PermissionState::Granted
+    } // WASAPI reports denied desktop access when opening.
+}
+
+async fn request_microphone_permission() -> Result<PermissionState, String> {
+    #[cfg(target_os = "macos")]
+    {
+        use cidre::av;
+        let receiver = {
+            let (sender, receiver) = tokio::sync::oneshot::channel();
+            let mut sender = Some(sender);
+            let mut callback = cidre::blocks::SendBlock::new1(move |granted: bool| {
+                if let Some(sender) = sender.take() {
+                    let _ = sender.send(granted);
+                }
+            });
+            av::CaptureDevice::request_access_for_media_type_ch(
+                av::MediaType::audio(),
+                &mut callback,
+            )
+            .map_err(|e| format!("Не удалось запросить микрофон: {e:?}"))?;
+            receiver
+        };
+        receiver
+            .await
+            .map(state_from_granted)
+            .map_err(|e| e.to_string())
+    }
+    #[cfg(target_os = "windows")]
+    {
+        Ok(microphone_state())
+    }
+}
+
 fn screen_state(app: &AppHandle) -> PermissionState {
     if platform::screen_capture_access() {
         return PermissionState::Granted;
@@ -68,6 +117,7 @@ fn mark_requested(app: &AppHandle, kind: PermissionKind) -> Result<(), String> {
     let flag = match kind {
         PermissionKind::Audio => &mut settings.audio_permission_requested,
         PermissionKind::Screen => &mut settings.screen_permission_requested,
+        PermissionKind::Microphone => return Ok(()),
     };
     if *flag {
         return Ok(());
@@ -88,22 +138,37 @@ fn mark_requested(app: &AppHandle, kind: PermissionKind) -> Result<(), String> {
 pub async fn permissions_status(app: AppHandle) -> PermissionsStatus {
     tokio::task::spawn_blocking(move || PermissionsStatus {
         audio: audio_state(&app),
+        microphone: microphone_state(),
         screen: screen_state(&app),
     })
     .await
-    .unwrap_or(PermissionsStatus { audio: PermissionState::Unknown, screen: PermissionState::Unknown })
+    .unwrap_or(PermissionsStatus {
+        audio: PermissionState::Unknown,
+        microphone: microphone_state(),
+        screen: PermissionState::Unknown,
+    })
 }
 
 #[tauri::command]
 #[specta::specta]
-pub async fn request_permission(app: AppHandle, kind: PermissionKind) -> Result<PermissionState, String> {
+pub async fn request_permission(
+    app: AppHandle,
+    kind: PermissionKind,
+) -> Result<PermissionState, String> {
+    if kind == PermissionKind::Microphone {
+        return request_microphone_permission().await;
+    }
     tokio::task::spawn_blocking(move || request_permission_blocking(&app, kind))
         .await
         .map_err(|e| e.to_string())?
 }
 
-fn request_permission_blocking(app: &AppHandle, kind: PermissionKind) -> Result<PermissionState, String> {
+fn request_permission_blocking(
+    app: &AppHandle,
+    kind: PermissionKind,
+) -> Result<PermissionState, String> {
     match kind {
+        PermissionKind::Microphone => Ok(microphone_state()),
         PermissionKind::Audio => {
             if !AUDIO_REQUIRES_PERMISSION {
                 return Ok(PermissionState::Granted);
@@ -123,6 +188,7 @@ fn request_permission_blocking(app: &AppHandle, kind: PermissionKind) -> Result<
 pub fn open_permission_settings(kind: PermissionKind) {
     match kind {
         PermissionKind::Audio => platform::open_audio_capture_privacy_pane(),
+        PermissionKind::Microphone => platform::open_microphone_privacy_pane(),
         PermissionKind::Screen => platform::open_screen_capture_privacy_pane(),
     }
 }

@@ -4,5 +4,7 @@
 <dict>
   <key>NSAudioCaptureUsageDescription</key>
   <string>Audio System записывает системный звук по зажатию push-to-talk клавиши, чтобы расшифровать речь в текст.</string>
+  <key>NSMicrophoneUsageDescription</key>
+  <string>Audio System записывает ваш микрофон только во время push-to-talk, если включён источник «Мой микрофон», чтобы расшифровать вашу речь отдельно.</string>
 </dict>
 </plist>

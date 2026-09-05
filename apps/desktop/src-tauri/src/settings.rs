@@ -66,8 +66,12 @@ fn api_key_mut<'a>(s: &'a mut Settings, key_id: &str) -> Option<&'a mut String> 
 /// ключ код доступа глушит целиком; если хоть один вендор с этим ключом идёт
 /// мимо relay, личный ключ ему нужен и под кодом.
 pub fn registry_key_ids() -> Vec<(&'static str, bool)> {
-    let llm_rows = crate::llm::registry::PROVIDERS.iter().map(|p| (p.key_id, p.proxied));
-    let stt_rows = crate::stt::registry::PROVIDERS.iter().map(|p| (p.key_id, p.proxied));
+    let llm_rows = crate::llm::registry::PROVIDERS
+        .iter()
+        .map(|p| (p.key_id, p.proxied));
+    let stt_rows = crate::stt::registry::PROVIDERS
+        .iter()
+        .map(|p| (p.key_id, p.proxied));
     let mut ids: Vec<(&'static str, bool)> = Vec::new();
     for (key_id, proxied) in llm_rows.chain(stt_rows) {
         match ids.iter_mut().find(|(id, _)| *id == key_id) {
@@ -80,7 +84,9 @@ pub fn registry_key_ids() -> Vec<(&'static str, bool)> {
 
 /// Re-exported from the STT registry, which owns the list. Kept as names so
 /// call sites read as intent rather than as string literals.
-pub use crate::stt::registry::{PROVIDER_GROQ as STT_PROVIDER_GROQ, PROVIDER_OPENAI as STT_PROVIDER_OPENAI};
+pub use crate::stt::registry::{
+    PROVIDER_GROQ as STT_PROVIDER_GROQ, PROVIDER_OPENAI as STT_PROVIDER_OPENAI,
+};
 
 pub const QUICK_ACTION_LIMIT: usize = 9;
 
@@ -152,28 +158,68 @@ pub mod limits {
 
     pub mod window {
         use super::Bounds;
-        pub const WIDTH: Bounds<f64> = Bounds { default: 960.0, min: 300.0, max: 1600.0 };
-        pub const HEIGHT: Bounds<f64> = Bounds { default: 680.0, min: 520.0, max: 1100.0 };
-        pub const OPACITY: Bounds<f64> = Bounds { default: 0.9, min: 0.2, max: 1.0 };
-        pub const MOVE_STEP: Bounds<u32> = Bounds { default: 20, min: 1, max: 200 };
-        pub const RESIZE_STEP: Bounds<u32> = Bounds { default: 20, min: 1, max: 200 };
+        pub const WIDTH: Bounds<f64> = Bounds {
+            default: 960.0,
+            min: 300.0,
+            max: 1600.0,
+        };
+        pub const HEIGHT: Bounds<f64> = Bounds {
+            default: 680.0,
+            min: 520.0,
+            max: 1100.0,
+        };
+        pub const OPACITY: Bounds<f64> = Bounds {
+            default: 0.9,
+            min: 0.2,
+            max: 1.0,
+        };
+        pub const MOVE_STEP: Bounds<u32> = Bounds {
+            default: 20,
+            min: 1,
+            max: 200,
+        };
+        pub const RESIZE_STEP: Bounds<u32> = Bounds {
+            default: 20,
+            min: 1,
+            max: 200,
+        };
     }
 
     pub mod chat {
         use super::Bounds;
-        pub const FONT_SIZE: Bounds<f64> = Bounds { default: 13.5, min: 10.0, max: 20.0 };
-        pub const SCROLL_STEP: Bounds<u32> = Bounds { default: 120, min: 10, max: 1000 };
+        pub const FONT_SIZE: Bounds<f64> = Bounds {
+            default: 13.5,
+            min: 10.0,
+            max: 20.0,
+        };
+        pub const SCROLL_STEP: Bounds<u32> = Bounds {
+            default: 120,
+            min: 10,
+            max: 1000,
+        };
     }
 
     pub mod teleprompter {
         use super::Bounds;
-        pub const SPEED: Bounds<f64> = Bounds { default: 40.0, min: 10.0, max: 150.0 };
-        pub const FONT_SIZE: Bounds<f64> = Bounds { default: 28.0, min: 20.0, max: 48.0 };
+        pub const SPEED: Bounds<f64> = Bounds {
+            default: 40.0,
+            min: 10.0,
+            max: 150.0,
+        };
+        pub const FONT_SIZE: Bounds<f64> = Bounds {
+            default: 28.0,
+            min: 20.0,
+            max: 48.0,
+        };
     }
 
     pub mod capture {
         use super::Bounds;
-        pub const BUFFER_SECONDS: Bounds<u32> = Bounds { default: 4, min: 1, max: 10 };
+        pub const BUFFER_SECONDS: Bounds<u32> = Bounds {
+            default: 4,
+            min: 1,
+            max: 10,
+        };
     }
 }
 
@@ -198,9 +244,21 @@ struct QuickActionSeed {
 }
 
 const QUICK_ACTION_SEEDS: &[QuickActionSeed] = &[
-    QuickActionSeed { id: "detail", title: "Подробнее", prompt: "Расскажи более подробно." },
-    QuickActionSeed { id: "brief", title: "Короче", prompt: "Ответь короче, только суть." },
-    QuickActionSeed { id: "code", title: "Пример кода", prompt: "Покажи пример кода." },
+    QuickActionSeed {
+        id: "detail",
+        title: "Подробнее",
+        prompt: "Расскажи более подробно.",
+    },
+    QuickActionSeed {
+        id: "brief",
+        title: "Короче",
+        prompt: "Ответь короче, только суть.",
+    },
+    QuickActionSeed {
+        id: "code",
+        title: "Пример кода",
+        prompt: "Покажи пример кода.",
+    },
 ];
 
 fn seeded_quick_actions() -> Vec<QuickAction> {
@@ -245,6 +303,9 @@ pub struct Settings {
     pub window_height: f64,
     pub resize_step: u32,
     pub capture_device_uid: String,
+    pub microphone_device_uid: String,
+    pub capture_system_audio: bool,
+    pub capture_microphone: bool,
     pub theme: String,
     pub ui_language: String,
     pub scroll_step: u32,
@@ -285,6 +346,9 @@ impl Default for Settings {
             window_height: limits::window::HEIGHT.default,
             resize_step: limits::window::RESIZE_STEP.default,
             capture_device_uid: String::new(),
+            microphone_device_uid: String::new(),
+            capture_system_audio: true,
+            capture_microphone: false,
             theme: defaults::THEME.into(),
             ui_language: defaults::UI_LANGUAGE.into(),
             scroll_step: limits::chat::SCROLL_STEP.default,
@@ -423,11 +487,15 @@ impl Settings {
             if proxied_everywhere && has_access_token {
                 continue;
             }
-            let Some(target) = api_key_mut(self, key_id) else { continue };
+            let Some(target) = api_key_mut(self, key_id) else {
+                continue;
+            };
             if !target.is_empty() {
                 continue;
             }
-            let Some(candidate) = lookup(key_id) else { continue };
+            let Some(candidate) = lookup(key_id) else {
+                continue;
+            };
             let candidate = candidate.trim();
             if !candidate.is_empty() {
                 *target = candidate.to_string();
@@ -447,7 +515,10 @@ fn quarantine_path(path: &Path) -> PathBuf {
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_secs())
         .unwrap_or(0);
-    let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    let name = path
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_default();
     path.with_file_name(format!("{name}.{QUARANTINE_SUFFIX}-{stamp}"))
 }
 
@@ -456,13 +527,17 @@ fn quarantine_path(path: &Path) -> PathBuf {
 /// `NamedTempFile` also removes an unpublished file on every error path.
 pub(crate) fn write_atomic_owner_only(path: &Path, contents: &str) -> std::io::Result<()> {
     use std::io::Write;
-    let parent = path.parent().filter(|p| !p.as_os_str().is_empty()).unwrap_or(Path::new("."));
+    let parent = path
+        .parent()
+        .filter(|p| !p.as_os_str().is_empty())
+        .unwrap_or(Path::new("."));
     std::fs::create_dir_all(parent)?;
     let mut tmp = tempfile::NamedTempFile::new_in(parent)?;
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        tmp.as_file().set_permissions(std::fs::Permissions::from_mode(OWNER_ONLY_FILE_MODE))?;
+        tmp.as_file()
+            .set_permissions(std::fs::Permissions::from_mode(OWNER_ONLY_FILE_MODE))?;
     }
     tmp.write_all(contents.as_bytes())?;
     tmp.as_file().sync_all()?;

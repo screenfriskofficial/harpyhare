@@ -7,11 +7,11 @@ use windows::Win32::Graphics::Dwm::{
     DwmSetWindowAttribute, DWMWA_BORDER_COLOR, DWMWA_COLOR_NONE, DWMWA_WINDOW_CORNER_PREFERENCE,
     DWMWCP_ROUND, DWMWINDOWATTRIBUTE,
 };
+use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::UI::Input::KeyboardAndMouse::{
     GetAsyncKeyState, VIRTUAL_KEY, VK_CONTROL, VK_DOWN, VK_LEFT, VK_LWIN, VK_MENU, VK_RIGHT,
     VK_RWIN, VK_SHIFT, VK_UP,
 };
-use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::UI::Shell::ShellExecuteW;
 use windows::Win32::UI::WindowsAndMessaging::{
     CallNextHookEx, GetAncestor, GetForegroundWindow, SetWindowsHookExW, GA_ROOTOWNER, HC_ACTION,
@@ -170,4 +170,8 @@ pub fn request_screen_capture_access() -> bool {
 pub fn open_url(url: &str) {
     let wide: Vec<u16> = url.encode_utf16().chain(std::iter::once(0)).collect();
     open_with_shell(PCWSTR(wide.as_ptr()));
+}
+
+pub fn open_microphone_privacy_pane() {
+    open_audio_capture_privacy_pane();
 }

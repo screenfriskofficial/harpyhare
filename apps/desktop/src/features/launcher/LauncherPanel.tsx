@@ -168,6 +168,7 @@ export function LauncherPanel({
           >
             {screen === "settings" && (
               <SettingsScreen
+                permissions={readiness.permissions}
                 draft={draft}
                 set={set}
                 tab={settingsTab}

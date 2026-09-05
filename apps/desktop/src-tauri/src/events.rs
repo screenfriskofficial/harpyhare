@@ -96,7 +96,7 @@ pub fn state_changed(app: &AppHandle, state: RecorderState) {
     let _ = app.emit(EVENT_STATE_CHANGED, state);
 }
 
-pub fn transcript_ready(app: &AppHandle, text: String) {
+pub fn transcript_ready(app: &AppHandle, text: crate::recording::TranscriptReady) {
     let _ = app.emit(EVENT_TRANSCRIPT_READY, text);
 }
 

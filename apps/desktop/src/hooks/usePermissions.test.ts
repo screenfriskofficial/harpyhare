@@ -22,7 +22,11 @@ afterEach(() => {
 
 describe("usePermissions", () => {
   it("подтягивает статус на маунте и выводит производные флаги", async () => {
-    permissionsStatus.mockResolvedValue({ audio: "granted", screen: "denied" });
+    permissionsStatus.mockResolvedValue({
+      microphone: "unknown",
+      audio: "granted",
+      screen: "denied",
+    });
     const { result } = renderHook(() => usePermissions());
     await waitFor(() => {
       expect(result.current.loaded).toBe(true);
@@ -33,7 +37,11 @@ describe("usePermissions", () => {
   });
 
   it("request обновляет статус только запрошенного доступа", async () => {
-    permissionsStatus.mockResolvedValue({ audio: "unknown", screen: "denied" });
+    permissionsStatus.mockResolvedValue({
+      microphone: "unknown",
+      audio: "unknown",
+      screen: "denied",
+    });
     requestPermission.mockResolvedValue("granted");
     const { result } = renderHook(() => usePermissions());
     await waitFor(() => {
@@ -43,12 +51,20 @@ describe("usePermissions", () => {
       await result.current.request("audio");
     });
     expect(requestPermission).toHaveBeenCalledWith("audio");
-    expect(result.current.status).toEqual({ audio: "granted", screen: "denied" });
+    expect(result.current.status).toEqual({
+      microphone: "unknown",
+      audio: "granted",
+      screen: "denied",
+    });
     expect(result.current.pending).toBeNull();
   });
 
   it("pending держится, пока команда не ответила", async () => {
-    permissionsStatus.mockResolvedValue({ audio: "unknown", screen: "unknown" });
+    permissionsStatus.mockResolvedValue({
+      microphone: "unknown",
+      audio: "unknown",
+      screen: "unknown",
+    });
     let resolveRequest: ((state: PermissionState) => void) | undefined;
     requestPermission.mockReturnValue(
       new Promise<PermissionState>((resolve) => {

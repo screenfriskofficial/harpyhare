@@ -1,13 +1,12 @@
-import { useQuery } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { SelectItem } from "@/components/ui/select";
+import type { PermissionsApi } from "@/hooks/usePermissions";
 import { SETTINGS_LIMITS } from "@/ipc/bindings";
-import { listAudioOutputDevices } from "@/ipc/commands";
-import type { AudioOutputDevice } from "@/ipc/types";
-import { queryKeys } from "@/lib/query-client";
 import { STT_PROVIDERS, sttProviderSupportsTranslate } from "@/lib/stt-providers";
 import type { SectionProps } from "../contract";
 import { SettingGroup, SettingRow, SettingSelect, SettingSlider, SettingSwitch } from "../fields";
+import { AudioRouting } from "./AudioRouting";
+import { AudioSources } from "./AudioSources";
 
 const STT_LANGUAGE_AUTO = "auto";
 
@@ -21,62 +20,13 @@ const STT_LANGUAGES = [
   { value: "fr", label: "Français" },
 ];
 
-const CAPTURE_DEVICE_SYSTEM_DEFAULT = "system-default";
 const BUFFER_SECONDS_STEP = 1;
 
-const AUDIO_DEVICES_STALE_MS = 30 * 1000;
-
-function useAudioOutputDevices(): AudioOutputDevice[] {
-  const { data } = useQuery({
-    queryKey: queryKeys.audioDevices,
-    queryFn: listAudioOutputDevices,
-    staleTime: AUDIO_DEVICES_STALE_MS,
-  });
-  return data ?? [];
-}
-
-function withSavedDevice(
-  devices: AudioOutputDevice[],
-  savedUid: string,
-  missingLabel: string,
-): AudioOutputDevice[] {
-  if (savedUid === "" || devices.some((d) => d.uid === savedUid)) return devices;
-  return [...devices, { uid: savedUid, name: missingLabel }];
-}
-
-function CaptureDeviceRow({ draft, set }: SectionProps) {
-  const { t } = useTranslation();
-  const label = t("launcher.speech.device");
-  const devices = withSavedDevice(
-    useAudioOutputDevices(),
-    draft.capture_device_uid,
-    t("launcher.speech.missingDevice"),
-  );
-  return (
-    <SettingRow label={label} hint={t("launcher.speech.deviceHint")}>
-      <SettingSelect
-        ariaLabel={label}
-        value={
-          draft.capture_device_uid === "" ? CAPTURE_DEVICE_SYSTEM_DEFAULT : draft.capture_device_uid
-        }
-        onValueChange={(v) => {
-          set("capture_device_uid", v === CAPTURE_DEVICE_SYSTEM_DEFAULT ? "" : v);
-        }}
-      >
-        <SelectItem value={CAPTURE_DEVICE_SYSTEM_DEFAULT}>
-          {t("launcher.speech.systemOutput")}
-        </SelectItem>
-        {devices.map((d) => (
-          <SelectItem key={d.uid} value={d.uid}>
-            {d.name}
-          </SelectItem>
-        ))}
-      </SettingSelect>
-    </SettingRow>
-  );
-}
-
-export function SttSection({ draft, set }: SectionProps) {
+export function SttSection({
+  draft,
+  set,
+  permissions,
+}: SectionProps & { permissions: PermissionsApi }) {
   const { t } = useTranslation();
   const translateAvailable = sttProviderSupportsTranslate(draft.stt_provider);
   const translatingNow = draft.stt_translate && translateAvailable;
@@ -87,7 +37,8 @@ export function SttSection({ draft, set }: SectionProps) {
   const bufferDepthLabel = t("launcher.speech.bufferDepth");
   return (
     <SettingGroup title={t("launcher.speech.title")} description={t("launcher.speech.description")}>
-      <CaptureDeviceRow draft={draft} set={set} />
+      <AudioSources draft={draft} set={set} permissions={permissions} />
+      <AudioRouting draft={draft} set={set} />
       <SettingRow label={providerLabel} hint={t("launcher.speech.providerHint")}>
         <SettingSelect
           ariaLabel={providerLabel}
@@ -142,29 +93,33 @@ export function SttSection({ draft, set }: SectionProps) {
           }}
         />
       </SettingRow>
-      <SettingRow label={bufferLabel} hint={t("launcher.speech.bufferHint")}>
-        <SettingSwitch
-          ariaLabel={bufferLabel}
-          checked={draft.buffer_enabled}
-          onCheckedChange={(v) => {
-            set("buffer_enabled", v);
-          }}
-        />
-      </SettingRow>
-      <SettingRow label={bufferDepthLabel} hint={t("launcher.speech.bufferDepthHint")}>
-        <SettingSlider
-          ariaLabel={bufferDepthLabel}
-          value={draft.buffer_seconds}
-          min={SETTINGS_LIMITS.bufferSeconds.min}
-          max={SETTINGS_LIMITS.bufferSeconds.max}
-          step={BUFFER_SECONDS_STEP}
-          readout={t("units.secondsShort", { count: draft.buffer_seconds })}
-          disabled={!draft.buffer_enabled}
-          onChange={(v) => {
-            set("buffer_seconds", v);
-          }}
-        />
-      </SettingRow>
+      {draft.capture_system_audio && (
+        <>
+          <SettingRow label={bufferLabel} hint={t("launcher.speech.bufferHint")}>
+            <SettingSwitch
+              ariaLabel={bufferLabel}
+              checked={draft.buffer_enabled}
+              onCheckedChange={(v) => {
+                set("buffer_enabled", v);
+              }}
+            />
+          </SettingRow>
+          <SettingRow label={bufferDepthLabel} hint={t("launcher.speech.bufferDepthHint")}>
+            <SettingSlider
+              ariaLabel={bufferDepthLabel}
+              value={draft.buffer_seconds}
+              min={SETTINGS_LIMITS.bufferSeconds.min}
+              max={SETTINGS_LIMITS.bufferSeconds.max}
+              step={BUFFER_SECONDS_STEP}
+              readout={t("units.secondsShort", { count: draft.buffer_seconds })}
+              disabled={!draft.buffer_enabled}
+              onChange={(v) => {
+                set("buffer_seconds", v);
+              }}
+            />
+          </SettingRow>
+        </>
+      )}
     </SettingGroup>
   );
 }

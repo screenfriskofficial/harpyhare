@@ -9,6 +9,7 @@ function api(status: PermissionsStatus, overrides: Partial<PermissionsApi> = {})
     status,
     loaded: true,
     audioOk: status.audio === "granted",
+    microphoneOk: status.microphone === "granted",
     screenOk: status.screen === "granted",
     allOk: status.audio === "granted" && status.screen === "granted",
     needsAttention: status.audio !== "granted" || status.screen === "unknown",
@@ -27,15 +28,19 @@ afterEach(() => {
 
 describe("PermissionsScreen", () => {
   it("собирает все доступы в одном месте со статусами", () => {
-    render(<PermissionsScreen permissions={api({ audio: "granted", screen: "unknown" })} />);
+    render(
+      <PermissionsScreen
+        permissions={api({ microphone: "granted", audio: "granted", screen: "unknown" })}
+      />,
+    );
     expect(screen.getByText("Запись системного звука")).not.toBeNull();
     expect(screen.getByText("Запись экрана")).not.toBeNull();
-    expect(screen.getByText("выдан")).not.toBeNull();
+    expect(screen.getAllByText("выдан").length).toBeGreaterThan(0);
     expect(screen.getByText("не выдан")).not.toBeNull();
   });
 
   it("«Выдать» запрашивает именно тот доступ, у строки которого нажали", () => {
-    const permissions = api({ audio: "unknown", screen: "unknown" });
+    const permissions = api({ microphone: "granted", audio: "unknown", screen: "unknown" });
     render(<PermissionsScreen permissions={permissions} />);
     const [, screenGrant] = screen.getAllByText("Выдать");
     if (!screenGrant) throw new Error("нет кнопки «Выдать» у строки записи экрана");
@@ -44,13 +49,17 @@ describe("PermissionsScreen", () => {
   });
 
   it("у выданного доступа кнопок запроса нет", () => {
-    render(<PermissionsScreen permissions={api({ audio: "granted", screen: "granted" })} />);
+    render(
+      <PermissionsScreen
+        permissions={api({ microphone: "granted", audio: "granted", screen: "granted" })}
+      />,
+    );
     expect(screen.queryByText("Выдать")).toBeNull();
     expect(screen.queryByText("Настройки")).toBeNull();
   });
 
   it("у отклонённого доступа остаются обе кнопки: повтор и системные настройки", () => {
-    const permissions = api({ audio: "denied", screen: "granted" });
+    const permissions = api({ microphone: "granted", audio: "denied", screen: "granted" });
     render(<PermissionsScreen permissions={permissions} />);
     fireEvent.click(screen.getByText("Настройки"));
     expect(permissions.openSettings).toHaveBeenCalledWith("audio");
@@ -59,7 +68,10 @@ describe("PermissionsScreen", () => {
   });
 
   it("во время запроса нажатая кнопка говорит «Запрашиваю…», обе заблокированы", () => {
-    const permissions = api({ audio: "unknown", screen: "unknown" }, { pending: "audio" });
+    const permissions = api(
+      { microphone: "granted", audio: "unknown", screen: "unknown" },
+      { pending: "audio" },
+    );
     render(<PermissionsScreen permissions={permissions} />);
     const requesting = screen.getByText<HTMLButtonElement>("Запрашиваю…").closest("button");
     const idle = screen.getByText<HTMLButtonElement>("Выдать").closest("button");
@@ -69,7 +81,7 @@ describe("PermissionsScreen", () => {
   });
 
   it("«Проверить заново» перечитывает статусы", () => {
-    const permissions = api({ audio: "denied", screen: "denied" });
+    const permissions = api({ microphone: "granted", audio: "denied", screen: "denied" });
     render(<PermissionsScreen permissions={permissions} />);
     fireEvent.click(screen.getByText("Проверить заново"));
     expect(permissions.refresh).toHaveBeenCalledTimes(1);

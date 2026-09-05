@@ -155,3 +155,7 @@ pub fn request_screen_capture_access() -> bool {
 pub fn open_url(url: &str) {
     open_with_shell(url);
 }
+
+pub fn open_microphone_privacy_pane() {
+    open_with_shell("x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone");
+}

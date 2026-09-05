@@ -1,5 +1,7 @@
 import { useEffect } from "react";
 import { onEvent } from "@/ipc/events";
+import { copyTextReportingError } from "@/lib/clipboard-text";
+import { formatTranscript } from "@/lib/transcript";
 import { useLatestRef } from "./useLatestRef";
 
 /**
@@ -12,8 +14,11 @@ export function useTranscription(onText: (text: string) => void): void {
   const onTextRef = useLatestRef(onText);
   useEffect(
     () =>
-      onEvent("transcript-ready", (text) => {
+      onEvent("transcript-ready", (transcript) => {
+        const text = formatTranscript(transcript);
+        if (text === "") return;
         onTextRef.current(text);
+        void copyTextReportingError(text);
       }),
     [onTextRef],
   );

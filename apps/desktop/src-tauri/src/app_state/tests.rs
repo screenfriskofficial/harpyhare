@@ -68,7 +68,10 @@ fn keyed_settings(anthropic: &str, openai: &str, access_token: &str) -> settings
 }
 
 fn access_of(provider_id: &str, s: &settings::Settings) -> Option<ProviderAccess> {
-    provider_access(llm::registry::spec(provider_id).expect("провайдер объявлен"), s)
+    provider_access(
+        llm::registry::spec(provider_id).expect("провайдер объявлен"),
+        s,
+    )
 }
 
 #[test]

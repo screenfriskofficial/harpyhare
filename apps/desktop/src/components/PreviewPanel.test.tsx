@@ -19,7 +19,10 @@ describe("PreviewPanel", () => {
   it("шлёт html в set_preview_html и грузит iframe с нонсом в src", async () => {
     const { container } = render(<PreviewPanel html="<p>hi</p>" onClose={() => undefined} />);
     await waitFor(() => {
-      expect(setPreviewHtml).toHaveBeenCalledWith("<p>hi</p>");
+      expect(setPreviewHtml).toHaveBeenCalledWith(expect.stringContaining("<p>hi</p>"));
+      expect(setPreviewHtml).toHaveBeenCalledWith(
+        expect.stringContaining('id="harpyhare-preview-cursor"'),
+      );
     });
     await waitFor(() => {
       const src = container.querySelector("iframe")?.getAttribute("src");

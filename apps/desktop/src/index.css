@@ -193,6 +193,11 @@ body.launcher {
 
 * {
   border-color: var(--border);
+}
+
+*,
+*::before,
+*::after {
   cursor: default !important;
 }
 

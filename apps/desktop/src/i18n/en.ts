@@ -22,6 +22,7 @@ export const en: Dictionary = {
     unnamed: "Untitled",
     noFolder: "No folder",
   },
+  transcript: { system: "Interviewer", microphone: "Me" },
   units: {
     chars: plural({ one: "{{count}} char", other: "{{count}} chars" }),
     thousandChars: "{{count, number(maximumFractionDigits: 1)}}k chars",
@@ -313,6 +314,12 @@ export const en: Dictionary = {
       iframeTitle: "HTML preview",
       copyCode: "Copy code",
       empty: "Nothing to show",
+      zoomIn: "Zoom in",
+      zoomOut: "Zoom out",
+      actualSize: "Actual size (100%)",
+      fit: "Fit",
+      diagramControls: "Diagram zoom",
+      panHint: "Click and drag to pan · Ctrl + scroll to zoom",
     },
     teleprompter: {
       empty: "No answer for the teleprompter",
@@ -435,11 +442,32 @@ export const en: Dictionary = {
       activating: "Activating…",
     },
     speech: {
+      systemSource: "Interviewer — system audio",
+      systemSourceHint: "Record application audio: calls, videos and other system output.",
+      microphoneSource: "Me — my microphone",
+      microphoneSourceHint:
+        "The selected microphone opens only during PTT, with no background buffer. Source changes apply to the next recording.",
+      noSources: "Enable at least one audio source",
+      microphonePermission: "Microphone access",
+      separationHint:
+        "Speech appears in separate “Interviewer” and “Me” blocks. Use headphones to keep the interviewer’s audio from being picked up by your microphone.",
       title: "Speech recognition",
       description: "What exactly the app listens to and which language it transcribes.",
-      device: "Capture device",
-      deviceHint: "Audio is taken from the output you hear.",
-      systemOutput: "System output",
+      device: "Interviewer audio output",
+      deviceHint:
+        "Choose the output used by the call or video for the interviewer's voice. Only that output is captured.",
+      microphoneDevice: "My microphone device",
+      microphoneDeviceHint:
+        "Choose an input carrying only your voice. Changes apply to the next recording.",
+      defaultDevice: "System default",
+      defaultDeviceNamed: "System default — {{name}}",
+      loadingDevices: "Loading devices…",
+      selectedDeviceUnavailable:
+        "{{source}}: the selected device is disconnected. Reconnect it or choose another — it will not be replaced automatically.",
+      devicesLoadError: "Could not list audio devices. Refresh the list.",
+      refreshDevices: "Refresh devices",
+      virtualDeviceHint:
+        "VB-Cable, OBS and other mixers may already combine voices. Selecting such an input or output does not separate voices within it.",
       missingDevice: "Unavailable device",
       provider: "Recognition provider",
       providerHint: "OpenAI keeps English terms in Russian speech more accurately.",
@@ -584,6 +612,10 @@ export const en: Dictionary = {
       granting: "Requesting…",
       recheck: "Check again",
       rows: {
+        microphone: {
+          title: "Microphone recording",
+          purpose: "Only required when the microphone source is enabled.",
+        },
         audio: {
           title: "System audio recording",
           purpose:

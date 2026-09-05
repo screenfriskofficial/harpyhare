@@ -51,23 +51,72 @@ fn untouched_settings_rebuild_nothing() {
 fn every_field_the_stt_client_is_built_from_triggers_its_rebuild() {
     let base = settings::Settings::default();
     let edits: Vec<(&str, settings::Settings)> = vec![
-        ("stt_provider", settings::Settings { stt_provider: crate::stt::registry::PROVIDER_OPENAI.into(), ..base.clone() }),
-        ("stt_language", settings::Settings { stt_language: "en".into(), ..base.clone() }),
-        ("stt_translate", settings::Settings { stt_translate: true, ..base.clone() }),
-        ("access_token", settings::Settings { access_token: "itk_x".into(), ..base.clone() }),
+        (
+            "stt_provider",
+            settings::Settings {
+                stt_provider: crate::stt::registry::PROVIDER_OPENAI.into(),
+                ..base.clone()
+            },
+        ),
+        (
+            "stt_language",
+            settings::Settings {
+                stt_language: "en".into(),
+                ..base.clone()
+            },
+        ),
+        (
+            "stt_translate",
+            settings::Settings {
+                stt_translate: true,
+                ..base.clone()
+            },
+        ),
+        (
+            "access_token",
+            settings::Settings {
+                access_token: "itk_x".into(),
+                ..base.clone()
+            },
+        ),
         ("groq_api_key", with_key(&base, "groq", "k")),
     ];
     for (field, edited) in edits {
-        assert!(stt_client_needs_rebuild(&base, &edited), "смена {field} обязана пересобрать STT-клиент");
+        assert!(
+            stt_client_needs_rebuild(&base, &edited),
+            "смена {field} обязана пересобрать STT-клиент"
+        );
     }
-    let unrelated = settings::Settings { auto_send: true, window_width: 999.0, ..base.clone() };
-    assert!(!stt_client_needs_rebuild(&base, &unrelated), "чужие поля клиент не трогают");
+    let unrelated = settings::Settings {
+        auto_send: true,
+        window_width: 999.0,
+        ..base.clone()
+    };
+    assert!(
+        !stt_client_needs_rebuild(&base, &unrelated),
+        "чужие поля клиент не трогают"
+    );
 }
 
 #[test]
 fn the_llm_client_follows_the_token_and_the_answer_keys_only() {
     let base = settings::Settings::default();
-    assert!(llm_client_needs_rebuild(&base, &settings::Settings { access_token: "itk_x".into(), ..base.clone() }));
-    assert!(llm_client_needs_rebuild(&base, &with_key(&base, "anthropic", "k")));
-    assert!(!llm_client_needs_rebuild(&base, &settings::Settings { stt_language: "en".into(), ..base.clone() }));
+    assert!(llm_client_needs_rebuild(
+        &base,
+        &settings::Settings {
+            access_token: "itk_x".into(),
+            ..base.clone()
+        }
+    ));
+    assert!(llm_client_needs_rebuild(
+        &base,
+        &with_key(&base, "anthropic", "k")
+    ));
+    assert!(!llm_client_needs_rebuild(
+        &base,
+        &settings::Settings {
+            stt_language: "en".into(),
+            ..base.clone()
+        }
+    ));
 }
