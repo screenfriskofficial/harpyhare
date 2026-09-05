@@ -80,7 +80,7 @@ const renderMenu = (overrides: Partial<Parameters<typeof ModelCommandMenu>[0]> =
 };
 
 describe("ModelCommandMenu", () => {
-  const textModel: ModelInfo = {
+  const openrouterModel: ModelInfo = {
     id: "openrouter/google/gemini-2.5-flash",
     displayName: "Google: Gemini 2.5 Flash",
     provider: "openrouter",
@@ -90,51 +90,89 @@ describe("ModelCommandMenu", () => {
     maxInputTokens: 1048576,
   };
 
-  it("keeps text models in their own compact page and selects their namespaced id", async () => {
-    const props = renderMenu({ models: [...models, textModel] });
-    expect(screen.queryByText(textModel.displayName)).toBeNull();
-    fireEvent.click(
-      screen.getByRole("option", { name: `${t("hud.modelMenu.answer")} · OpenRouter` }),
-    );
-    expect(screen.queryByText("Mistral: Voxtral Mini Transcribe")).toBeNull();
-    fireEvent.change(screen.getByRole("combobox"), { target: { value: "google/gemini" } });
-    await waitFor(() => {
-      expect(screen.getByText(textModel.displayName)).toBeTruthy();
-    });
-    fireEvent.keyDown(screen.getByRole("combobox"), { key: "Enter" });
-    expect(props.onSelectModel).toHaveBeenCalledWith(textModel.id);
-    expect(props.onSelectSttModel).not.toHaveBeenCalled();
-    expect(props.onOpenChange).toHaveBeenCalledWith(false);
-  });
+  const textProviders = [
+    { label: "OpenRouter", model: openrouterModel },
+    {
+      label: "Xclis",
+      model: {
+        ...openrouterModel,
+        id: "xclis/gpt-5.6-terra",
+        displayName: "GPT-5.6 Terra",
+        provider: "xclis",
+      },
+    },
+  ];
 
-  it("global search finds text models without opening their provider page", async () => {
-    const props = renderMenu({ models: [...models, textModel] });
-    fireEvent.change(screen.getByRole("combobox"), { target: { value: "google/gemini" } });
-    await waitFor(() => {
-      expect(screen.queryByText("Opus 5")).toBeNull();
-    });
-    fireEvent.click(screen.getByText(textModel.displayName));
-    expect(props.onSelectModel).toHaveBeenCalledWith(textModel.id);
-  });
+  it.each(textProviders)(
+    "$label keeps its models in a compact page and selects their namespaced id",
+    async ({ label, model: textModel }) => {
+      const props = renderMenu({ models: [...models, ...textProviders.map((p) => p.model)] });
+      expect(screen.queryByText(textModel.displayName)).toBeNull();
+      fireEvent.click(
+        screen.getByRole("option", { name: `${t("hud.modelMenu.answer")} · ${label}` }),
+      );
+      expect(screen.queryByText("Mistral: Voxtral Mini Transcribe")).toBeNull();
+      for (const other of textProviders.filter((p) => p.model.provider !== textModel.provider)) {
+        expect(screen.queryByText(other.model.displayName)).toBeNull();
+      }
+      fireEvent.keyDown(screen.getByRole("combobox"), { key: "Backspace" });
+      expect(
+        screen.getByRole("option", { name: `${t("hud.modelMenu.answer")} · ${label}` }),
+      ).toBeTruthy();
+      fireEvent.click(
+        screen.getByRole("option", { name: `${t("hud.modelMenu.answer")} · ${label}` }),
+      );
 
-  it("text catalogue can be retried, and an absent key locks its models", () => {
-    const props = renderMenu();
-    fireEvent.click(
-      screen.getByRole("option", { name: `${t("hud.modelMenu.answer")} · OpenRouter` }),
-    );
-    expect(screen.getByRole("status").textContent).toContain(t("hud.modelMenu.catalogUnavailable"));
-    fireEvent.click(screen.getByRole("button", { name: t("common.retry") }));
-    expect(props.onRefreshModels).toHaveBeenCalledOnce();
-    cleanup();
-    const locked = renderMenu({ models: [textModel], modelProvidersMissingKey: ["openrouter"] });
-    fireEvent.click(
-      screen.getByRole("option", { name: `${t("hud.modelMenu.answer")} · OpenRouter` }),
-    );
-    const row = screen.getByText(textModel.displayName).closest("[cmdk-item]");
-    expect(row?.getAttribute("aria-disabled")).toBe("true");
-    fireEvent.click(screen.getByText(textModel.displayName));
-    expect(locked.onSelectModel).not.toHaveBeenCalled();
-  });
+      fireEvent.change(screen.getByRole("combobox"), { target: { value: textModel.id } });
+      await waitFor(() => {
+        expect(screen.getByText(textModel.displayName)).toBeTruthy();
+      });
+      fireEvent.keyDown(screen.getByRole("combobox"), { key: "Enter" });
+      expect(props.onSelectModel).toHaveBeenCalledWith(textModel.id);
+      expect(props.onSelectSttModel).not.toHaveBeenCalled();
+      expect(props.onOpenChange).toHaveBeenCalledWith(false);
+    },
+  );
+
+  it.each(textProviders)(
+    "global search finds $label models without opening their provider page",
+    async ({ model: textModel }) => {
+      const props = renderMenu({ models: [...models, ...textProviders.map((p) => p.model)] });
+      fireEvent.change(screen.getByRole("combobox"), { target: { value: textModel.id } });
+      await waitFor(() => {
+        expect(screen.queryByText("Opus 5")).toBeNull();
+      });
+      fireEvent.click(screen.getByText(textModel.displayName));
+      expect(props.onSelectModel).toHaveBeenCalledWith(textModel.id);
+    },
+  );
+
+  it.each(textProviders)(
+    "$label catalogue can be retried, and an absent key locks its models",
+    ({ label, model: textModel }) => {
+      const props = renderMenu();
+      fireEvent.click(
+        screen.getByRole("option", { name: `${t("hud.modelMenu.answer")} · ${label}` }),
+      );
+      expect(screen.getByRole("status").textContent).toContain(
+        t("hud.modelMenu.catalogUnavailable", { provider: label }),
+      );
+      fireEvent.click(screen.getByRole("button", { name: t("common.retry") }));
+      expect(props.onRefreshModels).toHaveBeenCalledOnce();
+      cleanup();
+      const locked = renderMenu({
+        models: [textModel],
+        modelProvidersMissingKey: [textModel.provider],
+      });
+      fireEvent.click(
+        screen.getByRole("option", { name: `${t("hud.modelMenu.answer")} · ${label}` }),
+      );
+      const row = screen.getByText(textModel.displayName).closest("[cmdk-item]");
+      expect(row?.getAttribute("aria-disabled")).toBe("true");
+      fireEvent.click(screen.getByText(textModel.displayName));
+      expect(locked.onSelectModel).not.toHaveBeenCalled();
+    },
+  );
 
   it("OpenRouter opens its catalog without switching provider, then selects a model", () => {
     const props = renderMenu();

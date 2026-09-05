@@ -277,7 +277,7 @@ export const en: Dictionary = {
     modelMenu: {
       browseAnswers: "Choose a text model",
       answerSearch: "Search text models…",
-      catalogUnavailable: "Could not load OpenRouter text models. Try refreshing the catalogue.",
+      catalogUnavailable: "Could not load {{provider}} text models. Try refreshing the catalogue.",
       title: "Models",
       description: "Pick the voice model and the answer model",
       placeholder: "Find a model…",

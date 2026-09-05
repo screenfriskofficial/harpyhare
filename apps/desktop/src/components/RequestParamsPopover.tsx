@@ -15,7 +15,7 @@ import {
 import { Switch } from "@/components/ui/switch";
 import { missingKeyHint } from "@/lib/api-keys";
 import type { Chat, ChatPatch } from "@/lib/chats";
-import { modelGroups, modelLabel, OPENROUTER_PROVIDER, type ModelInfo } from "@/lib/models";
+import { modelGroups, modelLabel, modelIdHint, type ModelInfo } from "@/lib/models";
 
 export interface RequestParamsPopoverProps {
   chat: Chat;
@@ -75,11 +75,7 @@ function ModelSelect(props: ModelSelectProps) {
           group: showHeadings ? group.label : undefined,
           keywords: [group.label],
           disabled: locked,
-          description: locked
-            ? missingKeyHint()
-            : group.id === OPENROUTER_PROVIDER
-              ? model.id.slice(OPENROUTER_PROVIDER.length + 1)
-              : undefined,
+          description: locked ? missingKeyHint() : modelIdHint(model),
           icon: locked ? <Lock className="size-3" aria-hidden /> : undefined,
         }));
       })}

@@ -14,7 +14,9 @@ export interface ModelInfo {
 
 /** New chats start here. The id is declared in Rust (`llm::DEFAULT_MODEL`). */
 export const DEFAULT_MODEL: string = GENERATED_DEFAULT_MODEL;
-export const OPENROUTER_PROVIDER = "openrouter";
+
+/** Aggregators have no offline catalogue; their live lists get a dedicated picker page. */
+export const DYNAMIC_MODEL_PROVIDERS = LLM_PROVIDERS.filter((p) => p.catalog.length === 0);
 
 const UNKNOWN_MAX_INPUT_TOKENS = 0;
 
@@ -107,7 +109,11 @@ export interface ModelGroup {
   models: ModelInfo[];
 }
 
-export function modelGroups(models: ModelInfo[], selectedId?: string): ModelGroup[] {
+export function modelGroups(
+  models: ModelInfo[],
+  selectedId?: string,
+  options: { includeDynamicProviders?: boolean } = {},
+): ModelGroup[] {
   const groups = MODEL_PROVIDERS.map((p) => ({
     id: p.id,
     label: p.label,
@@ -118,7 +124,11 @@ export function modelGroups(models: ModelInfo[], selectedId?: string): ModelGrou
   const rest = modelsOfUnknownProvider(models);
   const unknown =
     rest.length > 0 ? [{ id: "", label: t("models.otherProvider"), models: rest }] : [];
-  return [...groups, ...unknown].filter((g) => g.models.length > 0);
+  return [...groups, ...unknown].filter(
+    (g) =>
+      g.models.length > 0 ||
+      (options.includeDynamicProviders && DYNAMIC_MODEL_PROVIDERS.some((p) => p.id === g.id)),
+  );
 }
 
 const BRAND_PREFIX = /^Claude\s+/i;
@@ -147,12 +157,20 @@ function unlistedModel(id: string): ModelInfo {
   return {
     id,
     displayName: id,
-    provider: id.startsWith(`${OPENROUTER_PROVIDER}/`) ? OPENROUTER_PROVIDER : "",
+    provider: DYNAMIC_MODEL_PROVIDERS.find((p) => id.startsWith(`${p.id}/`))?.id ?? "",
     adaptive: true,
     alwaysThinks: false,
     codeExec: true,
     maxInputTokens: UNKNOWN_MAX_INPUT_TOKENS,
   };
+}
+
+/** Show the upstream id under aggregator model names without changing the saved id. */
+export function modelIdHint(model: Pick<ModelInfo, "id" | "provider">): string | undefined {
+  const prefix = `${model.provider}/`;
+  return DYNAMIC_MODEL_PROVIDERS.some((p) => p.id === model.provider) && model.id.startsWith(prefix)
+    ? model.id.slice(prefix.length)
+    : undefined;
 }
 
 export function selectableModels(models: ModelInfo[], currentId: string): ModelInfo[] {

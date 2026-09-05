@@ -154,13 +154,16 @@ describe("models", () => {
     expect(defaultModelFor(allLocked)).toBe(DEFAULT_MODEL);
   });
 
-  it("uses live OpenRouter models for new chats when it is the only unlocked provider", () => {
-    const live = model("openrouter/vendor/model", { provider: "openrouter" });
-    const locked = MODEL_PROVIDERS.filter((p) => p.id !== "openrouter").map((p) => p.id);
-    expect(defaultModelFor(locked, [live])).toBe(live.id);
-    expect(selectableModels([], live.id)[0]?.provider).toBe("openrouter");
-    expect(curatedModels([live])).toEqual([live]);
-  });
+  it.each(["openrouter", "xclis"])(
+    "keeps %s models available under their provider, including saved models outside the live catalogue",
+    (provider) => {
+      const live = model(`${provider}/vendor/model`, { provider });
+      const locked = MODEL_PROVIDERS.filter((p) => p.id !== provider).map((p) => p.id);
+      expect(defaultModelFor(locked, [live])).toBe(live.id);
+      expect(selectableModels([], live.id)[0]?.provider).toBe(provider);
+      expect(curatedModels([live])).toEqual([live]);
+    },
+  );
 
   it("defaultModelFor без запертых вендоров — дефолт первого в реестре", () => {
     expect(defaultModelFor([])).toBe(DEFAULT_MODEL);

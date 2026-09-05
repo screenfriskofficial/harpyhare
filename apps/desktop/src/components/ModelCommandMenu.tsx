@@ -16,7 +16,8 @@ import { missingKeyHint } from "@/lib/api-keys";
 import {
   modelGroups,
   modelLabel,
-  OPENROUTER_PROVIDER,
+  modelIdHint,
+  DYNAMIC_MODEL_PROVIDERS,
   selectableModels,
   type ModelGroup,
   type ModelInfo,
@@ -26,6 +27,7 @@ import { OPENROUTER_STT_PROVIDER, STT_PROVIDERS } from "@/lib/stt-providers";
 import { cn } from "@/lib/utils";
 
 const PROVIDER_HEADING_SEPARATOR = " · ";
+type ModelMenuPage = { kind: "voice" } | { kind: "answer"; provider: string } | null;
 
 function answerGroupHeading(heading: string, group: ModelGroup, groupCount: number): string {
   if (groupCount < 2) return heading;
@@ -100,10 +102,10 @@ function ModelMenuContent({
 }: ModelCommandMenuProps) {
   const { t } = useTranslation();
   const [query, setQuery] = useState("");
-  const [page, setPage] = useState<"voice" | "answer" | null>(null);
+  const [page, setPage] = useState<ModelMenuPage>(null);
   const searchRef = useRef<HTMLInputElement>(null);
   const searching = query.trim().length > 0;
-  const showOpenrouterModels = page === "voice" || (page === null && searching);
+  const showOpenrouterModels = page?.kind === "voice" || (page === null && searching);
   const openrouterLocked = providersMissingKey.includes(OPENROUTER_STT_PROVIDER);
   const selectedSttName =
     sttCatalog.models.find((model) => model.id === activeSttModelId)?.name ?? activeSttModelId;
@@ -121,13 +123,21 @@ function ModelMenuContent({
   const answerGroups = modelGroups(
     modelsPending ? models : selectableModels(models, activeModelId),
     activeModelId,
+    { includeDynamicProviders: true },
   );
-  if (!answerGroups.some((group) => group.id === OPENROUTER_PROVIDER)) {
-    answerGroups.push({ id: OPENROUTER_PROVIDER, label: "OpenRouter", models: [] });
-  }
-  const openrouterAnswers = models.filter((m) => m.provider === OPENROUTER_PROVIDER);
-  const answersLocked = modelProvidersMissingKey.includes(OPENROUTER_PROVIDER);
-  const answerPageEmpty = page === "answer" && openrouterAnswers.length === 0;
+  const answerPageGroup =
+    page?.kind === "answer" ? answerGroups.find((group) => group.id === page.provider) : undefined;
+  const answersLocked =
+    answerPageGroup !== undefined && modelProvidersMissingKey.includes(answerPageGroup.id);
+  const answerPageEmpty =
+    answerPageGroup !== undefined && !models.some((model) => model.provider === answerPageGroup.id);
+  const searchPlaceholder = t(
+    page?.kind === "voice"
+      ? "sttModels.search"
+      : page?.kind === "answer"
+        ? "hud.modelMenu.answerSearch"
+        : "hud.modelMenu.placeholder",
+  );
   const activeIsKnown = models.some((m) => m.id === activeModelId);
   const close = () => {
     onOpenChange(false);
@@ -148,7 +158,9 @@ function ModelMenuContent({
           </Button>
           <ChevronRight className="size-3" aria-hidden />
           <span className="min-w-0 truncate">
-            {page === "voice" ? voiceHeading : answerHeading} · OpenRouter
+            {page.kind === "voice"
+              ? `${voiceHeading} · OpenRouter`
+              : `${answerHeading} · ${answerPageGroup?.label ?? page.provider}`}
           </span>
         </div>
       )}
@@ -156,20 +168,8 @@ function ModelMenuContent({
         ref={searchRef}
         value={query}
         onValueChange={setQuery}
-        placeholder={t(
-          page === "voice"
-            ? "sttModels.search"
-            : page === "answer"
-              ? "hud.modelMenu.answerSearch"
-              : "hud.modelMenu.placeholder",
-        )}
-        aria-label={t(
-          page === "voice"
-            ? "sttModels.search"
-            : page === "answer"
-              ? "hud.modelMenu.answerSearch"
-              : "hud.modelMenu.placeholder",
-        )}
+        placeholder={searchPlaceholder}
+        aria-label={searchPlaceholder}
         onKeyDown={(event) => {
           if (event.key === "Backspace" && query === "" && page !== null) {
             event.preventDefault();
@@ -184,7 +184,7 @@ function ModelMenuContent({
             ? missingKeyHint()
             : modelsRefreshing
               ? t("hud.modelMenu.pending")
-              : t("hud.modelMenu.catalogUnavailable")}
+              : t("hud.modelMenu.catalogUnavailable", { provider: answerPageGroup.label })}
           {!answersLocked && !modelsRefreshing && (
             <Button variant="ghost" size="sm" onClick={onRefreshModels}>
               {t("common.retry")}
@@ -206,7 +206,7 @@ function ModelMenuContent({
                     aria-label={`${voiceHeading} · ${p.label}`}
                     keywords={[p.label, voiceHeading, selectedSttName]}
                     onSelect={() => {
-                      navigate("voice");
+                      navigate({ kind: "voice" });
                     }}
                   >
                     {missingKey && <Lock aria-hidden />}
@@ -283,12 +283,13 @@ function ModelMenuContent({
             ))}
           </CommandGroup>
         )}
-        {page !== "voice" &&
+        {page?.kind !== "voice" &&
           answerGroups
-            .filter((group) => page === null || group.id === OPENROUTER_PROVIDER)
+            .filter((group) => page === null || group.id === answerPageGroup?.id)
             .map((group) => {
               const locked = modelProvidersMissingKey.includes(group.id);
-              const collapsed = group.id === OPENROUTER_PROVIDER && page === null && !searching;
+              const dynamic = DYNAMIC_MODEL_PROVIDERS.some((p) => p.id === group.id);
+              const collapsed = dynamic && page === null && !searching;
               const selectedAnswer = group.models.find((model) => model.id === activeModelId);
               return (
                 <CommandGroup
@@ -301,7 +302,7 @@ function ModelMenuContent({
                       aria-label={`${answerHeading} · ${group.label}`}
                       keywords={[group.label, answerHeading]}
                       onSelect={() => {
-                        navigate("answer");
+                        navigate({ kind: "answer", provider: group.id });
                       }}
                     >
                       {locked && <Lock aria-hidden />}
@@ -333,9 +334,9 @@ function ModelMenuContent({
                           <span className="block leading-snug break-words whitespace-normal">
                             {modelLabel(m)}
                           </span>
-                          {group.id === OPENROUTER_PROVIDER && (
+                          {dynamic && (
                             <span className="block text-caption break-all text-muted-foreground">
-                              {m.id.slice(OPENROUTER_PROVIDER.length + 1)}
+                              {modelIdHint(m)}
                             </span>
                           )}
                         </span>
