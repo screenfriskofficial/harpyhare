@@ -89,6 +89,8 @@ describe("isQuickActionDigit", () => {
     expect(isQuickActionDigit("A")).toBe(false);
     expect(isQuickActionDigit("")).toBe(false);
     expect(isQuickActionDigit("ARROWUP")).toBe(false);
+    expect(isQuickActionDigit("1e0")).toBe(false);
+    expect(isQuickActionDigit(" 1")).toBe(false);
   });
 });
 

@@ -57,6 +57,14 @@ describe("noteExcerpt", () => {
     ]);
   });
 
+  it("не режет эмодзи на границах окна", () => {
+    const tailCut = noteExcerpt(`${"a".repeat(199)}😀 tail`, []);
+    expect(rendered(tailCut).includes("\ufffd")).toBe(false);
+    expect(rendered(tailCut)).toContain("😀");
+    const headCut = noteExcerpt(`${"я".repeat(60)}😀${"я".repeat(47)}иголка`, ["иголка"]);
+    expect(rendered(headCut).includes("\ufffd")).toBe(false);
+  });
+
   it("пустая заметка не даёт частей", () => {
     expect(noteExcerpt("   \n  ", ["что-то"])).toEqual([]);
   });

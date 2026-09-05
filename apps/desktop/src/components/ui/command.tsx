@@ -24,15 +24,22 @@ function CommandDialog({
   description,
   children,
   className,
+  onCloseAutoFocus,
   ...props
 }: React.ComponentProps<typeof Dialog> & {
   title: string;
   description: string;
   className?: string;
+  /** Куда уходит фокус после закрытия; `preventDefault` отменяет возврат на триггер. */
+  onCloseAutoFocus?: React.ComponentProps<typeof DialogContent>["onCloseAutoFocus"];
 }) {
   return (
     <Dialog {...props}>
-      <DialogContent className={cn("gap-0 p-0", className)} showCloseButton={false}>
+      <DialogContent
+        className={cn("gap-0 p-0", className)}
+        showCloseButton={false}
+        onCloseAutoFocus={onCloseAutoFocus}
+      >
         <DialogTitle className="sr-only">{title}</DialogTitle>
         <DialogDescription className="sr-only">{description}</DialogDescription>
         <Command>{children}</Command>

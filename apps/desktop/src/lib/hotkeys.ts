@@ -5,32 +5,42 @@ import { PLATFORM, type Platform } from "./platform";
 export type HotkeyAction = (typeof HOTKEY_ACTIONS)[number];
 export type HotkeyActionId = HotkeyAction["id"];
 
-const COMBO_SEPARATOR = "+";
+/**
+ * Строковый формат сочетания общий с Rust (`parse_hotkey`/`split_combo`):
+ * токены через `+`, модификаторы в канонической записи ниже, алиасы и регистр
+ * прощаются на разборе. Разделитель и канонические имена объявлены один раз —
+ * `hotkey-capture` их пишет, `hotkey-match` читает.
+ */
+export const COMBO_SEPARATOR = "+";
+export const CMD_MODIFIER = "Cmd";
+export const CTRL_MODIFIER = "Ctrl";
+export const ALT_MODIFIER = "Alt";
+export const SHIFT_MODIFIER = "Shift";
 
 const MODIFIER_ALIASES: Record<string, string> = {
-  cmd: "Cmd",
-  command: "Cmd",
-  super: "Cmd",
-  meta: "Cmd",
-  ctrl: "Ctrl",
-  control: "Ctrl",
-  alt: "Alt",
-  option: "Alt",
-  shift: "Shift",
+  cmd: CMD_MODIFIER,
+  command: CMD_MODIFIER,
+  super: CMD_MODIFIER,
+  meta: CMD_MODIFIER,
+  ctrl: CTRL_MODIFIER,
+  control: CTRL_MODIFIER,
+  alt: ALT_MODIFIER,
+  option: ALT_MODIFIER,
+  shift: SHIFT_MODIFIER,
 };
 
 const MODIFIER_LABELS: Record<Platform, Record<string, string>> = {
   macos: {
-    Cmd: "⌘",
-    Shift: "⇧",
-    Alt: "⌥",
-    Ctrl: "⌃",
+    [CMD_MODIFIER]: "⌘",
+    [SHIFT_MODIFIER]: "⇧",
+    [ALT_MODIFIER]: "⌥",
+    [CTRL_MODIFIER]: "⌃",
   },
   windows: {
-    Cmd: "Win",
-    Shift: "Shift",
-    Alt: "Alt",
-    Ctrl: "Ctrl",
+    [CMD_MODIFIER]: "Win",
+    [SHIFT_MODIFIER]: "Shift",
+    [ALT_MODIFIER]: "Alt",
+    [CTRL_MODIFIER]: "Ctrl",
   },
 };
 
@@ -63,6 +73,21 @@ const KEY_SYMBOLS: Record<string, string> = {
   BRACKETRIGHT: "]",
   PAGEUP: "PgUp",
   PAGEDOWN: "PgDn",
+  HOME: "Home",
+  END: "End",
+  INSERT: "Ins",
+};
+
+/** Клавиши цифрового блока подписываются «Num …», чтобы не путаться с основными. */
+const NUMPAD_CODE_PREFIX = "NUMPAD";
+const NUMPAD_LABEL_PREFIX = "Num";
+const NUMPAD_KEY_SYMBOLS: Record<string, string> = {
+  ADD: "+",
+  SUBTRACT: "−",
+  MULTIPLY: "*",
+  DIVIDE: "/",
+  DECIMAL: ".",
+  ENTER: "⏎",
 };
 
 const HINT_SEPARATOR = " ";
@@ -127,6 +152,10 @@ export function canonicalKey(token: string): string {
 
 function formatKey(token: string): string {
   const canonical = canonicalKey(token);
+  if (canonical.startsWith(NUMPAD_CODE_PREFIX)) {
+    const rest = canonical.slice(NUMPAD_CODE_PREFIX.length);
+    return [NUMPAD_LABEL_PREFIX, NUMPAD_KEY_SYMBOLS[rest] ?? rest].join(HINT_SEPARATOR);
+  }
   return KEY_SYMBOLS[canonical] ?? canonical;
 }
 
@@ -168,8 +197,8 @@ export interface HotkeyGroup {
 }
 
 const PASTE_MODIFIER: Record<Platform, string> = {
-  macos: "Cmd",
-  windows: "Ctrl",
+  macos: CMD_MODIFIER,
+  windows: CTRL_MODIFIER,
 };
 const SEND_KEY = "Enter";
 const PASTE_KEY = "V";
@@ -181,7 +210,7 @@ const NOTES_HINTS_GROUP = hotkeyAction("toggle_mode").group;
 
 function fieldHints(platform: Platform): Record<string, HotkeyHint[]> {
   const paste = [PASTE_MODIFIER[platform], PASTE_KEY].join(COMBO_SEPARATOR);
-  const newline = ["Shift", SEND_KEY].join(COMBO_SEPARATOR);
+  const newline = [SHIFT_MODIFIER, SEND_KEY].join(COMBO_SEPARATOR);
   const upDown = [ARROW_UP_KEY, ARROW_DOWN_KEY].map((key) => formatCombo(key, platform)).join("");
   return {
     [FIELD_HINTS_GROUP]: [

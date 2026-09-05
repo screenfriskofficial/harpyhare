@@ -25,7 +25,6 @@
   --accent: oklch(0.35 0.02 18);
   --accent-foreground: oklch(0.95 0 0);
   --destructive: oklch(0.6 0.21 27);
-  --recording: oklch(0.62 0.2 18);
   --destructive-foreground: oklch(0.97 0.01 30);
 
   --border: oklch(1 0 0 / 10%);
@@ -67,7 +66,6 @@
   --color-accent: var(--accent);
   --color-accent-foreground: var(--accent-foreground);
   --color-destructive: var(--destructive);
-  --color-recording: var(--recording);
   --color-destructive-foreground: var(--destructive-foreground);
   --color-border: var(--border);
   --color-input: var(--input);

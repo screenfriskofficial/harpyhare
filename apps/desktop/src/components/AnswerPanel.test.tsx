@@ -26,6 +26,9 @@ describe("AnswerPanel — подсветка кода", () => {
     };
     const { container } = render(
       <AnswerPanel
+        chatId="c1"
+        streamStartedAt={undefined}
+        scrollStep={120}
         messages={[assistant]}
         partial={null}
         streaming={false}
@@ -52,6 +55,9 @@ describe("AnswerPanel — подсветка кода", () => {
     };
     const { container } = render(
       <AnswerPanel
+        chatId="c1"
+        streamStartedAt={undefined}
+        scrollStep={120}
         messages={[assistant]}
         partial={null}
         streaming={false}
@@ -75,6 +81,9 @@ describe("AnswerPanel — подсветка кода", () => {
     };
     const { container, getByText } = render(
       <AnswerPanel
+        chatId="c1"
+        streamStartedAt={undefined}
+        scrollStep={120}
         messages={[assistant]}
         partial={null}
         streaming={false}
@@ -96,6 +105,9 @@ describe("AnswerPanel — индикатор ожидания", () => {
   it("показывает «Думает…», пока стрим без текста", () => {
     const { getByText } = render(
       <AnswerPanel
+        chatId="c1"
+        streamStartedAt={undefined}
+        scrollStep={120}
         messages={[userMsg]}
         partial=""
         streaming={true}
@@ -114,6 +126,9 @@ describe("AnswerPanel — индикатор ожидания", () => {
   it("не показывает индикатор, когда пошёл текст ответа", () => {
     const { queryByText } = render(
       <AnswerPanel
+        chatId="c1"
+        streamStartedAt={undefined}
+        scrollStep={120}
         messages={[userMsg]}
         partial="Привет"
         streaming={true}
@@ -132,6 +147,9 @@ describe("AnswerPanel — индикатор ожидания", () => {
   it("не показывает индикатор без стрима", () => {
     const { queryByText } = render(
       <AnswerPanel
+        chatId="c1"
+        streamStartedAt={undefined}
+        scrollStep={120}
         messages={[userMsg]}
         partial={null}
         streaming={false}
@@ -158,6 +176,9 @@ describe("AnswerPanel — картинки в сообщении пользов�
   function renderMessages(messages: ChatMessage[]) {
     return render(
       <AnswerPanel
+        chatId="c1"
+        streamStartedAt={undefined}
+        scrollStep={120}
         messages={messages}
         partial={null}
         streaming={false}

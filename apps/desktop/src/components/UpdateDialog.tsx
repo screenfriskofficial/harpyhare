@@ -1,5 +1,5 @@
 import Markdown from "react-markdown";
-import remarkGfm from "remark-gfm";
+import { markdownComponents, REMARK_PLUGINS } from "@/components/markdown-config";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -26,7 +26,7 @@ export interface UpdateDialogProps {
 const MIB = 1024 * 1024;
 const PERCENT_MAX = 100;
 const DOWNLOADING_LABEL = "Загрузка…";
-const REMARK_PLUGINS = [remarkGfm];
+const DIALOG_WIDTH_PX = 440;
 
 function downloadPercent(progress: UpdateProgress | null): number | null {
   if (progress && progress.total !== null && progress.total > 0) {
@@ -69,7 +69,7 @@ export function UpdateDialog({
         if (!next) onClose();
       }}
     >
-      <DialogContent className="max-w-[min(440px,95vw)] sm:max-w-[min(440px,95vw)]">
+      <DialogContent panelWidthPx={DIALOG_WIDTH_PX}>
         <DialogHeader>
           <DialogTitle>Доступна версия {info.version}</DialogTitle>
         </DialogHeader>
@@ -108,7 +108,9 @@ export function UpdateDialog({
 function ReleaseNotes({ notes }: { notes: string }) {
   return (
     <div className="prose-answer max-h-48 overflow-y-auto rounded-lg bg-surface px-3 py-2 text-body leading-relaxed text-foreground/90 ring-1 ring-border ring-inset">
-      <Markdown remarkPlugins={REMARK_PLUGINS}>{notes}</Markdown>
+      <Markdown remarkPlugins={REMARK_PLUGINS} components={markdownComponents}>
+        {notes}
+      </Markdown>
     </div>
   );
 }

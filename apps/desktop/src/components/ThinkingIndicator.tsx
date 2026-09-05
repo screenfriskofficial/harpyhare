@@ -29,8 +29,11 @@ function useElapsedSeconds(startedAt: number) {
   return seconds;
 }
 
-export function ThinkingIndicator({ startedAt }: { startedAt: number }) {
-  const seconds = useElapsedSeconds(startedAt);
+export function ThinkingIndicator({ startedAt }: { startedAt: number | undefined }) {
+  // Фолбэк защёлкивается один раз: `Date.now()` в пропсе давал бы новый старт
+  // на каждый рендер, интервал пересоздавался бы, и счётчик вечно показывал 0с.
+  const [mountedAt] = useState(() => Date.now());
+  const seconds = useElapsedSeconds(startedAt ?? mountedAt);
 
   return (
     <div className="flex animate-in items-baseline gap-2 duration-200 fade-in motion-reduce:animate-none">

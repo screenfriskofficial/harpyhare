@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { loadContextLibrary, saveContextLibrary } from "@/ipc/commands";
 import {
   addDoc,
@@ -14,9 +14,8 @@ import {
   type ContextDoc,
   type ContextLibrary,
 } from "@/lib/context-library";
-import { LIBRARY_SUBJECT, onSaveError } from "@/lib/persist-errors";
-
-const SAVE_DEBOUNCE_MS = 500;
+import { LIBRARY_SUBJECT } from "@/lib/persist-errors";
+import { useDebouncedPersist } from "./useDebouncedPersist";
 
 export interface ContextLibraryApi {
   library: ContextLibrary;
@@ -32,53 +31,25 @@ export interface ContextLibraryApi {
 
 export function useContextLibrary(): ContextLibraryApi {
   const [library, setLibrary] = useState<ContextLibrary>(EMPTY_LIBRARY);
-  const loaded = useRef(false);
-  const saveTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-  const libraryRef = useRef(library);
-  libraryRef.current = library;
+  const { markLoaded, flush } = useDebouncedPersist(
+    library,
+    serializeLibrary,
+    saveContextLibrary,
+    LIBRARY_SUBJECT,
+  );
 
   useEffect(() => {
     let live = true;
     void loadContextLibrary().then((json) => {
       if (!live) return;
-      const initial = deserializeLibrary(json);
-      if (initial) setLibrary(initial);
-      loaded.current = true;
+      const initial = deserializeLibrary(json) ?? EMPTY_LIBRARY;
+      setLibrary(initial);
+      markLoaded(initial);
     });
     return () => {
       live = false;
     };
-  }, []);
-
-  const pending = useRef(false);
-
-  const flush = useCallback((): Promise<void> => {
-    if (!loaded.current || !pending.current) return Promise.resolve();
-    pending.current = false;
-    clearTimeout(saveTimer.current);
-    saveTimer.current = undefined;
-    return saveContextLibrary(serializeLibrary(libraryRef.current)).then(() => undefined);
-  }, []);
-
-  useEffect(() => {
-    if (!loaded.current) return;
-    pending.current = true;
-    clearTimeout(saveTimer.current);
-    saveTimer.current = setTimeout(() => {
-      pending.current = false;
-      void saveContextLibrary(serializeLibrary(library)).catch(onSaveError(LIBRARY_SUBJECT));
-    }, SAVE_DEBOUNCE_MS);
-    return () => {
-      clearTimeout(saveTimer.current);
-    };
-  }, [library]);
-
-  useEffect(
-    () => () => {
-      void flush();
-    },
-    [flush],
-  );
+  }, [markLoaded]);
 
   return {
     library,

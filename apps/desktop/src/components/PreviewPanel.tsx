@@ -1,10 +1,9 @@
 import { X } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
 import { IconButton } from "@/components/IconButton";
 import { SectionLabel } from "@/components/SectionLabel";
 import { Button } from "@/components/ui/button";
-import { setPreviewHtml } from "@/ipc/commands";
-import { previewUrl } from "@/ipc/preview";
+import { usePreviewSrc } from "@/hooks/usePreviewSrc";
+import { copyTextReportingError } from "@/lib/clipboard-text";
 
 export interface PreviewPanelProps {
   html: string;
@@ -17,25 +16,6 @@ const PREVIEW_IFRAME_TITLE = "HTML превью";
 const PREVIEW_IFRAME_CLASS = "min-h-0 flex-1 rounded-xl border-0 bg-white";
 const PREVIEW_SANDBOX = "allow-scripts allow-same-origin";
 
-function usePreviewSrc(html: string) {
-  const [src, setSrc] = useState("");
-  const nonce = useRef(0);
-
-  useEffect(() => {
-    if (html === "") {
-      setSrc("");
-      return;
-    }
-    nonce.current += 1;
-    const version = nonce.current;
-    void setPreviewHtml(html).then(() => {
-      if (version === nonce.current) setSrc(previewUrl(version));
-    });
-  }, [html]);
-
-  return src;
-}
-
 function PreviewHeader({ html, onClose }: { html: string; onClose: () => void }) {
   return (
     <header className="flex min-h-7 items-center gap-1.5">
@@ -44,7 +24,7 @@ function PreviewHeader({ html, onClose }: { html: string; onClose: () => void })
         variant="ghost"
         size="compact"
         className="text-muted-foreground"
-        onClick={() => void navigator.clipboard.writeText(html)}
+        onClick={() => void copyTextReportingError(html)}
       >
         Копировать код
       </Button>

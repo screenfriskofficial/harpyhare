@@ -1,12 +1,4 @@
-import {
-  useCallback,
-  useEffect,
-  useRef,
-  useState,
-  type Dispatch,
-  type RefObject,
-  type SetStateAction,
-} from "react";
+import { useCallback, useEffect, useRef, useState, type RefObject } from "react";
 import { loadChats, saveChats } from "@/ipc/commands";
 import {
   CHAT_LIMIT,
@@ -14,116 +6,21 @@ import {
   createChat,
   createChatFrom,
   deserializeChats,
+  EMPTY_CHAT,
   serializeChats,
   type Chat,
   type ChatMessage,
   type ChatPatch,
 } from "@/lib/chats";
+import type { ImagePayload } from "@/lib/composer";
+import { CHATS_SUBJECT } from "@/lib/persist-errors";
+import { useDebouncedPersist } from "./useDebouncedPersist";
 import {
-  acceptedNewAttachments,
-  ATTACHMENT_LIMIT,
-  downscaleFactor,
-  extractImageItems,
-  hasFileItems,
-  NO_DOWNSCALE,
-  toImagePayload,
-  type Attachment,
-  type ImagePayload,
-} from "@/lib/composer";
-import { DEFAULT_MODEL } from "@/lib/models";
-import { notify } from "@/lib/notify";
-import { CHATS_SUBJECT, onSaveError } from "@/lib/persist-errors";
+  useDraftAttachments,
+  type DraftAttachmentsApi,
+  type PatchChatFn,
+} from "./useDraftAttachments";
 import { useLatestRef } from "./useLatestRef";
-
-const SAVE_DEBOUNCE_MS = 500;
-const DOWNSCALE_JPEG_QUALITY = 0.85;
-const DOWNSCALE_MEDIA_TYPE = "image/jpeg";
-const MIN_CANVAS_SIDE_PX = 1;
-const FILE_READ_ERROR = "Ошибка чтения файла";
-const ATTACHMENT_LIMIT_NOTICE = `Больше ${String(ATTACHMENT_LIMIT)} вложений в одном сообщении нельзя`;
-const UNSUPPORTED_FORMAT_NOTICE = "Такой формат картинки не поддерживается";
-const ATTACHMENT_READ_NOTICE = "Не удалось прочитать картинку";
-const NO_CANVAS_CONTEXT_ERROR = "2D-контекст канваса недоступен";
-
-const EMPTY_CHAT: Chat = {
-  id: "",
-  title: "",
-  messages: [],
-  draft: "",
-  draftAttachments: [],
-  titlePinned: false,
-  presetId: "",
-  thinkingEnabled: false,
-  model: DEFAULT_MODEL,
-  webSearch: false,
-  context: "",
-  libraryDocIds: [],
-  lastInputTokens: 0,
-};
-
-function notifyAttachmentRejected(message: string): void {
-  notify({ variant: "error", title: "Вложение", message });
-}
-
-function readAsDataUrl(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const fr = new FileReader();
-    fr.onload = () => {
-      resolve(fr.result as string);
-    };
-    fr.onerror = () => {
-      reject(new Error(fr.error?.message ?? FILE_READ_ERROR));
-    };
-    fr.readAsDataURL(file);
-  });
-}
-
-function scaledSidePx(sidePx: number, factor: number): number {
-  return Math.max(MIN_CANVAS_SIDE_PX, Math.round(sidePx * factor));
-}
-
-async function downscaleToJpegDataUrl(file: File, factor: number): Promise<string> {
-  const bitmap = await createImageBitmap(file);
-  const canvas = document.createElement("canvas");
-  canvas.width = scaledSidePx(bitmap.width, factor);
-  canvas.height = scaledSidePx(bitmap.height, factor);
-  const ctx = canvas.getContext("2d");
-  if (!ctx) throw new Error(NO_CANVAS_CONTEXT_ERROR);
-  ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
-  bitmap.close();
-  return canvas.toDataURL(DOWNSCALE_MEDIA_TYPE, DOWNSCALE_JPEG_QUALITY);
-}
-
-async function fileToAttachment(file: File): Promise<Attachment> {
-  const factor = downscaleFactor(file.size);
-  if (factor === NO_DOWNSCALE) {
-    const dataUrl = await readAsDataUrl(file);
-    return { payload: toImagePayload(dataUrl, file.type), preview: dataUrl };
-  }
-  const dataUrl = await downscaleToJpegDataUrl(file, factor);
-  return { payload: toImagePayload(dataUrl, DOWNSCALE_MEDIA_TYPE), preview: dataUrl };
-}
-
-async function fileToAttachmentOrNull(file: File): Promise<Attachment | null> {
-  try {
-    return await fileToAttachment(file);
-  } catch {
-    return null;
-  }
-}
-
-const DATA_URL_BASE64_MARKER = ";base64,";
-const SCREENSHOT_FILE_NAME = "screenshot";
-
-function dataUrlToFile(dataUrl: string, mediaType: string): File {
-  const markerIdx = dataUrl.indexOf(DATA_URL_BASE64_MARKER);
-  const base64 =
-    markerIdx >= 0 ? dataUrl.slice(markerIdx + DATA_URL_BASE64_MARKER.length) : dataUrl;
-  const binary = atob(base64);
-  const bytes = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-  return new File([bytes], SCREENSHOT_FILE_NAME, { type: mediaType });
-}
 
 const ACTIVE_CHAT_STORAGE_KEY = "active-chat-id";
 
@@ -138,66 +35,6 @@ function useRememberActiveChat(activeId: string, loaded: RefObject<boolean>): vo
     if (!loaded.current || activeId === "") return;
     localStorage.setItem(ACTIVE_CHAT_STORAGE_KEY, activeId);
   }, [activeId, loaded]);
-}
-
-function useInitialChatsLoad(
-  setChats: Dispatch<SetStateAction<Chat[]>>,
-  setActiveId: Dispatch<SetStateAction<string>>,
-  loaded: RefObject<boolean>,
-  makeChat: (index: number, id?: string) => Chat,
-): void {
-  useEffect(() => {
-    let live = true;
-    void loadChats().then((json) => {
-      if (!live) return;
-      const initial = deserializeChats(json) ?? [makeChat(1)];
-      const first = initial[0];
-      if (!first) return;
-      setChats(initial);
-      setActiveId(rememberedActiveId(initial));
-      loaded.current = true;
-    });
-    return () => {
-      live = false;
-    };
-  }, [setChats, setActiveId, loaded, makeChat]);
-}
-
-function useDebouncedChatsSave(chats: Chat[], loaded: RefObject<boolean>): () => Promise<void> {
-  const saveTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-  const pending = useRef(false);
-  const chatsRef = useRef(chats);
-  chatsRef.current = chats;
-
-  const flush = useCallback((): Promise<void> => {
-    if (!loaded.current || !pending.current) return Promise.resolve();
-    pending.current = false;
-    clearTimeout(saveTimer.current);
-    saveTimer.current = undefined;
-    return saveChats(serializeChats(chatsRef.current)).then(() => undefined);
-  }, [loaded]);
-
-  useEffect(() => {
-    if (!loaded.current) return;
-    pending.current = true;
-    clearTimeout(saveTimer.current);
-    saveTimer.current = setTimeout(() => {
-      pending.current = false;
-      void saveChats(serializeChats(chats)).catch(onSaveError(CHATS_SUBJECT));
-    }, SAVE_DEBOUNCE_MS);
-    return () => {
-      clearTimeout(saveTimer.current);
-    };
-  }, [chats, loaded]);
-
-  useEffect(
-    () => () => {
-      void flush();
-    },
-    [flush],
-  );
-
-  return flush;
 }
 
 function chatWithUserMessage(
@@ -222,7 +59,7 @@ function withoutSentAttachments(chat: Chat, images: ImagePayload[]): Chat {
   return images.length === 0 ? chat : { ...chat, draftAttachments: [] };
 }
 
-export interface ChatsApi {
+export interface ChatsApi extends DraftAttachmentsApi {
   chats: Chat[];
   activeId: string;
   active: Chat;
@@ -231,9 +68,6 @@ export interface ChatsApi {
   removeChat: (id: string) => void;
   patchChat: (id: string, patch: ChatPatch) => void;
   selectChat: (id: string) => void;
-  addDraftAttachments: (id: string, items: DataTransferItemList) => Promise<void>;
-  addDraftImage: (id: string, dataUrl: string, mediaType: string) => Promise<void>;
-  removeDraftAttachment: (id: string, index: number) => void;
   appendUserMessage: (id: string, text: string, images: ImagePayload[]) => void;
   appendQuickActionMessage: (id: string, text: string, images: ImagePayload[]) => void;
   appendAssistantMessage: (id: string, text: string) => void;
@@ -264,41 +98,61 @@ export function useChats(defaultModel?: () => string): ChatsApi {
   );
   const [chats, setChats] = useState<Chat[]>([]);
   const [activeId, setActiveId] = useState<string>("");
+  const chatsRef = useLatestRef(chats);
   const loaded = useRef(false);
+  const { markLoaded, flush } = useDebouncedPersist(
+    chats,
+    serializeChats,
+    saveChats,
+    CHATS_SUBJECT,
+  );
 
-  useInitialChatsLoad(setChats, setActiveId, loaded, makeChat);
-  const flush = useDebouncedChatsSave(chats, loaded);
+  useEffect(() => {
+    let live = true;
+    void loadChats().then((json) => {
+      if (!live) return;
+      const initial = deserializeChats(json) ?? [makeChat(1)];
+      setChats(initial);
+      setActiveId(rememberedActiveId(initial));
+      markLoaded(initial);
+      loaded.current = true;
+    });
+    return () => {
+      live = false;
+    };
+  }, [makeChat, markLoaded]);
 
   const effectiveActiveId = activeId || (chats[0]?.id ?? "");
   useRememberActiveChat(effectiveActiveId, loaded);
 
-  const patch = useCallback((id: string, fn: (c: Chat) => Chat) => {
+  const patch = useCallback<PatchChatFn>((id, fn) => {
     setChats((prev) => prev.map((c) => (c.id === id ? fn(c) : c)));
   }, []);
 
-  const newChat = useCallback(() => {
-    if (chats.length >= CHAT_LIMIT) return;
-    const id = crypto.randomUUID();
-    setChats((prev) =>
-      prev.length >= CHAT_LIMIT ? prev : [...prev, makeChat(prev.length + 1, id)],
-    );
-    setActiveId(id);
-  }, [chats.length, makeChat]);
+  const draftAttachments = useDraftAttachments(chatsRef, patch);
 
-  const duplicateChat = useCallback(
-    (sourceId: string) => {
-      if (chats.length >= CHAT_LIMIT) return;
-      const id = crypto.randomUUID();
-      setChats((prev) => {
-        if (prev.length >= CHAT_LIMIT) return prev;
-        const source = prev.find((c) => c.id === sourceId);
-        if (!source) return prev;
-        setActiveId(id);
-        return [...prev, createChatFrom(source, prev.length + 1, id)];
-      });
-    },
-    [chats.length],
-  );
+  // Лимит проверяется и активный чат переключается ВНУТРИ апдейтера: второй
+  // вызов до ре-рендера иначе проходил бы проверку по замыканию и уводил
+  // `activeId` на несозданный чат.
+  const newChat = useCallback(() => {
+    const id = crypto.randomUUID();
+    setChats((prev) => {
+      if (prev.length >= CHAT_LIMIT) return prev;
+      setActiveId(id);
+      return [...prev, makeChat(prev.length + 1, id)];
+    });
+  }, [makeChat]);
+
+  const duplicateChat = useCallback((sourceId: string) => {
+    const id = crypto.randomUUID();
+    setChats((prev) => {
+      if (prev.length >= CHAT_LIMIT) return prev;
+      const source = prev.find((c) => c.id === sourceId);
+      if (!source) return prev;
+      setActiveId(id);
+      return [...prev, createChatFrom(source, prev.length + 1, id)];
+    });
+  }, []);
 
   const removeChat = useCallback((id: string) => {
     setChats((prev) => {
@@ -324,69 +178,6 @@ export function useChats(defaultModel?: () => string): ChatsApi {
   const selectChat = useCallback((id: string) => {
     setActiveId(id);
   }, []);
-
-  const draftAttachmentCount = useCallback((id: string): number => {
-    let count = 0;
-    setChats((prev) => {
-      count = prev.find((c) => c.id === id)?.draftAttachments.length ?? 0;
-      return prev;
-    });
-    return count;
-  }, []);
-
-  const appendDraftAttachment = useCallback(
-    (id: string, att: Attachment) => {
-      patch(id, (c) =>
-        c.draftAttachments.length >= ATTACHMENT_LIMIT
-          ? c
-          : { ...c, draftAttachments: [...c.draftAttachments, att] },
-      );
-    },
-    [patch],
-  );
-
-  const addDraftAttachments = useCallback(
-    async (id: string, items: DataTransferItemList) => {
-      const files = extractImageItems(items);
-      if (files.length === 0) {
-        if (hasFileItems(items)) notifyAttachmentRejected(UNSUPPORTED_FORMAT_NOTICE);
-        return;
-      }
-      const slots = acceptedNewAttachments(draftAttachmentCount(id), files.length);
-      if (slots < files.length) notifyAttachmentRejected(ATTACHMENT_LIMIT_NOTICE);
-      let unreadable = 0;
-      for (const file of files.slice(0, slots)) {
-        const att = await fileToAttachmentOrNull(file);
-        if (att) appendDraftAttachment(id, att);
-        else unreadable += 1;
-      }
-      if (unreadable > 0) notifyAttachmentRejected(ATTACHMENT_READ_NOTICE);
-    },
-    [draftAttachmentCount, appendDraftAttachment],
-  );
-
-  const addDraftImage = useCallback(
-    async (id: string, dataUrl: string, mediaType: string) => {
-      if (acceptedNewAttachments(draftAttachmentCount(id), 1) < 1) {
-        notifyAttachmentRejected(ATTACHMENT_LIMIT_NOTICE);
-        return;
-      }
-      const att = await fileToAttachmentOrNull(dataUrlToFile(dataUrl, mediaType));
-      if (att) appendDraftAttachment(id, att);
-      else notifyAttachmentRejected(ATTACHMENT_READ_NOTICE);
-    },
-    [draftAttachmentCount, appendDraftAttachment],
-  );
-
-  const removeDraftAttachment = useCallback(
-    (id: string, index: number) => {
-      patch(id, (c) => ({
-        ...c,
-        draftAttachments: c.draftAttachments.filter((_, i) => i !== index),
-      }));
-    },
-    [patch],
-  );
 
   const appendUserTurn = useCallback(
     (id: string, text: string, images: ImagePayload[], afterAppend: (chat: Chat) => Chat) => {
@@ -472,9 +263,7 @@ export function useChats(defaultModel?: () => string): ChatsApi {
     removeChat,
     patchChat,
     selectChat,
-    addDraftAttachments,
-    addDraftImage,
-    removeDraftAttachment,
+    ...draftAttachments,
     appendUserMessage,
     appendQuickActionMessage,
     appendAssistantMessage,

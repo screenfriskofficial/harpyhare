@@ -1,7 +1,9 @@
 import { Check, Copy, WrapText } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { IconButton } from "@/components/IconButton";
-import { codeLineCount, linesLabel } from "@/lib/code-block";
+import { ICON_CLUSTER_BUTTON_SIZE_CLASS } from "@/components/IconCluster";
+import { copyTextReportingError } from "@/lib/clipboard-text";
+import { linesLabel } from "@/lib/code-block";
 import { splitRenderedLines, trimTrailingEmptyLine } from "@/lib/code-lines";
 import { cn } from "@/lib/utils";
 
@@ -22,7 +24,7 @@ const COPY_LABEL = "Копировать блок";
 const COPIED_LABEL = "Скопировано";
 const WRAP_ON_LABEL = "Переносить длинные строки";
 const WRAP_OFF_LABEL = "Не переносить строки";
-const ACTION_CLASS = "size-6";
+const ACTION_CLASS = ICON_CLUSTER_BUTTON_SIZE_CLASS;
 const MIN_GUTTER_DIGITS = 2;
 /**
  * Окно узкое и висит поверх созвона: горизонтальная прокрутка там требует
@@ -63,7 +65,9 @@ export function CodeBlock({ language, code, codeClassName, children }: CodeBlock
   const lines = useMemo(() => trimTrailingEmptyLine(splitRenderedLines(children)), [children]);
 
   const copy = () => {
-    void navigator.clipboard.writeText(code).then(markCopied);
+    void copyTextReportingError(code).then((copied) => {
+      if (copied) markCopied();
+    });
   };
 
   return (
@@ -77,7 +81,7 @@ export function CodeBlock({ language, code, codeClassName, children }: CodeBlock
           {language ?? UNKNOWN_LANGUAGE_LABEL}
         </span>
         <span className="shrink-0 text-muted-foreground tabular-nums">
-          {linesLabel(codeLineCount(code))}
+          {linesLabel(lines.length)}
         </span>
         <span className="min-w-0 flex-1" />
         <IconButton

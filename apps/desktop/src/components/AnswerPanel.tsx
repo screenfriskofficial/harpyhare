@@ -1,44 +1,25 @@
-import { Copy, MessagesSquare, RotateCw, Trash2 } from "lucide-react";
-import {
-  isValidElement,
-  memo,
-  useCallback,
-  useEffect,
-  useLayoutEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
-import type { ReactNode, RefObject } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef } from "react";
 import { type Components } from "react-markdown";
-import { CodeBlock } from "@/components/CodeBlock";
-import { ComboChip } from "@/components/ComboChip";
-import { HtmlBlockChip } from "@/components/HtmlBlockChip";
-import { IconButton } from "@/components/IconButton";
-import { ICON_CLUSTER_BUTTON_CLASS, ICON_CLUSTER_CLASS } from "@/components/IconCluster";
-import { markdownComponents, PROSE_MARKDOWN_CLASS } from "@/components/markdown-config";
-import { MarkdownChunk } from "@/components/MarkdownChunk";
+import { ChatEmptyState } from "@/components/ChatEmptyState";
+import { ChatHistory } from "@/components/ChatHistory";
+import { FLOATING_CHIP_CLASS } from "@/components/IconCluster";
+import { markdownComponents } from "@/components/markdown-config";
+import { makePre } from "@/components/PreBlock";
+import { StreamingAssistant } from "@/components/StreamingAssistant";
 import { ThinkingIndicator } from "@/components/ThinkingIndicator";
+import { useHotkeyScroll } from "@/hooks/useHotkeyScroll";
+import { useStickToBottom } from "@/hooks/useStickToBottom";
 import type { ChatMessage } from "@/lib/chats";
-import { languageFromClassName } from "@/lib/code-block";
-import { imageDataUrl, type ImagePayload } from "@/lib/composer";
-import { matchesModifier, parseFamilyModifier } from "@/lib/hotkey-modifier";
-import { isMessageCopyable } from "@/lib/message-clipboard";
-import {
-  openFenceBody,
-  openFenceLanguage,
-  splitOpenFence,
-  splitStableTail,
-} from "@/lib/stream-markdown";
 import { cn } from "@/lib/utils";
 
 export interface AnswerPanelProps {
   messages: ChatMessage[];
-  chatId?: string;
+  chatId: string;
   partial: string | null;
   streaming: boolean;
-  streamStartedAt?: number;
-  scrollStep?: number;
+  /** Момент старта стрима; `undefined`, пока чат не стримит. */
+  streamStartedAt: number | undefined;
+  scrollStep: number;
   scrollModifier: string;
   recordCombo: string;
   screenshotCombo: string;
@@ -46,345 +27,6 @@ export interface AnswerPanelProps {
   onCopyMessage: (index: number) => void;
   onRemoveMessage: (index: number) => void;
   onResendMessage: (index: number) => void;
-}
-
-const FALLBACK_SCROLL_STEP_PX = 120;
-
-const NEAR_BOTTOM_PX = 40;
-const HTML_LANGUAGE_CLASS = "language-html";
-const ASSISTANT_PROSE_CLASS = PROSE_MARKDOWN_CLASS;
-
-const FLOATING_CHIP_CLASS = "border bg-popover/95 shadow-pop backdrop-blur-sm";
-const MESSAGE_IMAGE_ALT = "Картинка в сообщении";
-const COPY_MESSAGE_TITLE = "Копировать сообщение";
-/**
- * Показ/скрытие мгновенные, без `transition-opacity`: в прозрачном фреймлесс-окне
- * анимация прозрачности выносит элемент в отдельный композитный слой WKWebView,
- * и при его схлопывании остаются несмытые пиксели.
- */
-const MESSAGE_ACTIONS_REVEAL_CLASS =
-  "pointer-events-none opacity-0 group-hover/msg:pointer-events-auto group-hover/msg:opacity-100 focus-within:pointer-events-auto focus-within:opacity-100";
-
-function hasHtmlLanguageToken(className: string) {
-  return className.split(/\s+/).some((token) => token.toLowerCase() === HTML_LANGUAGE_CLASS);
-}
-
-/**
- * Сырой текст блока нужен и счётчику строк, и кнопке копирования, а после
- * подсветки children код-элемента — дерево span'ов, а не строка.
- */
-function reactChildrenText(node: ReactNode): string {
-  if (typeof node === "string") return node;
-  if (typeof node === "number") return String(node);
-  if (Array.isArray(node)) return node.map(reactChildrenText).join("");
-  if (isValidElement<{ children?: ReactNode }>(node)) return reactChildrenText(node.props.children);
-  return "";
-}
-
-function makePre(onTogglePreview: (code: string) => void) {
-  return function PreBlock({ children }: { children?: ReactNode }) {
-    const code = isValidElement<{ className?: string; children?: ReactNode }>(children)
-      ? children
-      : null;
-    const text = code?.props.children;
-    if (code && hasHtmlLanguageToken(code.props.className ?? "") && typeof text === "string") {
-      return (
-        <HtmlBlockChip
-          code={text}
-          onToggle={() => {
-            onTogglePreview(text);
-          }}
-        />
-      );
-    }
-    if (!code) return <pre>{children}</pre>;
-    return (
-      <CodeBlock
-        language={languageFromClassName(code.props.className)}
-        code={reactChildrenText(code.props.children)}
-        codeClassName={code.props.className}
-      >
-        {code.props.children}
-      </CodeBlock>
-    );
-  };
-}
-
-function MessageActionButton({
-  title,
-  onClick,
-  className,
-  children,
-}: {
-  title: string;
-  onClick: () => void;
-  className?: string;
-  children: ReactNode;
-}) {
-  return (
-    <IconButton
-      title={title}
-      onClick={onClick}
-      className={cn("size-6", ICON_CLUSTER_BUTTON_CLASS, className)}
-    >
-      {children}
-    </IconButton>
-  );
-}
-
-function MessageActions({
-  onCopy,
-  onRemove,
-  onResend,
-  className,
-}: {
-  onCopy: (() => void) | null;
-  onRemove: () => void;
-  onResend: (() => void) | null;
-  className?: string;
-}) {
-  return (
-    <div className={cn(MESSAGE_ACTIONS_REVEAL_CLASS, "shrink-0", className)}>
-      {onCopy && (
-        <MessageActionButton title={COPY_MESSAGE_TITLE} onClick={onCopy}>
-          <Copy className="size-3.5" />
-        </MessageActionButton>
-      )}
-      {onResend && (
-        <MessageActionButton
-          title="Переотправить (всё, что ниже, будет заменено новым ответом)"
-          onClick={onResend}
-        >
-          <RotateCw className="size-3.5" />
-        </MessageActionButton>
-      )}
-      <MessageActionButton
-        title="Удалить сообщение"
-        onClick={onRemove}
-        className="hover:text-destructive"
-      >
-        <Trash2 className="size-3.5" />
-      </MessageActionButton>
-    </div>
-  );
-}
-
-function MessageShell({
-  align,
-  onCopy,
-  onRemove,
-  onResend,
-  children,
-}: {
-  align: "start" | "end";
-  onCopy: (() => void) | null;
-  onRemove: () => void;
-  onResend: (() => void) | null;
-  children: ReactNode;
-}) {
-  if (align === "end") {
-    return (
-      <div className="group/msg flex items-start justify-end gap-1">
-        <MessageActions
-          onCopy={onCopy}
-          onRemove={onRemove}
-          onResend={onResend}
-          className={ICON_CLUSTER_CLASS}
-        />
-        {children}
-      </div>
-    );
-  }
-  return (
-    <div className="group/msg relative">
-      {children}
-      <MessageActions
-        onCopy={onCopy}
-        onRemove={onRemove}
-        onResend={onResend}
-        className={cn(ICON_CLUSTER_CLASS, "absolute right-0 bottom-0")}
-      />
-    </div>
-  );
-}
-
-function Assistant({ text, components }: { text: string; components: Components }) {
-  return (
-    <div className={ASSISTANT_PROSE_CLASS}>
-      <MarkdownChunk text={text} components={components} />
-    </div>
-  );
-}
-
-/**
- * Уже отрезанные куски копятся, а граница ищется только в том, что дописали
- * с прошлого кадра: `splitStableTail` гоняет регэксп по всему переданному
- * префиксу, и на длинном ответе это был бы полный скан на каждый кадр стрима.
- * Резать по нарастающей корректно, потому что у каждого отрезанного куска
- * fence-маркеры сбалансированы — граница ищется только вне них.
- *
- * Накопитель держится в состоянии, а не в рефе: правка рефа в теле рендера
- * запрещена React и разъезжается при отброшенном рендере. Обновление состояния
- * прямо в рендере — санкционированный приём для «подстройки под изменившийся
- * проп»: React перезапускает компонент, ничего не коммитя.
- */
-interface SettledChunks {
-  chunks: string[];
-  consumed: number;
-}
-
-const NO_SETTLED_CHUNKS: SettledChunks = { chunks: [], consumed: 0 };
-
-function useStreamChunks(text: string): { chunks: string[]; tail: string } {
-  const [settled, setSettled] = useState<SettledChunks>(NO_SETTLED_CHUNKS);
-  const base = text.length < settled.consumed ? NO_SETTLED_CHUNKS : settled;
-  const [fresh, tail] = splitStableTail(text.slice(base.consumed));
-  const next: SettledChunks =
-    fresh === ""
-      ? base
-      : { chunks: [...base.chunks, fresh], consumed: base.consumed + fresh.length };
-  if (next !== settled) setSettled(next);
-  return { chunks: next.chunks, tail };
-}
-
-function OpenFenceBlock({ fenced }: { fenced: string }) {
-  const body = openFenceBody(fenced);
-  if (body === "") return null;
-  return (
-    <CodeBlock language={openFenceLanguage(fenced)} code={body}>
-      {body}
-    </CodeBlock>
-  );
-}
-
-function StreamingTail({ text, components }: { text: string; components: Components }) {
-  const split = splitOpenFence(text);
-  if (split === null) return <MarkdownChunk text={text} components={components} />;
-  const [before, fenced] = split;
-  return (
-    <>
-      {before !== "" && <MarkdownChunk text={before} components={components} />}
-      <OpenFenceBlock fenced={fenced} />
-    </>
-  );
-}
-
-function StreamingAssistant({ text, components }: { text: string; components: Components }) {
-  const { chunks, tail } = useStreamChunks(text);
-  return (
-    <div className={ASSISTANT_PROSE_CLASS}>
-      {chunks.map((chunk, i) => (
-        <MarkdownChunk key={i} text={chunk} components={components} />
-      ))}
-      {tail !== "" && <StreamingTail text={tail} components={components} />}
-    </div>
-  );
-}
-
-function useHotkeyScroll(
-  scrollRef: RefObject<HTMLDivElement | null>,
-  stepPx: number,
-  modifier: string,
-): void {
-  useEffect(() => {
-    const expected = parseFamilyModifier(modifier);
-    if (expected === null) return;
-    const onKey = (e: KeyboardEvent) => {
-      const dir = e.code === "ArrowDown" ? 1 : e.code === "ArrowUp" ? -1 : 0;
-      if (dir === 0) return;
-      if (!matchesModifier(e, expected)) return;
-      e.preventDefault();
-      scrollRef.current?.scrollBy({ top: dir * stepPx, behavior: "smooth" });
-    };
-    document.addEventListener("keydown", onKey);
-    return () => {
-      document.removeEventListener("keydown", onKey);
-    };
-  }, [scrollRef, stepPx, modifier]);
-}
-
-function useStickToBottom() {
-  const scrollRef = useRef<HTMLDivElement>(null);
-  const [showJump, setShowJump] = useState(false);
-
-  const scrollToBottom = useCallback(() => {
-    const el = scrollRef.current;
-    if (el) el.scrollTop = el.scrollHeight;
-  }, []);
-
-  const syncJump = useCallback(() => {
-    const el = scrollRef.current;
-    if (!el) return;
-    const near = el.scrollHeight - el.scrollTop - el.clientHeight < NEAR_BOTTOM_PX;
-    setShowJump(!near && el.scrollHeight > el.clientHeight);
-  }, []);
-
-  const resetToBottom = useCallback(() => {
-    scrollToBottom();
-    setShowJump(false);
-  }, [scrollToBottom]);
-
-  const onScroll = syncJump;
-
-  return { scrollRef, showJump, onScroll, resetToBottom, syncJump };
-}
-
-function EmptyHint({ combo, text }: { combo: string; text: string }) {
-  if (combo === "") return null;
-  return (
-    <span className="flex items-center gap-1.5 text-caption text-muted-foreground">
-      <ComboChip combo={combo} />
-      {text}
-    </span>
-  );
-}
-
-function EmptyState({
-  recordCombo,
-  screenshotCombo,
-}: {
-  recordCombo: string;
-  screenshotCombo: string;
-}) {
-  return (
-    <div className="grid h-full place-items-center">
-      <div className="flex flex-col items-center gap-2.5 text-center">
-        <span className="grid size-9 place-items-center rounded-lg bg-surface ring-1 ring-border ring-inset">
-          <MessagesSquare className="size-4 text-muted-foreground" aria-hidden />
-        </span>
-        <span className="text-body text-muted-foreground">Чат появится здесь</span>
-        <span className="flex flex-col items-center gap-1">
-          <EmptyHint combo={recordCombo} text="удерживай — запишет и распознает речь" />
-          <EmptyHint combo={screenshotCombo} text="снимок области экрана в вопрос" />
-        </span>
-      </div>
-    </div>
-  );
-}
-
-function MessageImages({ images }: { images: ImagePayload[] }) {
-  if (images.length === 0) return null;
-  return (
-    <div className="flex flex-wrap gap-1.5">
-      {images.map((image, i) => (
-        <img
-          key={i}
-          src={imageDataUrl(image)}
-          alt={MESSAGE_IMAGE_ALT}
-          className="max-h-48 max-w-full rounded-md object-contain ring-1 ring-border ring-inset"
-        />
-      ))}
-    </div>
-  );
-}
-
-function UserBubble({ text, images }: { text: string; images: ImagePayload[] }) {
-  return (
-    <div className="flex max-w-[85%] flex-col gap-1.5 rounded-lg bg-surface-active px-3 py-1.5 text-chat text-foreground ring-1 ring-border ring-inset">
-      <MessageImages images={images} />
-      {text !== "" && <span className="min-w-0 break-words whitespace-pre-wrap">{text}</span>}
-    </div>
-  );
 }
 
 function JumpToBottomButton({ onClick }: { onClick: () => void }) {
@@ -402,56 +44,6 @@ function JumpToBottomButton({ onClick }: { onClick: () => void }) {
   );
 }
 
-const ChatHistory = memo(function ChatHistory({
-  messages,
-  streaming,
-  components,
-  onCopyMessage,
-  onRemoveMessage,
-  onResendMessage,
-}: {
-  messages: ChatMessage[];
-  streaming: boolean;
-  components: Components;
-  onCopyMessage: (index: number) => void;
-  onRemoveMessage: (index: number) => void;
-  onResendMessage: (index: number) => void;
-}) {
-  return (
-    <>
-      {messages.map((m, i) => (
-        <MessageShell
-          key={i}
-          align={m.role === "user" ? "end" : "start"}
-          onCopy={
-            isMessageCopyable(m)
-              ? () => {
-                  onCopyMessage(i);
-                }
-              : null
-          }
-          onRemove={() => {
-            onRemoveMessage(i);
-          }}
-          onResend={
-            m.role === "user" && !streaming
-              ? () => {
-                  onResendMessage(i);
-                }
-              : null
-          }
-        >
-          {m.role === "user" ? (
-            <UserBubble text={m.text} images={m.images} />
-          ) : (
-            <Assistant text={m.text} components={components} />
-          )}
-        </MessageShell>
-      ))}
-    </>
-  );
-});
-
 export function AnswerPanel({
   messages,
   chatId,
@@ -468,8 +60,10 @@ export function AnswerPanel({
   onResendMessage,
 }: AnswerPanelProps) {
   const { scrollRef, showJump, onScroll, resetToBottom, syncJump } = useStickToBottom();
-  useHotkeyScroll(scrollRef, scrollStep ?? FALLBACK_SCROLL_STEP_PX, scrollModifier);
+  useHotkeyScroll(scrollRef, scrollStep, scrollModifier);
 
+  // Синхронно до пейнта: иначе браузер показал бы кадр со старой позицией
+  // и видимый «полёт сверху вниз» при переключении чата.
   useLayoutEffect(() => {
     resetToBottom();
   }, [chatId, resetToBottom]);
@@ -492,6 +86,7 @@ export function AnswerPanel({
   );
 
   const empty = messages.length === 0 && !partial;
+  const streamHasText = partial !== null && partial !== "";
 
   return (
     <section className="flex min-h-0 flex-1 flex-col">
@@ -502,7 +97,7 @@ export function AnswerPanel({
           className="flex min-h-0 w-full flex-col gap-2.5 overflow-y-auto pr-1.5"
         >
           {empty ? (
-            <EmptyState recordCombo={recordCombo} screenshotCombo={screenshotCombo} />
+            <ChatEmptyState recordCombo={recordCombo} screenshotCombo={screenshotCombo} />
           ) : (
             <>
               <ChatHistory
@@ -513,12 +108,10 @@ export function AnswerPanel({
                 onRemoveMessage={onRemoveMessage}
                 onResendMessage={onResendMessage}
               />
-              {partial !== null && partial !== "" && (
+              {streamHasText && (
                 <StreamingAssistant key={chatId} text={partial} components={components} />
               )}
-              {streaming && (partial === null || partial === "") && (
-                <ThinkingIndicator startedAt={streamStartedAt ?? Date.now()} />
-              )}
+              {streaming && !streamHasText && <ThinkingIndicator startedAt={streamStartedAt} />}
             </>
           )}
         </div>

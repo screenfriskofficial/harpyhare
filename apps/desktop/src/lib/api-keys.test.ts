@@ -8,8 +8,15 @@ import {
   vendorsOutsideCode,
   visibleApiKeys,
 } from "./api-keys";
-import { MODEL_PROVIDERS, PROVIDER_ANTHROPIC, PROVIDER_OPENAI, PROVIDER_XAI } from "./models";
-import { STT_PROVIDER_GROQ, STT_PROVIDER_OPENAI, STT_PROVIDERS } from "./stt-providers";
+import {
+  PROVIDER_ANTHROPIC,
+  PROVIDER_OPENAI,
+  PROVIDER_XAI,
+  STT_PROVIDER_GROQ,
+  STT_PROVIDER_OPENAI,
+} from "@/test/providers";
+import { MODEL_PROVIDERS } from "./models";
+import { STT_PROVIDERS } from "./stt-providers";
 
 const keys = (
   anthropic: string,

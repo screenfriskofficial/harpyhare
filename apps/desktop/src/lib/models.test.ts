@@ -4,17 +4,15 @@ import {
   defaultModelFor,
   DEFAULT_MODEL,
   MODEL_PROVIDERS,
-  PROVIDER_XAI,
   FALLBACK_MODELS,
   modelGroups,
   modelLabel,
   withLockedModels,
-  PROVIDER_ANTHROPIC,
-  PROVIDER_OPENAI,
   selectableModels,
   thinkingLocked,
   type ModelInfo,
 } from "./models";
+import { PROVIDER_ANTHROPIC, PROVIDER_OPENAI, PROVIDER_XAI } from "@/test/providers";
 
 const model = (id: string, extra: Partial<ModelInfo> = {}): ModelInfo => ({
   id,
@@ -40,6 +38,7 @@ describe("models", () => {
   it("modelLabel срезает бренд из display_name, иначе реконструирует из id", () => {
     expect(modelLabel({ id: "x", displayName: "Claude Sonnet 5" })).toBe("Sonnet 5");
     expect(modelLabel({ id: "claude-opus-4-8", displayName: "" })).toBe("Opus 4.8");
+    expect(modelLabel({ id: "claude-haiku-4-5-20251001", displayName: "" })).toBe("Haiku 4.5");
   });
 
   it("selectableModels подмешивает текущую модель, если её нет в списке", () => {

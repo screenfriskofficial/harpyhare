@@ -44,6 +44,12 @@ interface ModelCommandMenuProps {
   /** Список моделей ещё предварительный — см. `useModels`. */
   modelsPending: boolean;
   onSelectModel: (id: string) => void;
+  /**
+   * Зовётся, когда Radix собирается вернуть фокус после закрытия — ПОСЛЕ
+   * exit-анимации. Возврат на триггер отменяется: открытое из дока меню
+   * иначе оставляло бы каретку на кнопке дока, а не в поле промпта.
+   */
+  onRestoreFocus: () => void;
 }
 
 function ActiveMark({ active }: { active: boolean }) {
@@ -82,6 +88,7 @@ export function ModelCommandMenu({
   activeModelId,
   modelsPending,
   onSelectModel,
+  onRestoreFocus,
 }: ModelCommandMenuProps) {
   // Известные модели показываем сразу и обычными: они настоящие, из статических
   // реестров, и прятать их ради ещё не пришедшего динамического каталога значит
@@ -100,6 +107,10 @@ export function ModelCommandMenu({
       onOpenChange={onOpenChange}
       title={MENU_TITLE}
       description={MENU_DESCRIPTION}
+      onCloseAutoFocus={(event) => {
+        event.preventDefault();
+        onRestoreFocus();
+      }}
     >
       <CommandInput placeholder={INPUT_PLACEHOLDER} />
       <CommandList>

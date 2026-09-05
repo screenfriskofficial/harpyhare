@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { SETTINGS_LIMITS } from "@/ipc/bindings";
 import {
   advanceOffset,
   clampFont,
@@ -55,5 +56,28 @@ describe("toReadingText", () => {
   });
   it("подчёркивание внутри слова не трогает (snake_case)", () => {
     expect(toReadingText("teleprompter_font_size")).toBe("teleprompter_font_size");
+  });
+  it("звёздочки-умножение не считаются курсивом", () => {
+    expect(toReadingText("2 * 3 * 4")).toBe("2 * 3 * 4");
+  });
+  it("вложенное выделение снимается целиком", () => {
+    expect(toReadingText("a **b *c* d** e")).toBe("a b c d e");
+    expect(toReadingText("~~зачёркнуто~~ и __жирно__")).toBe("зачёркнуто и жирно");
+  });
+  it("~~~-ограждение снимается так же, как ```", () => {
+    expect(toReadingText("~~~js\ncode\n~~~")).toBe("code");
+  });
+  it("таблица читается по ячейкам, линии и разделители выкидываются", () => {
+    const md = "| a | b |\n|---|---|\n| 1 | 2 |\n\n---\n\nконец";
+    expect(toReadingText(md)).toBe("a, b\n1, 2\n\nконец");
+  });
+});
+
+describe("границы суфлёра", () => {
+  it("совпадают с реестром лимитов в Rust", () => {
+    expect(TELEPROMPTER_SPEED_MIN).toBe(SETTINGS_LIMITS.teleprompterSpeed.min);
+    expect(TELEPROMPTER_SPEED_MAX).toBe(SETTINGS_LIMITS.teleprompterSpeed.max);
+    expect(TELEPROMPTER_FONT_MIN).toBe(SETTINGS_LIMITS.teleprompterFontSize.min);
+    expect(TELEPROMPTER_FONT_MAX).toBe(SETTINGS_LIMITS.teleprompterFontSize.max);
   });
 });

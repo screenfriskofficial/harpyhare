@@ -10,6 +10,12 @@ vi.mock("@/ipc/commands", () => ({
   getSettings: () => getSettings(),
   setSettings: (s: Settings) => setSettings(s),
 }));
+const notify = vi.fn<(...a: unknown[]) => void>();
+vi.mock("@/lib/notify", () => ({
+  notify: (...a: unknown[]) => {
+    notify(...a);
+  },
+}));
 vi.mock("@/lib/window-controls", async (orig) => {
   const real = await orig<typeof import("@/lib/window-controls")>();
   return {
@@ -24,8 +30,10 @@ import { useSettings } from "./useSettings";
 
 beforeEach(() => {
   getSettings.mockReset();
-  setSettings.mockClear();
+  setSettings.mockReset();
+  setSettings.mockImplementation((s: Settings) => Promise.resolve(s));
   applyOpacity.mockClear();
+  notify.mockClear();
 });
 
 describe("useSettings", () => {
@@ -249,6 +257,74 @@ describe("useSettings", () => {
     expect(setSettings).toHaveBeenCalledTimes(1);
     expect(setSettings.mock.calls[0]?.[0]?.skipped_version).toBe("9.9.9");
     expect(setSettings.mock.calls[0]?.[0]?.window_opacity).toBeCloseTo(0.8);
+    vi.useRealTimers();
+  });
+
+  it("хоткей, нажатый пока save в полёте, не откатывается ответом Rust и уходит на диск", async () => {
+    vi.useFakeTimers();
+    getSettings.mockResolvedValue(DEFAULT_SETTINGS);
+    const { result } = renderHook(() => useSettings());
+    await waitFor(() => {
+      expect(result.current.loading).toBe(false);
+    });
+    setSettings.mockReset();
+    let resolveSave: (s: Settings) => void = () => undefined;
+    setSettings.mockImplementationOnce(
+      (s: Settings) =>
+        new Promise<Settings>((resolve) => {
+          resolveSave = () => {
+            resolve(s);
+          };
+        }),
+    );
+    setSettings.mockImplementation((s: Settings) => Promise.resolve(s));
+    let saved: Promise<string | null> = Promise.resolve(null);
+    act(() => {
+      saved = result.current.save({ ...result.current.settings, skipped_version: "9.9.9" });
+    });
+    act(() => {
+      result.current.bumpOpacity(-1);
+    });
+    expect(result.current.settings.window_opacity).toBeCloseTo(0.8);
+    await act(async () => {
+      resolveSave(DEFAULT_SETTINGS);
+      await saved;
+    });
+    expect(result.current.settings.window_opacity).toBeCloseTo(0.8);
+    expect(result.current.settings.skipped_version).toBe("9.9.9");
+    expect(applyOpacity).toHaveBeenLastCalledWith(document.documentElement, expect.closeTo(0.8, 5));
+    await act(async () => {
+      vi.advanceTimersByTime(400);
+      await Promise.resolve();
+    });
+    const last = setSettings.mock.calls[setSettings.mock.calls.length - 1]?.[0];
+    expect(last?.window_opacity).toBeCloseTo(0.8);
+    expect(last?.skipped_version).toBe("9.9.9");
+    vi.useRealTimers();
+  });
+
+  it("сбой отложенного персиста показывает тост, а не молчит", async () => {
+    vi.useFakeTimers();
+    getSettings.mockResolvedValue(DEFAULT_SETTINGS);
+    const { result } = renderHook(() => useSettings());
+    await waitFor(() => {
+      expect(result.current.loading).toBe(false);
+    });
+    setSettings.mockRejectedValueOnce(new Error("диск полон"));
+    act(() => {
+      result.current.bumpOpacity(-1);
+    });
+    await act(async () => {
+      vi.advanceTimersByTime(400);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(notify).toHaveBeenCalledWith(
+      expect.objectContaining({
+        variant: "error",
+        message: expect.stringContaining("диск полон") as string,
+      }),
+    );
     vi.useRealTimers();
   });
 });

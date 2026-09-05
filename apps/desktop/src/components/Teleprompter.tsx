@@ -2,6 +2,7 @@ import { Minus, Pause, Play, Plus, RotateCcw, X } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { IconButton } from "@/components/IconButton";
 import { ShortcutTooltip } from "@/components/ShortcutTooltip";
+import { useLatestRef } from "@/hooks/useLatestRef";
 import { matchesPrepared, prepareCombo } from "@/lib/hotkey-match";
 import { formatCombo } from "@/lib/hotkeys";
 import {
@@ -30,6 +31,40 @@ const PAUSE_LABEL = "Пауза";
 const PLAY_LABEL = "Воспроизвести";
 const CLOSE_LABEL = "Закрыть";
 
+/**
+ * Прокрутка крутится только пока `playing`: цикл на паузе будил бы главный
+ * поток 60 раз в секунду всё интервью. Дойдя до низа, движение НЕ ставит
+ * паузу само — текст суфлёра стримовый и растёт, и автопауза на коротком
+ * хвосте останавливала бы суфлёр после каждой догнанной строки.
+ */
+function useAutoScroll(
+  scrollRef: React.RefObject<HTMLDivElement | null>,
+  offsetRef: React.RefObject<number>,
+  speedRef: React.RefObject<number>,
+  playing: boolean,
+): void {
+  useEffect(() => {
+    if (!playing) return;
+    let lastTs = 0;
+    let raf = 0;
+    const tick = (ts: number) => {
+      const el = scrollRef.current;
+      if (el) {
+        const elapsed = lastTs === 0 ? 0 : ts - lastTs;
+        lastTs = ts;
+        const maxOffset = el.scrollHeight - el.clientHeight;
+        offsetRef.current = advanceOffset(offsetRef.current, speedRef.current, elapsed, maxOffset);
+        el.scrollTop = offsetRef.current;
+      }
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => {
+      cancelAnimationFrame(raf);
+    };
+  }, [playing, scrollRef, offsetRef, speedRef]);
+}
+
 export function Teleprompter({
   text,
   initialSpeed,
@@ -46,52 +81,26 @@ export function Teleprompter({
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const offsetRef = useRef(initialOffset);
-  const lastTsRef = useRef(0);
-  const rafRef = useRef(0);
-  const playingRef = useRef(playing);
-  playingRef.current = playing;
-  const speedRef = useRef(speed);
-  speedRef.current = speed;
-  const valuesRef = useRef({ speed, fontSize });
-  valuesRef.current = { speed, fontSize };
-  const onPersistRef = useRef(onPersist);
-  onPersistRef.current = onPersist;
+  const speedRef = useLatestRef(speed);
+  const valuesRef = useLatestRef({ speed, fontSize });
+  const onPersistRef = useLatestRef(onPersist);
+  const onCloseRef = useLatestRef(onClose);
 
   useEffect(() => {
     if (scrollRef.current) scrollRef.current.scrollTop = offsetRef.current;
   }, []);
 
-  useEffect(() => {
-    const tick = (ts: number) => {
-      const el = scrollRef.current;
-      if (el) {
-        const elapsed = lastTsRef.current === 0 ? 0 : ts - lastTsRef.current;
-        lastTsRef.current = ts;
-        if (playingRef.current) {
-          const maxOffset = el.scrollHeight - el.clientHeight;
-          offsetRef.current = advanceOffset(
-            offsetRef.current,
-            speedRef.current,
-            elapsed,
-            maxOffset,
-          );
-          el.scrollTop = offsetRef.current;
-          if (offsetRef.current >= maxOffset) setPlaying(false);
-        }
-      }
-      rafRef.current = requestAnimationFrame(tick);
-    };
-    rafRef.current = requestAnimationFrame(tick);
-    return () => {
-      cancelAnimationFrame(rafRef.current);
-    };
-  }, []);
+  useAutoScroll(scrollRef, offsetRef, speedRef, playing);
 
+  // На размонтировании отдаём наружу последние скорость, шрифт и позицию.
   useEffect(() => {
+    const persist = onPersistRef;
+    const values = valuesRef;
+    const offset = offsetRef;
     return () => {
-      onPersistRef.current(valuesRef.current.speed, valuesRef.current.fontSize, offsetRef.current);
+      persist.current(values.current.speed, values.current.fontSize, offset.current);
     };
-  }, []);
+  }, [onPersistRef, valuesRef]);
 
   const syncOffsetFromScroll = useCallback(() => {
     if (scrollRef.current) offsetRef.current = scrollRef.current.scrollTop;
@@ -103,13 +112,16 @@ export function Teleprompter({
     setPlaying(true);
   }, []);
 
+  // Колбэк закрытия читается из ref: пока суфлёр показывает стрим, App
+  // рендерится каждый кадр, и подписка с `onClose` в зависимостях
+  // пересоздавалась бы вместе с `prepareCombo` на каждый рендер.
   useEffect(() => {
     const close = prepareCombo(closeCombo);
     const pause = prepareCombo(pauseCombo);
     const onKey = (e: KeyboardEvent) => {
       if (matchesPrepared(e, close)) {
         e.preventDefault();
-        onClose();
+        onCloseRef.current();
       } else if (matchesPrepared(e, pause)) {
         e.preventDefault();
         setPlaying((p) => !p);
@@ -119,10 +131,12 @@ export function Teleprompter({
     return () => {
       window.removeEventListener("keydown", onKey);
     };
-  }, [onClose, closeCombo, pauseCombo]);
+  }, [onCloseRef, closeCombo, pauseCombo]);
 
   return (
-    <div className="absolute inset-0 z-50 flex flex-col bg-black/85 backdrop-blur-sm">
+    // Без `backdrop-blur`: под оверлеем каждый кадр стрима перерисовывается
+    // лента, и полноэкранный блюр пересчитывался бы поверх WebGL-рамки.
+    <div className="absolute inset-0 z-50 flex flex-col bg-black/90">
       <div className="relative min-h-0 flex-1">
         <div
           ref={scrollRef}

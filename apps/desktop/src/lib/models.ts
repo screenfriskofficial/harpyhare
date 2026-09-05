@@ -11,10 +11,6 @@ export interface ModelInfo {
   maxInputTokens: number;
 }
 
-export const PROVIDER_ANTHROPIC = "anthropic";
-export const PROVIDER_OPENAI = "openai";
-export const PROVIDER_XAI = "xai";
-
 /** New chats start here. The id is declared in Rust (`llm::DEFAULT_MODEL`). */
 export const DEFAULT_MODEL: string = GENERATED_DEFAULT_MODEL;
 
@@ -124,7 +120,8 @@ export function modelGroups(models: ModelInfo[]): ModelGroup[] {
 
 const BRAND_PREFIX = /^Claude\s+/i;
 const MODEL_ID_PREFIX = /^claude-/;
-const MODEL_ID_VERSION_SUFFIX = /-(\d)-(\d)$/;
+/** `claude-haiku-4-5` и датированный `claude-haiku-4-5-20251001` — обе формы дают «Haiku 4.5». */
+const MODEL_ID_VERSION_SUFFIX = /-(\d+)-(\d+)(?:-\d{8})?$/;
 const VERSION_LABEL = " $1.$2";
 
 function capitalizeFirst(s: string): string {

@@ -4,6 +4,7 @@ const SAVE_ERROR_TITLE = "Не удалось сохранить";
 
 export const CHATS_SUBJECT = "чаты";
 export const LIBRARY_SUBJECT = "библиотеку контекстов";
+export const SETTINGS_SUBJECT = "настройки";
 
 export function onSaveError(subject: string): (err: unknown) => void {
   return (err) => {

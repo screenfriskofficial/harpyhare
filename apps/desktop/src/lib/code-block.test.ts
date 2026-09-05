@@ -2,11 +2,10 @@ import { describe, expect, it } from "vitest";
 import { codeLineCount, languageFromClassName, linesLabel } from "./code-block";
 
 describe("codeLineCount", () => {
-  it("не считает завершающий перенос за лишнюю строку", () => {
+  it("завершающий перенос не считается лишней строкой", () => {
     expect(codeLineCount("один\nдва\n")).toBe(2);
   });
-
-  it("одна строка без переносов", () => {
+  it("одна строка без переноса", () => {
     expect(codeLineCount("println(1)")).toBe(1);
   });
 });

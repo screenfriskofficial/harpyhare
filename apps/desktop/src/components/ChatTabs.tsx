@@ -1,5 +1,5 @@
 import { CopyPlus, Plus, X } from "lucide-react";
-import { useEffect, useRef } from "react";
+import { memo, useEffect, useRef } from "react";
 import { IconButton } from "@/components/IconButton";
 import { ShortcutTooltip } from "@/components/ShortcutTooltip";
 import { CHAT_LIMIT, type Chat } from "@/lib/chats";
@@ -21,7 +21,8 @@ export interface ChatTabsProps {
 const NEW_CHAT_TITLE = "Новый чат";
 const DUPLICATE_TITLE = "Дубликат чата — те же параметры, без сообщений";
 
-export function ChatTabs({
+/** `memo`: шапка не перерисовывается на каждый кадр стрима — App даёт стабильные колбэки. */
+export const ChatTabs = memo(function ChatTabs({
   chats,
   activeId,
   streaming,
@@ -79,7 +80,7 @@ export function ChatTabs({
       </ShortcutTooltip>
     </div>
   );
-}
+});
 
 interface ChatTabProps {
   ref?: React.Ref<HTMLButtonElement>;

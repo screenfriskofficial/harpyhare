@@ -1,6 +1,7 @@
 import { HOTKEY_ACTIONS, type HotkeyKind } from "@/ipc/bindings";
 import { apiKeyInfo, type ApiKeyId } from "@/lib/api-keys";
 import { hotkeyAction, type HotkeyActionId } from "@/lib/hotkeys";
+import { foldForSearch } from "@/lib/notes-search";
 import { PLATFORM, type Platform } from "@/lib/platform";
 import { PERMISSION_ROWS } from "./permission-rows";
 import { SCREEN_GROUPS, screenGroup, screenMeta, type ScreenId } from "./screens";
@@ -28,7 +29,6 @@ interface SettingsRow {
   tab: SettingsTabId;
 }
 
-const SEARCH_LOCALE = "ru";
 const BREADCRUMB_SEPARATOR = " → ";
 const HIT_ID_SEPARATOR = ":";
 
@@ -297,9 +297,8 @@ function launcherIndex(sources: SearchSources, platform: Platform): SearchHit[] 
   ];
 }
 
-function folded(text: string): string {
-  return text.toLocaleLowerCase(SEARCH_LOCALE);
-}
+/** Та же свёртка, что у поиска по заметкам: «елка» находит и пресет «Ёлка». */
+const folded = foldForSearch;
 
 function rankOf(hit: SearchHit, needle: string): number | null {
   const title = folded(hit.title);

@@ -7,9 +7,9 @@ import {
   type SetStateAction,
 } from "react";
 import { useLatestRef } from "@/hooks/useLatestRef";
-import { useSettingsStore } from "@/hooks/useSettingsStore";
-import { setSettings as ipcSet } from "@/ipc/commands";
+import { useSettingsStore, type LatePatch } from "@/hooks/useSettingsStore";
 import type { Settings } from "@/ipc/types";
+import { onSaveError, SETTINGS_SUBJECT } from "@/lib/persist-errors";
 import {
   applyChatFontSize,
   applyOpacity,
@@ -31,6 +31,7 @@ export interface SettingsApi {
   bumpChatFontSize: (dir: 1 | -1) => void;
   bumpWindowSize: (dim: WindowDimension, dir: 1 | -1) => void;
   applyNativeWindowSize: (width: number, height: number) => void;
+  /** Немедленная запись отложенного патча; реджектит при сбое диска. */
   flush: () => Promise<void>;
 }
 
@@ -41,10 +42,15 @@ function applyVisualSettings(settings: Settings): void {
 }
 
 type SettingsPatch = Partial<Settings>;
+type PersistSettings = (next: Settings, latePatch?: LatePatch) => Promise<string | null>;
 
-function useDebouncedSettingsPersist(latest: RefObject<Settings>): {
+function useDebouncedSettingsPersist(
+  latest: RefObject<Settings>,
+  persist: PersistSettings,
+): {
   schedule: (patch: SettingsPatch) => void;
   takePending: () => SettingsPatch | null;
+  peekPending: LatePatch;
   flush: () => Promise<void>;
 } {
   const persistTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
@@ -58,18 +64,23 @@ function useDebouncedSettingsPersist(latest: RefObject<Settings>): {
     return patch;
   }, []);
 
-  const flush = useCallback((): Promise<void> => {
-    const patch = takePending();
-    if (patch === null) return Promise.resolve();
-    return ipcSet({ ...latest.current, ...patch }).then(() => undefined);
-  }, [takePending, latest]);
+  const peekPending = useCallback((): SettingsPatch | null => pending.current, []);
 
+  const flush = useCallback(async (): Promise<void> => {
+    const patch = takePending();
+    if (patch === null) return;
+    const error = await persist({ ...latest.current, ...patch }, peekPending);
+    if (error !== null) throw new Error(error);
+  }, [takePending, peekPending, persist, latest]);
+
+  // Таймерный путь и размонтирование ловят ошибку сами — как у чатов и библиотеки:
+  // иначе полный диск оставлял бы размер и прозрачность несохранёнными молча.
   const schedule = useCallback(
     (patch: SettingsPatch) => {
       pending.current = { ...pending.current, ...patch };
       clearTimeout(persistTimer.current);
       persistTimer.current = setTimeout(() => {
-        void flush();
+        void flush().catch(onSaveError(SETTINGS_SUBJECT));
       }, SETTINGS_PERSIST_DEBOUNCE_MS);
     },
     [flush],
@@ -77,12 +88,12 @@ function useDebouncedSettingsPersist(latest: RefObject<Settings>): {
 
   useEffect(
     () => () => {
-      void flush();
+      void flush().catch(onSaveError(SETTINGS_SUBJECT));
     },
     [flush],
   );
 
-  return { schedule, takePending, flush };
+  return { schedule, takePending, peekPending, flush };
 }
 
 function useBumpOpacity(
@@ -168,14 +179,17 @@ export function useSettings(): SettingsApi {
     save: persistNow,
   } = useSettingsStore(applyVisualSettings);
   const latestSettings = useLatestRef(settings);
-  const { schedule, takePending, flush } = useDebouncedSettingsPersist(latestSettings);
+  const { schedule, takePending, peekPending, flush } = useDebouncedSettingsPersist(
+    latestSettings,
+    persistNow,
+  );
 
   const save = useCallback(
     async (next: Settings): Promise<string | null> => {
       const queued = takePending();
-      return persistNow(queued === null ? next : { ...next, ...queued });
+      return persistNow(queued === null ? next : { ...next, ...queued }, peekPending);
     },
-    [takePending, persistNow],
+    [takePending, peekPending, persistNow],
   );
 
   const bumpOpacity = useBumpOpacity(setSettings, schedule);

@@ -1,9 +1,6 @@
 import { STT_PROVIDERS as GENERATED_STT_PROVIDERS } from "@/ipc/bindings";
 import type { ApiKeyId } from "./api-keys";
 
-export const STT_PROVIDER_GROQ = "groq";
-export const STT_PROVIDER_OPENAI = "openai";
-
 export interface SttProviderOption {
   /** Stored in `Settings.stt_provider`. */
   id: string;

@@ -4,6 +4,8 @@ import { formatComboWithKey } from "./hotkeys";
 import { PLATFORM, type Platform } from "./platform";
 
 const FIRST_DIGIT = 1;
+/** Ровно одна цифра из диапазона: `Number("1e0")` и `Number(" 1")` тоже дали бы 1. */
+const QUICK_ACTION_DIGIT_RE = new RegExp(`^[${FIRST_DIGIT}-${QUICK_ACTION_LIMIT}]$`);
 
 export function isQuickActionFilled(action: QuickAction): boolean {
   return action.title.trim() !== "" && action.prompt.trim() !== "";
@@ -19,8 +21,7 @@ export function quickActionDigit(index: number): string | null {
 }
 
 export function isQuickActionDigit(key: string): boolean {
-  const digit = Number(key);
-  return Number.isInteger(digit) && digit >= FIRST_DIGIT && digit <= QUICK_ACTION_LIMIT;
+  return QUICK_ACTION_DIGIT_RE.test(key);
 }
 
 export function quickActionHint(

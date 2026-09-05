@@ -32,6 +32,38 @@ describe("formatCombo на macOS", () => {
   });
 });
 
+describe("formatCombo для клавиш, которые принимает захват", () => {
+  const ASSIGNABLE_NAMED_CODES = [
+    "Home",
+    "End",
+    "Insert",
+    "PageUp",
+    "PageDown",
+    "Numpad0",
+    "Numpad7",
+    "NumpadAdd",
+    "NumpadSubtract",
+    "NumpadMultiply",
+    "NumpadDivide",
+    "NumpadDecimal",
+    "NumpadEnter",
+  ];
+
+  it.each(PLATFORMS)("ни один код не остаётся голым UPPERCASE (%s)", (platform) => {
+    for (const code of ASSIGNABLE_NAMED_CODES) {
+      const label = formatCombo(`Ctrl+${code}`, platform);
+      expect(label).not.toContain(code.toUpperCase());
+    }
+  });
+
+  it("цифровой блок подписан как Num …", () => {
+    expect(formatCombo("Ctrl+NumpadAdd", "windows")).toBe("Ctrl+Num +");
+    expect(formatCombo("Ctrl+Numpad7", "windows")).toBe("Ctrl+Num 7");
+    expect(formatCombo("Ctrl+Home", "macos")).toBe("⌃Home");
+    expect(formatCombo("Ctrl+Insert", "macos")).toBe("⌃Ins");
+  });
+});
+
 describe("formatCombo на Windows", () => {
   it("модификаторы пишутся словами и разделяются плюсом", () => {
     expect(formatCombo("Ctrl+Shift+S", "windows")).toBe("Ctrl+Shift+S");

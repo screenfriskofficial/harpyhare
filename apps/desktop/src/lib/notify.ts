@@ -11,6 +11,10 @@ import type { AppError, ErrorCode } from "@/lib/errors";
 
 export { TOAST_DURATION_MS };
 
+/** Заголовки тостов HUD, которые не привязаны к коду ошибки. */
+export const GENERIC_ERROR_TOAST_TITLE = "Ошибка";
+export const CHATS_TOAST_TITLE = "Чаты";
+
 const ERROR_TOAST_TITLE: Record<ErrorCode, string | null> = {
   network: null,
   cancelled: null,

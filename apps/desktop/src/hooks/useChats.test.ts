@@ -7,6 +7,12 @@ vi.mock("@/ipc/commands", () => ({
   loadChats: () => loadChats(),
   saveChats: (json: string) => saveChats(json),
 }));
+const notify = vi.fn<(...a: unknown[]) => void>();
+vi.mock("@/lib/notify", () => ({
+  notify: (...a: unknown[]) => {
+    notify(...a);
+  },
+}));
 
 import { CHAT_LIMIT } from "@/lib/chats";
 import type { Attachment } from "@/lib/composer";
@@ -309,6 +315,57 @@ describe("useChats", () => {
     unmount();
     expect(saveChats).toHaveBeenCalledTimes(1);
     expect(JSON.parse(String(saveChats.mock.calls[0]?.[0]))).toHaveLength(2);
+  });
+
+  it("загрузка с диска не порождает запись того же самого обратно", async () => {
+    loadChats.mockResolvedValue(
+      JSON.stringify([{ id: "a", title: "Чат 1", messages: [], draft: "черновик" }]),
+    );
+    const { result } = renderHook(() => useChats());
+    await waitFor(() => {
+      expect(result.current.active.draft).toBe("черновик");
+    });
+    act(() => {
+      vi.advanceTimersByTime(600);
+    });
+    expect(saveChats).not.toHaveBeenCalled();
+  });
+
+  it("два newChat до ре-рендера на пороге лимита не уводят активный чат в никуда", async () => {
+    const { result } = renderHook(() => useChats());
+    await waitFor(() => {
+      expect(result.current.chats.length).toBe(1);
+    });
+    for (let i = 1; i < CHAT_LIMIT - 1; i++)
+      act(() => {
+        result.current.newChat();
+      });
+    act(() => {
+      result.current.newChat();
+      result.current.newChat();
+    });
+    expect(result.current.chats.length).toBe(CHAT_LIMIT);
+    expect(result.current.chats.some((c) => c.id === result.current.activeId)).toBe(true);
+  });
+
+  it("лимит вложений считается по актуальному черновику даже в одном act", async () => {
+    const { result } = renderHook(() => useChats());
+    await waitFor(() => {
+      expect(result.current.chats.length).toBe(1);
+    });
+    const id = result.current.activeId;
+    act(() => {
+      result.current.patchChat(id, {
+        draftAttachments: Array.from({ length: 5 }, (): Attachment => ATTACHMENT),
+      });
+    });
+    await act(async () => {
+      await result.current.addDraftImage(id, ATTACHMENT.preview, "image/png");
+    });
+    expect(result.current.active.draftAttachments).toHaveLength(5);
+    expect(notify).toHaveBeenCalledWith(
+      expect.objectContaining({ message: expect.stringContaining("вложений") as string }),
+    );
   });
 
   it("addDraftImage добавляет вложение в черновик активного чата", async () => {

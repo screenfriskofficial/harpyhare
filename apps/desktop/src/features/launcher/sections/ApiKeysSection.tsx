@@ -19,6 +19,7 @@ import { SettingBlock, SettingGroup, SettingRow } from "../fields";
 
 type ApiKeysSectionProps = SectionProps & {
   onRedeem: (code: string) => Promise<string | null>;
+  onUnlink: () => Promise<void>;
 };
 
 const KEY_PLACEHOLDERS: Record<ApiKeyId, string> = {
@@ -118,7 +119,7 @@ function KeyField({ id, draft, set }: { id: ApiKeyId } & SectionProps) {
   );
 }
 
-export function ApiKeysSection({ draft, set, onRedeem }: ApiKeysSectionProps) {
+export function ApiKeysSection({ draft, set, onRedeem, onUnlink }: ApiKeysSectionProps) {
   const code = hasAccessCode(draft);
   const outside = vendorsOutsideCode();
 
@@ -130,7 +131,7 @@ export function ApiKeysSection({ draft, set, onRedeem }: ApiKeysSectionProps) {
             variant="ghost"
             size="sm"
             onClick={() => {
-              set("access_token", "");
+              void onUnlink();
             }}
           >
             Отвязать

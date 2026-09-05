@@ -4,10 +4,13 @@ const NEWLINE = "\n";
 
 type Line = ReactNode[];
 
-function mergeTail(left: Line[], right: Line[]): Line[] {
-  const lastOfLeft = left[left.length - 1] ?? [];
-  const firstOfRight = right[0] ?? [];
-  return [...left.slice(0, -1), [...lastOfLeft, ...firstOfRight], ...right.slice(1)];
+/** Хвост `into` и голова `next` — одна и та же строка, остальное дописывается на месте. */
+function appendLines(into: Line[], next: Line[]): void {
+  const [head = [], ...rest] = next;
+  const last = into[into.length - 1];
+  if (last === undefined) into.push(head);
+  else last.push(...head);
+  into.push(...rest);
 }
 
 /**
@@ -26,13 +29,19 @@ export function splitRenderedLines(node: ReactNode): Line[] {
     return node.split(NEWLINE).map((part) => (part === "" ? [] : [part]));
   }
   if (Array.isArray(node)) {
-    const children = node as ReactNode[];
-    return children.reduce<Line[]>((acc, child) => mergeTail(acc, splitRenderedLines(child)), [[]]);
+    const lines: Line[] = [[]];
+    for (const child of node as ReactNode[]) appendLines(lines, splitRenderedLines(child));
+    return lines;
   }
   if (isValidElement<{ children?: ReactNode }>(node)) {
     const inner = splitRenderedLines(node.props.children);
     if (inner.length === 1) return [[node]];
-    return inner.map((line, index) => [cloneElement(node, { key: index }, ...line)]);
+    // Пустой список детей передаётся явным `null`: `cloneElement` без
+    // children-аргументов наследует детей оригинала, и пустая строка внутри
+    // токена показала бы весь токен целиком ещё раз.
+    return inner.map((line, index) => [
+      cloneElement(node, { key: index }, ...(line.length === 0 ? [null] : line)),
+    ]);
   }
   return [[node]];
 }

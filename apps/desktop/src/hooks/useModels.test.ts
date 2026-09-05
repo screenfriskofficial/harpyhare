@@ -1,6 +1,7 @@
 import { renderHook, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { FALLBACK_MODELS, PROVIDER_ANTHROPIC, type ModelInfo } from "@/lib/models";
+import { FALLBACK_MODELS, type ModelInfo } from "@/lib/models";
+import { PROVIDER_ANTHROPIC } from "@/test/providers";
 
 /** Every vendor the backend did not report is appended locked, whoever they are. */
 const LOCKED_OTHERS = FALLBACK_MODELS.filter((m) => m.provider !== PROVIDER_ANTHROPIC);
@@ -56,5 +57,17 @@ describe("useModels", () => {
       expect(listModels).toHaveBeenCalled();
     });
     expect(result.current.models).toEqual(FALLBACK_MODELS);
+  });
+
+  it("ошибка каталога — список остаётся предварительным, а не «настоящим» вшитым", async () => {
+    listModels.mockRejectedValue(new Error("сеть"));
+    const { result } = renderHook(() => useModels(), { wrapper: createQueryWrapper() });
+    await waitFor(() => {
+      expect(listModels).toHaveBeenCalled();
+    });
+    await waitFor(() => {
+      expect(result.current.models).toEqual(FALLBACK_MODELS);
+      expect(result.current.pending).toBe(true);
+    });
   });
 });

@@ -1,10 +1,16 @@
 import { describe, expect, it } from "vitest";
 import type { RequestOptions } from "@/lib/chats";
 import type { AppError } from "@/lib/errors";
-import { MODEL_PROVIDERS, PROVIDER_ANTHROPIC, PROVIDER_OPENAI } from "@/lib/models";
+import { MODEL_PROVIDERS } from "@/lib/models";
 import type { ModelInfo } from "@/lib/models";
 import { API_KEY_IDS } from "@/lib/api-keys";
-import { STT_PROVIDERS, STT_PROVIDER_GROQ, STT_PROVIDER_OPENAI } from "@/lib/stt-providers";
+import { STT_PROVIDERS } from "@/lib/stt-providers";
+import {
+  PROVIDER_ANTHROPIC,
+  PROVIDER_OPENAI,
+  STT_PROVIDER_GROQ,
+  STT_PROVIDER_OPENAI,
+} from "@/test/providers";
 import type { Platform } from "@/lib/platform";
 import type { PromptPreset } from "@/lib/presets";
 import type * as Rust from "./bindings";

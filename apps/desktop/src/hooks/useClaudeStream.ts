@@ -6,12 +6,19 @@ import type { RequestOptions } from "@/lib/chats";
 import { internalError, type AppError } from "@/lib/errors";
 import { notifyAppError } from "@/lib/notify";
 import { advanceReveal, sliceRevealed } from "@/lib/stream-reveal";
+import { useLatestRef } from "./useLatestRef";
 
 export interface ClaudeStreams {
   partial: Record<string, string>;
   streaming: Record<string, boolean>;
   startedAt: Record<string, number>;
   error: Record<string, AppError | null>;
+  /**
+   * Синхронный гейт «чат уже стримит». Флаг `streaming` — state и отстаёт на
+   * рендер: два вызова `send` в одном тике прошли бы его оба, и второй
+   * сбрасывал бы буфер первого без `onComplete`.
+   */
+  isStreaming: (chatId: string) => boolean;
   send: (
     chatId: string,
     messages: ChatMessageDto[],
@@ -19,7 +26,10 @@ export interface ClaudeStreams {
     model: string,
     options: RequestOptions,
   ) => Promise<void>;
+  /** Останавливает стрим и отдаёт частичный ответ через `onComplete`. */
   stop: (chatId: string) => void;
+  /** Останавливает стрим и выбрасывает частичный ответ: чат закрывают, коммитить некуда. */
+  discard: (chatId: string) => void;
 }
 
 export function useClaudeStream(
@@ -44,10 +54,8 @@ export function useClaudeStream(
     [],
   );
 
-  const onCompleteRef = useRef(onComplete);
-  onCompleteRef.current = onComplete;
-  const onUsageRef = useRef(onUsage);
-  onUsageRef.current = onUsage;
+  const onCompleteRef = useLatestRef(onComplete);
+  const onUsageRef = useLatestRef(onUsage);
 
   const frame = useCallback<FrameRequestCallback>((frameTs) => {
     if (active.current.size === 0) {
@@ -102,7 +110,7 @@ export function useClaudeStream(
       dropPartial(chatId);
       setStreaming((s) => ({ ...s, [chatId]: false }));
     },
-    [dropPartial],
+    [dropPartial, onCompleteRef],
   );
 
   useEffect(() => {
@@ -139,7 +147,7 @@ export function useClaudeStream(
       lastFrameTs.current = 0;
       ids.clear();
     };
-  }, [ensureRevealLoop, commitBufferAndFinish, isCurrentStream]);
+  }, [ensureRevealLoop, commitBufferAndFinish, isCurrentStream, onUsageRef]);
 
   const beginStream = useCallback(
     (chatId: string, streamId: string) => {
@@ -168,6 +176,8 @@ export function useClaudeStream(
     [dropPartial],
   );
 
+  const isStreaming = useCallback((chatId: string) => active.current.has(chatId), []);
+
   const send = useCallback(
     async (
       chatId: string,
@@ -176,6 +186,7 @@ export function useClaudeStream(
       model: string,
       options: RequestOptions,
     ) => {
+      if (active.current.has(chatId)) return;
       const streamId = crypto.randomUUID();
       beginStream(chatId, streamId);
       try {
@@ -187,17 +198,31 @@ export function useClaudeStream(
     [beginStream, failStream],
   );
 
+  /** Снимает стрим с учёта и отменяет его в Rust; что делать с буфером — решает вызывающий. */
+  const detach = useCallback((chatId: string): boolean => {
+    const streamId = streamIds.current.get(chatId);
+    if (streamId === undefined) return false;
+    streamIds.current.delete(chatId);
+    active.current.delete(chatId);
+    void cancelStream(chatId, streamId);
+    return true;
+  }, []);
+
   const stop = useCallback(
     (chatId: string) => {
-      const streamId = streamIds.current.get(chatId);
-      if (streamId === undefined) return;
-      streamIds.current.delete(chatId);
-      active.current.delete(chatId);
-      void cancelStream(chatId, streamId);
-      commitBufferAndFinish(chatId, false);
+      if (detach(chatId)) commitBufferAndFinish(chatId, false);
     },
-    [commitBufferAndFinish],
+    [detach, commitBufferAndFinish],
   );
 
-  return { partial, streaming, startedAt, error, send, stop };
+  const discard = useCallback(
+    (chatId: string) => {
+      if (!detach(chatId)) return;
+      dropPartial(chatId);
+      setStreaming((s) => ({ ...s, [chatId]: false }));
+    },
+    [detach, dropPartial],
+  );
+
+  return { partial, streaming, startedAt, error, isStreaming, send, stop, discard };
 }

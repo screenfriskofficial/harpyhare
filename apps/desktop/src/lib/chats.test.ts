@@ -92,6 +92,11 @@ describe("chatTitle", () => {
   it("пустой текст → запасной заголовок по индексу", () => {
     expect(chatTitle("   ", 3)).toBe("Чат 3");
   });
+  it("режет по кодовым точкам, не оставляя половину эмодзи", () => {
+    const title = chatTitle(`${"a".repeat(21)}😀 и дальше`, 1);
+    expect(title).toBe(`${"a".repeat(21)}😀…`);
+    expect(title.includes("\ufffd")).toBe(false);
+  });
 });
 
 describe("serialize/deserialize", () => {
@@ -136,6 +141,16 @@ describe("serialize/deserialize", () => {
 
   it("пустой массив → null (фронт создаст стартовый чат)", () => {
     expect(deserializeChats("[]")).toBeNull();
+  });
+
+  it("null вместо чата или сообщения пропускается, а не роняет загрузку", () => {
+    expect(deserializeChats("[null]")).toBeNull();
+    expect(deserializeChats("null")).toBeNull();
+    const restored = deserializeChats(
+      '[null, {"id":"a","messages":[null, {"role":"user","text":"x"}]}]',
+    );
+    expect(restored?.length).toBe(1);
+    expect(restored?.[0]?.messages).toEqual([{ role: "user", text: "x", images: [] }]);
   });
 
   it("сохраняет titlePinned при round-trip", () => {

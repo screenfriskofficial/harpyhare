@@ -48,16 +48,21 @@ export function onFileDrop(handler: (event: FileDropEvent) => void): Unlisten {
   };
 }
 
+/**
+ * Масштаб берётся синхронно из `devicePixelRatio` (в вебвью он равен scale
+ * factor окна), а не через IPC `scaleFactor()`: на Windows `WM_SIZE` приходит
+ * на каждый пиксель протяжки, и invoke на каждое событие шёл бы до
+ * rAF-коалесинга; к тому же N параллельных ответов не обязаны приходить по
+ * порядку, и последний размер мог оказаться не последним.
+ */
 export function onWindowResized(handler: (size: LogicalWindowSize) => void): Unlisten {
   let live = true;
   let off: Unlisten = noopUnlisten;
-  const win = getCurrentWindow();
-  void win
+  void getCurrentWindow()
     .onResized(({ payload }) => {
-      void win.scaleFactor().then((scale) => {
-        if (!live) return;
-        handler({ width: payload.width / scale, height: payload.height / scale });
-      });
+      if (!live) return;
+      const scale = window.devicePixelRatio || 1;
+      handler({ width: payload.width / scale, height: payload.height / scale });
     })
     .then((unlisten) => {
       if (live) off = unlisten;

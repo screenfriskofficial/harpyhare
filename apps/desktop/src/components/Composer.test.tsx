@@ -5,7 +5,8 @@ import { Composer, type ComposerProps } from "./Composer";
 import { createChat } from "@/lib/chats";
 import { UiProviders } from "@/test/ui-wrapper";
 import { EMPTY_LIBRARY } from "@/lib/context-library";
-import { FALLBACK_MODELS, PROVIDER_ANTHROPIC, PROVIDER_OPENAI, type ModelInfo } from "@/lib/models";
+import { FALLBACK_MODELS, type ModelInfo } from "@/lib/models";
+import { PROVIDER_ANTHROPIC, PROVIDER_OPENAI } from "@/test/providers";
 
 const CLAUDE_ONLY = FALLBACK_MODELS.filter((m) => m.provider === PROVIDER_ANTHROPIC);
 

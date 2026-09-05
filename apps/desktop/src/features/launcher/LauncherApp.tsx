@@ -2,7 +2,7 @@ import { useCallback, useState } from "react";
 import { useContextLibrary } from "@/hooks/useContextLibrary";
 import { useSettingsStore } from "@/hooks/useSettingsStore";
 import { useUpdater } from "@/hooks/useUpdater";
-import { launchMainWindow, redeemAccessCode } from "@/ipc/commands";
+import { clearAccessToken, launchMainWindow, redeemAccessCode } from "@/ipc/commands";
 import type { Settings } from "@/ipc/types";
 import { notify } from "@/lib/notify";
 import { applyTheme } from "@/lib/window-controls";
@@ -29,6 +29,17 @@ export function LauncherApp() {
     },
     [reload],
   );
+
+  // Токен доступа принадлежит бэкенду: `set_settings` его не принимает, поэтому
+  // отвязка идёт отдельной командой, а стор перечитывает применённые настройки.
+  const unlink = useCallback(async (): Promise<void> => {
+    try {
+      await clearAccessToken();
+      await reload();
+    } catch (e) {
+      notify({ variant: "error", title: "Ошибка", message: String(e) });
+    }
+  }, [reload]);
 
   const persist = async (next: Settings): Promise<boolean> => {
     setSaving(true);
@@ -80,6 +91,7 @@ export function LauncherApp() {
       launching={launching}
       saving={saving}
       onRedeem={redeem}
+      onUnlink={unlink}
       onCheckUpdates={updater.checkNow}
       onSave={handleSave}
       onLaunch={handleLaunch}

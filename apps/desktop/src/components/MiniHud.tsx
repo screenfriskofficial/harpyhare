@@ -1,5 +1,6 @@
 import { Maximize2 } from "lucide-react";
 import { IconButton } from "@/components/IconButton";
+import { ShortcutTooltip } from "@/components/ShortcutTooltip";
 import { StatusOrb } from "@/components/StatusOrb";
 import { LiquidMetalBorder } from "@/components/ui/liquid-metal-border";
 import { ORB_STATE_IDLE, type OrbState } from "@/components/ui/thinking-orbs";
@@ -42,6 +43,8 @@ const STATUS_VIEW: Record<MiniStatus, { label: string; labelClass: string; orb: 
   },
 };
 
+const EXPAND_LABEL = "Развернуть окно";
+
 export interface MiniHudProps {
   state: RecorderState;
   streaming: boolean;
@@ -69,13 +72,11 @@ export function MiniHud({
         <span className={cn("min-w-0 flex-1 truncate text-caption", view.labelClass)}>
           {view.label}
         </span>
-        <IconButton
-          title={`Развернуть — ${formatCombo(expandCombo)}`}
-          aria-label="Развернуть окно"
-          onClick={onExpand}
-        >
-          <Maximize2 />
-        </IconButton>
+        <ShortcutTooltip label={EXPAND_LABEL} shortcut={formatCombo(expandCombo)}>
+          <IconButton title="" aria-label={EXPAND_LABEL} onClick={onExpand}>
+            <Maximize2 />
+          </IconButton>
+        </ShortcutTooltip>
       </div>
     </div>
   );

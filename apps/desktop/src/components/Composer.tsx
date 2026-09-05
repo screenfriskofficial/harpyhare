@@ -1,66 +1,19 @@
+import { ArrowUp, Crop, Eraser, NotebookText, RotateCcw, Square } from "lucide-react";
+import { memo, useCallback, useState, type RefObject } from "react";
+import { ChatContextDialog } from "@/components/ChatContextDialog";
+import { PROMPT_SEND_KEY, PromptTextarea } from "@/components/PromptTextarea";
 import {
-  ArrowUp,
-  Check,
-  Crop,
-  Eraser,
-  Lock,
-  NotebookText,
-  RotateCcw,
-  SlidersHorizontal,
-  Square,
-} from "lucide-react";
-import {
-  useCallback,
-  useEffect,
-  useLayoutEffect,
-  useState,
-  type ReactNode,
-  type RefObject,
-} from "react";
-import { SectionLabel } from "@/components/SectionLabel";
+  RequestParamsPopover,
+  type RequestParamsPopoverProps,
+} from "@/components/RequestParamsPopover";
 import { ShortcutTooltip } from "@/components/ShortcutTooltip";
 import { Button } from "@/components/ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import {
-  Select,
-  SelectContent,
-  SelectGroup,
-  SelectItem,
-  SelectLabel,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { Switch } from "@/components/ui/switch";
-import { Textarea } from "@/components/ui/textarea";
 import type { QuickAction } from "@/ipc/types";
-import { MISSING_KEY_HINT } from "@/lib/api-keys";
 import type { Chat, ChatPatch } from "@/lib/chats";
-import { extractImageItems } from "@/lib/composer";
 import type { Attachment } from "@/lib/composer";
-import {
-  docsInFolder,
-  rootDocs,
-  type ContextDoc,
-  type ContextLibrary,
-} from "@/lib/context-library";
+import type { ContextLibrary } from "@/lib/context-library";
 import { formatCombo } from "@/lib/hotkeys";
-import {
-  modelGroups,
-  modelLabel,
-  selectableModels,
-  thinkingLocked,
-  type ModelInfo,
-} from "@/lib/models";
-import { cn } from "@/lib/utils";
+import { selectableModels, thinkingLocked, type ModelInfo } from "@/lib/models";
 import { AttachmentChip } from "./AttachmentChip";
 import { QuickActionsBar } from "./QuickActionsBar";
 
@@ -88,77 +41,7 @@ export interface ComposerProps {
   onQuickAction: (action: QuickAction) => void;
 }
 
-const SELECT_TRIGGER_CLASS = "h-7 w-full text-caption";
-const SELECT_CONTENT_POSITION = "popper";
-const NO_PRESET_VALUE = "none";
-const THINKING_PARAM_LABEL = "Thinking";
-const WEB_SEARCH_PARAM_LABEL = "Веб-поиск";
-
-function pasteHasImages(items: DataTransferItemList) {
-  return extractImageItems(items).length > 0;
-}
-
-type PromptTextareaProps = Pick<ComposerProps, "onPaste" | "onSend"> & {
-  value: string;
-  onChange: (value: string) => void;
-  fieldRef: RefObject<HTMLTextAreaElement | null>;
-};
-
-const PROMPT_MAX_HEIGHT_PX = 160;
-const PROMPT_SEND_KEY = "Enter";
 const SEND_LABEL = "Отправить";
-
-function usePromptAutosize(ref: RefObject<HTMLTextAreaElement | null>, value: string): void {
-  const fit = useCallback(() => {
-    const el = ref.current;
-    if (!el) return;
-    el.style.height = "0px";
-    el.style.height = `${String(Math.min(el.scrollHeight, PROMPT_MAX_HEIGHT_PX))}px`;
-  }, [ref]);
-
-  useLayoutEffect(fit, [fit, value]);
-
-  useEffect(() => {
-    const el = ref.current;
-    if (!el) return;
-    const observer = new ResizeObserver(fit);
-    observer.observe(el);
-    return () => {
-      observer.disconnect();
-    };
-  }, [ref, fit]);
-}
-
-function PromptTextarea(props: PromptTextareaProps) {
-  usePromptAutosize(props.fieldRef, props.value);
-  return (
-    <Textarea
-      ref={props.fieldRef}
-      value={props.value}
-      onChange={(e) => {
-        props.onChange(e.target.value);
-      }}
-      onPaste={(e) => {
-        const items = e.clipboardData.items;
-        if (pasteHasImages(items)) e.preventDefault();
-        props.onPaste(items);
-      }}
-      onKeyDown={(e) => {
-        const sendShortcutPressed =
-          e.key === PROMPT_SEND_KEY && !e.shiftKey && !e.nativeEvent.isComposing;
-        if (sendShortcutPressed) {
-          e.preventDefault();
-          e.stopPropagation();
-          props.onSend();
-        }
-      }}
-      spellCheck={false}
-      placeholder="Расшифровка появится здесь — или напиши вопрос сам"
-      style={{ maxHeight: PROMPT_MAX_HEIGHT_PX }}
-      className="min-h-9 resize-none overflow-y-auto border-0 bg-transparent py-1.5 text-body focus-visible:ring-0"
-    />
-  );
-}
 
 interface AttachmentListProps {
   attachments: Attachment[];
@@ -170,8 +53,10 @@ function AttachmentList({ attachments, onRemove }: AttachmentListProps) {
   return (
     <div className="flex flex-wrap gap-1.5 px-2.5 pb-2">
       {attachments.map((att, i) => (
+        // Ключ — позиция: у вложений нет id, а превью двух одинаковых вставок
+        // совпадает буква в букву; список короткий и не переупорядочивается.
         <AttachmentChip
-          key={att.preview}
+          key={i}
           attachment={att}
           onRemove={() => {
             onRemove(i);
@@ -182,179 +67,7 @@ function AttachmentList({ attachments, onRemove }: AttachmentListProps) {
   );
 }
 
-interface ParamToggleProps {
-  label: string;
-  value: boolean;
-  onChange: (enabled: boolean) => void;
-  disabled?: boolean;
-}
-
-function ParamToggle(props: ParamToggleProps) {
-  return (
-    <Switch
-      size="sm"
-      aria-label={props.label}
-      checked={props.value}
-      disabled={props.disabled}
-      onCheckedChange={props.onChange}
-    />
-  );
-}
-
-interface ModelSelectProps {
-  value: string;
-  models: ModelInfo[];
-  providersMissingKey: readonly string[];
-  onChange: (model: string) => void;
-}
-
-function ModelSelect(props: ModelSelectProps) {
-  const groups = modelGroups(props.models);
-  const showHeadings = groups.length > 1;
-  return (
-    <Select value={props.value} onValueChange={props.onChange}>
-      <SelectTrigger className={SELECT_TRIGGER_CLASS}>
-        <SelectValue />
-      </SelectTrigger>
-      <SelectContent position={SELECT_CONTENT_POSITION}>
-        {groups.map((group) => {
-          const locked = props.providersMissingKey.includes(group.id);
-          return (
-            <SelectGroup key={group.id}>
-              {showHeadings && (
-                <SelectLabel>
-                  {group.label}
-                  {locked && (
-                    <span className="ml-1.5 text-hint font-normal text-muted-foreground">
-                      {MISSING_KEY_HINT}
-                    </span>
-                  )}
-                </SelectLabel>
-              )}
-              {group.models.map((m) => (
-                <SelectItem key={m.id} value={m.id} disabled={locked}>
-                  <span className="flex items-center gap-1.5">
-                    {locked && <Lock className="size-3" aria-hidden />}
-                    {modelLabel(m)}
-                  </span>
-                </SelectItem>
-              ))}
-            </SelectGroup>
-          );
-        })}
-      </SelectContent>
-    </Select>
-  );
-}
-
-interface PresetSelectProps {
-  presets: { id: string; name: string }[];
-  presetId: string;
-  onChange: (id: string) => void;
-}
-
-function PresetSelect({ presets, presetId, onChange }: PresetSelectProps) {
-  const selectedValue =
-    presetId !== "" && presets.some((p) => p.id === presetId) ? presetId : NO_PRESET_VALUE;
-  return (
-    <Select
-      value={selectedValue}
-      onValueChange={(v) => {
-        onChange(v === NO_PRESET_VALUE ? "" : v);
-      }}
-    >
-      <SelectTrigger className={SELECT_TRIGGER_CLASS}>
-        <SelectValue placeholder="Препромпт" />
-      </SelectTrigger>
-      <SelectContent position={SELECT_CONTENT_POSITION}>
-        <SelectItem value={NO_PRESET_VALUE}>Без препромпта</SelectItem>
-        {presets.map((p) => (
-          <SelectItem key={p.id} value={p.id}>
-            {p.name || "Без имени"}
-          </SelectItem>
-        ))}
-      </SelectContent>
-    </Select>
-  );
-}
-
-function ParamRow({ label, children }: { label: string; children: ReactNode }) {
-  return (
-    <div className="flex min-h-7 items-center gap-2">
-      <Label className="w-20 shrink-0">{label}</Label>
-      <div className="flex min-w-0 flex-1 items-center justify-end">{children}</div>
-    </div>
-  );
-}
-
-type RequestParamsProps = Pick<
-  ComposerProps,
-  "chat" | "onPatch" | "presets" | "modelProvidersMissingKey"
-> & {
-  modelOptions: ModelInfo[];
-  thinkingDisabled: boolean;
-};
-
-function RequestParamsPopover(props: RequestParamsProps) {
-  return (
-    <Popover>
-      <PopoverTrigger asChild>
-        <Button
-          variant="ghost"
-          size="icon-compact"
-          title="Параметры запроса"
-          aria-label="Параметры запроса"
-        >
-          <SlidersHorizontal />
-        </Button>
-      </PopoverTrigger>
-      <PopoverContent side="top" align="start" className="w-64 p-3">
-        <div className="flex flex-col gap-1">
-          <ParamRow label="Модель">
-            <ModelSelect
-              models={props.modelOptions}
-              providersMissingKey={props.modelProvidersMissingKey}
-              value={props.chat.model}
-              onChange={(model) => {
-                props.onPatch(props.chat.id, { model });
-              }}
-            />
-          </ParamRow>
-          <ParamRow label="Препромпт">
-            <PresetSelect
-              presets={props.presets}
-              presetId={props.chat.presetId}
-              onChange={(presetId) => {
-                props.onPatch(props.chat.id, { presetId });
-              }}
-            />
-          </ParamRow>
-          <ParamRow label={THINKING_PARAM_LABEL}>
-            <ParamToggle
-              label={THINKING_PARAM_LABEL}
-              value={props.chat.thinkingEnabled}
-              disabled={props.thinkingDisabled}
-              onChange={(thinkingEnabled) => {
-                props.onPatch(props.chat.id, { thinkingEnabled });
-              }}
-            />
-          </ParamRow>
-          <ParamRow label={WEB_SEARCH_PARAM_LABEL}>
-            <ParamToggle
-              label={WEB_SEARCH_PARAM_LABEL}
-              value={props.chat.webSearch}
-              onChange={(webSearch) => {
-                props.onPatch(props.chat.id, { webSearch });
-              }}
-            />
-          </ParamRow>
-        </div>
-      </PopoverContent>
-    </Popover>
-  );
-}
-
-type ComposerToolbarProps = RequestParamsProps &
+type ComposerToolbarProps = RequestParamsPopoverProps &
   Pick<
     ComposerProps,
     | "onClearHistory"
@@ -449,215 +162,29 @@ function ComposerToolbar(props: ComposerToolbarProps) {
   );
 }
 
-interface ChatContextDialogProps {
-  open: boolean;
-  draft: string;
-  library: ContextLibrary;
-  selectedDocIds: string[];
-  onDraftChange: (draft: string) => void;
-  onToggleDoc: (id: string) => void;
-  onCancel: () => void;
-  onSave: () => void;
-}
-
-function LibraryDocToggle({
-  doc,
-  selected,
-  onToggle,
-}: {
-  doc: ContextDoc;
-  selected: boolean;
-  onToggle: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onToggle}
-      className={cn(
-        "flex w-full items-center gap-2 rounded-sm px-2 py-1 text-left text-body transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring/60",
-        selected
-          ? "bg-surface-active text-foreground"
-          : "text-muted-foreground hover:bg-surface active:bg-surface-active",
-      )}
-    >
-      <Check className={`size-3.5 shrink-0 ${selected ? "" : "opacity-0"}`} />
-      <span className="min-w-0 truncate" title={doc.name}>
-        {doc.name}
-      </span>
-    </button>
-  );
-}
-
-const LIBRARY_FILTER_MIN_DOCS = 8;
-const LIBRARY_EMPTY_TEXT =
-  "Библиотека пуста — материалы добавляются в лаунчере на экране «Контексты».";
-const LIBRARY_NOTHING_FOUND_TEXT = "Ничего не найдено";
-const LIBRARY_FILTER_PLACEHOLDER = "Найти материал…";
-const NO_FOLDER_GROUP_NAME = "Без папки";
-
-interface DocGroup {
-  id: string;
-  name: string;
-  docs: ContextDoc[];
-}
-
-function libraryGroups(library: ContextLibrary, query: string): DocGroup[] {
-  const needle = query.trim().toLowerCase();
-  const matches = (doc: ContextDoc) => needle === "" || doc.name.toLowerCase().includes(needle);
-  return [
-    {
-      id: "",
-      name: library.folders.length > 0 ? NO_FOLDER_GROUP_NAME : "",
-      docs: rootDocs(library).filter(matches),
-    },
-    ...library.folders.map((folder) => ({
-      id: folder.id,
-      name: folder.name,
-      docs: docsInFolder(library, folder.id).filter(matches),
-    })),
-  ].filter((group) => group.docs.length > 0);
-}
-
-function LibraryPicker({
-  library,
-  selectedDocIds,
-  onToggleDoc,
-}: {
-  library: ContextLibrary;
-  selectedDocIds: string[];
-  onToggleDoc: (id: string) => void;
-}) {
-  const [query, setQuery] = useState("");
-  const groups = libraryGroups(library, query);
-  const selected = new Set(selectedDocIds);
-
-  if (library.docs.length === 0) {
-    return <p className="text-caption text-muted-foreground">{LIBRARY_EMPTY_TEXT}</p>;
-  }
-
-  return (
-    <div className="flex min-h-0 flex-col gap-1.5">
-      {library.docs.length >= LIBRARY_FILTER_MIN_DOCS && (
-        <Input
-          value={query}
-          onChange={(e) => {
-            setQuery(e.target.value);
-          }}
-          placeholder={LIBRARY_FILTER_PLACEHOLDER}
-          aria-label={LIBRARY_FILTER_PLACEHOLDER}
-        />
-      )}
-      {groups.length === 0 ? (
-        <p className="text-caption text-muted-foreground">{LIBRARY_NOTHING_FOUND_TEXT}</p>
-      ) : (
-        <div className="flex max-h-[min(12rem,32dvh)] min-h-0 flex-col gap-1 overflow-y-auto">
-          {groups.map((g) => (
-            <div key={g.id} className="flex flex-col gap-0.5">
-              {g.name !== "" && (
-                <SectionLabel className="truncate px-2 pt-1" title={g.name}>
-                  {g.name}
-                </SectionLabel>
-              )}
-              {g.docs.map((doc) => (
-                <LibraryDocToggle
-                  key={doc.id}
-                  doc={doc}
-                  selected={selected.has(doc.id)}
-                  onToggle={() => {
-                    onToggleDoc(doc.id);
-                  }}
-                />
-              ))}
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function ChatContextDialog(props: ChatContextDialogProps) {
-  return (
-    <Dialog
-      open={props.open}
-      onOpenChange={(open) => {
-        if (!open) props.onCancel();
-      }}
-    >
-      <DialogContent className="flex max-w-[min(480px,95vw)] flex-col overflow-hidden sm:max-w-[min(480px,95vw)]">
-        <DialogHeader className="shrink-0">
-          <DialogTitle>Контекст чата</DialogTitle>
-        </DialogHeader>
-        <div className="flex min-h-0 flex-1 flex-col gap-3.5 overflow-y-auto">
-          <div className="flex min-h-0 flex-col gap-1.5">
-            <SectionLabel>
-              Из библиотеки
-              {props.selectedDocIds.length > 0 && (
-                <span className="ml-1.5 text-muted-foreground tabular-nums">
-                  выбрано {props.selectedDocIds.length}
-                </span>
-              )}
-            </SectionLabel>
-            <LibraryPicker
-              library={props.library}
-              selectedDocIds={props.selectedDocIds}
-              onToggleDoc={props.onToggleDoc}
-            />
-          </div>
-          <div className="flex flex-col gap-1.5">
-            <SectionLabel>Свой текст</SectionLabel>
-            <p className="text-caption text-muted-foreground">
-              Уникальный справочный текст этого чата — уходит в системный промпт каждого запроса
-              вместе с выбранными материалами.
-            </p>
-            <Textarea
-              rows={6}
-              value={props.draft}
-              onChange={(e) => {
-                props.onDraftChange(e.target.value);
-              }}
-              placeholder="Вставь сюда справочные материалы"
-              className="max-h-40 overflow-y-auto"
-            />
-          </div>
-        </div>
-        <DialogFooter className="shrink-0">
-          <Button variant="ghost" onClick={props.onCancel}>
-            Отмена
-          </Button>
-          <Button onClick={props.onSave}>Сохранить</Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
-export function Composer(props: ComposerProps) {
-  const { chat, onPatch } = props;
+/**
+ * `memo`: во время стрима `App` рендерится на каждый rAF-кадр раскрытия, а
+ * входы композера при этом не меняются. Работает, пока App передаёт
+ * стабильные колбэки — inline-стрелка в пропсах сведёт мемоизацию на нет.
+ */
+export const Composer = memo(function Composer(props: ComposerProps) {
+  const { chat, onPatch, onRestoreFocus } = props;
   const modelOptions = selectableModels(props.models, chat.model);
   const thinkingDisabled = thinkingLocked(modelOptions, chat.model);
   const [contextOpen, setContextOpen] = useState(false);
-  const [contextChatId, setContextChatId] = useState("");
-  const [contextDraft, setContextDraft] = useState("");
-  const [selectedDraft, setSelectedDraft] = useState<string[]>([]);
-  const openContextDialog = () => {
-    setContextChatId(chat.id);
-    setContextDraft(chat.context);
-    setSelectedDraft(chat.libraryDocIds);
+  const openContextDialog = useCallback(() => {
     setContextOpen(true);
-  };
-  const closeContextDialog = () => {
+  }, []);
+  const closeContextDialog = useCallback(() => {
     setContextOpen(false);
-    props.onRestoreFocus();
-  };
-  const toggleSelectedDoc = (id: string) => {
-    setSelectedDraft((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
-  };
-  const saveContext = () => {
-    onPatch(contextChatId, { context: contextDraft, libraryDocIds: selectedDraft });
-    setContextOpen(false);
-    props.onRestoreFocus();
-  };
+    onRestoreFocus();
+  }, [onRestoreFocus]);
+  const onDraftChange = useCallback(
+    (draft: string) => {
+      onPatch(chat.id, { draft });
+    },
+    [onPatch, chat.id],
+  );
   return (
     <section>
       <QuickActionsBar
@@ -670,9 +197,7 @@ export function Composer(props: ComposerProps) {
         <PromptTextarea
           fieldRef={props.promptRef}
           value={chat.draft}
-          onChange={(draft) => {
-            onPatch(chat.id, { draft });
-          }}
+          onChange={onDraftChange}
           onPaste={props.onPaste}
           onSend={props.onSend}
         />
@@ -698,14 +223,12 @@ export function Composer(props: ComposerProps) {
       </div>
       <ChatContextDialog
         open={contextOpen}
-        draft={contextDraft}
+        chat={chat}
         library={props.library}
-        selectedDocIds={selectedDraft}
-        onDraftChange={setContextDraft}
-        onToggleDoc={toggleSelectedDoc}
-        onCancel={closeContextDialog}
-        onSave={saveContext}
+        onPatch={onPatch}
+        onClose={closeContextDialog}
+        onRestoreFocus={onRestoreFocus}
       />
     </section>
   );
-}
+});

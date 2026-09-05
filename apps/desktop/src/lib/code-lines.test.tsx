@@ -1,3 +1,4 @@
+import { isValidElement } from "react";
 import { describe, expect, it } from "vitest";
 import { splitRenderedLines, trimTrailingEmptyLine } from "./code-lines";
 
@@ -12,6 +13,17 @@ describe("splitRenderedLines", () => {
     expect(lines.length).toBe(2);
     for (const line of lines) {
       expect(line.length).toBe(1);
+    }
+  });
+
+  it("пустая строка внутри токена даёт пустую обёртку, а не весь токен ещё раз", () => {
+    const highlighted = <span className="hljs-comment">{"/*\n\n*/"}</span>;
+    const lines = splitRenderedLines(highlighted);
+    expect(lines.length).toBe(3);
+    const middle = lines[1]?.[0];
+    expect(isValidElement<{ children?: unknown }>(middle)).toBe(true);
+    if (isValidElement<{ children?: unknown }>(middle)) {
+      expect(middle.props.children).toBeNull();
     }
   });
 

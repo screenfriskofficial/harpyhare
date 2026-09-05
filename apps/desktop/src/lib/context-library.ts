@@ -1,3 +1,5 @@
+import { isRecord } from "./utils";
+
 export interface ContextFolder {
   id: string;
   name: string;
@@ -118,8 +120,11 @@ export function rootDocs(lib: ContextLibrary): ContextDoc[] {
   return docsInFolder(lib, ROOT_FOLDER_ID);
 }
 
+/** Путь из drag-and-drop приходит нативным: на Windows — с обратными слэшами. */
+const PATH_SEPARATOR_RE = /[\\/]/;
+
 export function docNameFromFileName(fileName: string): string {
-  const base = fileName.split("/").pop() ?? fileName;
+  const base = fileName.split(PATH_SEPARATOR_RE).pop() ?? fileName;
   const withoutExt = base.replace(IMPORT_EXTENSION_SUFFIX, "");
   return withoutExt.trim() || UNNAMED_DOC;
 }
@@ -136,11 +141,6 @@ export function libraryContextBlocks(lib: ContextLibrary, selectedIds: string[])
     .map((d) => `${LIBRARY_CONTEXT_BLOCK_HEADER} «${d.name}»:\n${d.text.trim()}`);
 }
 
-export function sanitizeSelectedIds(lib: ContextLibrary, selectedIds: string[]): string[] {
-  const known = new Set(lib.docs.map((d) => d.id));
-  return selectedIds.filter((id) => known.has(id));
-}
-
 export function serializeLibrary(lib: ContextLibrary): string {
   return JSON.stringify(lib);
 }
@@ -153,15 +153,18 @@ export function deserializeLibrary(json: string): ContextLibrary | null {
   } catch {
     return null;
   }
+  if (!isRecord(raw)) return null;
   const o = raw as Partial<ContextLibrary>;
-  const folders = (Array.isArray(o.folders) ? o.folders : []).flatMap((rawFolder) => {
+  const folders = (Array.isArray(o.folders) ? o.folders : []).flatMap((rawFolder: unknown) => {
+    if (!isRecord(rawFolder)) return [];
     const f = rawFolder as Partial<ContextFolder>;
     return typeof f.id === "string" && typeof f.name === "string"
       ? [{ id: f.id, name: f.name }]
       : [];
   });
   const folderIds = new Set(folders.map((f) => f.id));
-  const docs = (Array.isArray(o.docs) ? o.docs : []).flatMap((rawDoc) => {
+  const docs = (Array.isArray(o.docs) ? o.docs : []).flatMap((rawDoc: unknown) => {
+    if (!isRecord(rawDoc)) return [];
     const d = rawDoc as Partial<ContextDoc>;
     if (typeof d.id !== "string" || typeof d.name !== "string") return [];
     return [

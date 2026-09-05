@@ -45,6 +45,12 @@ describe("hotkeyFromEvent", () => {
 });
 
 describe("conflictsWithTyping", () => {
+  it("модификаторы понимаются в любом написании", () => {
+    expect(conflictsWithTyping("cmd+x")).toBe(false);
+    expect(conflictsWithTyping("Meta+X")).toBe(false);
+    expect(conflictsWithTyping("shift+x")).toBe(true);
+  });
+
   it("одиночная буква/цифра мешает печати (в т.ч. с Shift)", () => {
     expect(conflictsWithTyping("V")).toBe(true);
     expect(conflictsWithTyping("1")).toBe(true);

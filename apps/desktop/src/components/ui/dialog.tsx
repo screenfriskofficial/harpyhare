@@ -36,13 +36,23 @@ function DialogOverlay({
   );
 }
 
+const PANEL_VIEWPORT_MAX_WIDTH = "95vw";
+
+/** Ширина панели инлайном: Tailwind не соберёт `max-w-[min(Npx,95vw)]` из переменной. */
+function panelMaxWidth(widthPx: number): string {
+  return `min(${String(widthPx)}px, ${PANEL_VIEWPORT_MAX_WIDTH})`;
+}
+
 function DialogContent({
   className,
   children,
   showCloseButton = true,
+  panelWidthPx,
   ...props
 }: React.ComponentProps<typeof DialogPrimitive.Content> & {
   showCloseButton?: boolean;
+  /** Желаемая ширина панели; на узком окне ограничена шириной вьюпорта. */
+  panelWidthPx?: number;
 }) {
   const outsideCloseRef = React.useRef<HTMLButtonElement>(null);
   return (
@@ -61,6 +71,7 @@ function DialogContent({
         <DialogPrimitive.Close ref={outsideCloseRef} aria-hidden tabIndex={-1} className="hidden" />
         <div
           data-slot="dialog-panel"
+          style={panelWidthPx === undefined ? undefined : { maxWidth: panelMaxWidth(panelWidthPx) }}
           className={cn(
             "pointer-events-auto relative grid max-h-[calc(100dvh-2rem)] w-full max-w-[calc(100%-2rem)] gap-3.5 overflow-y-auto rounded-xl border bg-popover p-5 shadow-modal duration-200 outline-none group-data-[state=closed]:animate-out group-data-[state=closed]:fade-out-0 group-data-[state=closed]:fill-mode-forwards group-data-[state=closed]:zoom-out-95 group-data-[state=open]:animate-in group-data-[state=open]:fade-in-0 group-data-[state=open]:zoom-in-95 sm:max-w-lg",
             className,

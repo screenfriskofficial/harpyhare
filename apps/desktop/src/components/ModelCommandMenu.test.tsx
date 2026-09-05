@@ -1,7 +1,12 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
-import { PROVIDER_ANTHROPIC, PROVIDER_OPENAI, type ModelInfo } from "@/lib/models";
-import { STT_PROVIDER_GROQ, STT_PROVIDER_OPENAI } from "@/lib/stt-providers";
+import type { ModelInfo } from "@/lib/models";
+import {
+  PROVIDER_ANTHROPIC,
+  PROVIDER_OPENAI,
+  STT_PROVIDER_GROQ,
+  STT_PROVIDER_OPENAI,
+} from "@/test/providers";
 import { ModelCommandMenu } from "./ModelCommandMenu";
 
 class ResizeObserverStub {
@@ -52,6 +57,7 @@ const renderMenu = (overrides: Partial<Parameters<typeof ModelCommandMenu>[0]> =
     modelsPending: false,
     activeModelId: "claude-haiku-4-5",
     onSelectModel: vi.fn(),
+    onRestoreFocus: vi.fn(),
     ...overrides,
   };
   render(<ModelCommandMenu {...props} />);

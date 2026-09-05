@@ -1,5 +1,5 @@
 import { Menu } from "lucide-react";
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { memo, useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { IconButton } from "@/components/IconButton";
 import { ICON_CLUSTER_CLASS } from "@/components/IconCluster";
 import { ShortcutTooltip } from "@/components/ShortcutTooltip";
@@ -46,7 +46,8 @@ function DockTooltip({
   );
 }
 
-export function ToolbarDock({ items, leading }: ToolbarDockProps) {
+/** `memo`: `items` собирается в `useMemo` у родителя, иначе мемоизация не даёт ничего. */
+export const ToolbarDock = memo(function ToolbarDock({ items, leading }: ToolbarDockProps) {
   const wrapperRef = useRef<HTMLDivElement>(null);
   const toggleRef = useRef<HTMLButtonElement>(null);
   const [open, setOpen] = useState(false);
@@ -130,4 +131,4 @@ export function ToolbarDock({ items, leading }: ToolbarDockProps) {
       )}
     </div>
   );
-}
+});

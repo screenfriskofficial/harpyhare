@@ -133,4 +133,22 @@ describe("useConnectivity", () => {
     });
     expect(result.current.offline).toBe(false);
   });
+
+  it("переход в offline запускает ровно одну немедленную пробу", async () => {
+    probeConnectivity.mockResolvedValue(false);
+    const { result } = renderHook(() => useConnectivity());
+    await waitFor(() => {
+      expect(result.current.offline).toBe(true);
+    });
+    await waitFor(() => {
+      expect(probeConnectivity).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  it("старт в offline делает одну пробу, а не две", () => {
+    setOnLine(false);
+    probeConnectivity.mockResolvedValue(false);
+    renderHook(() => useConnectivity());
+    expect(probeConnectivity).toHaveBeenCalledTimes(1);
+  });
 });

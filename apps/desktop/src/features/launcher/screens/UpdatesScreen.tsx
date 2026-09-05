@@ -1,5 +1,5 @@
 import Markdown from "react-markdown";
-import remarkGfm from "remark-gfm";
+import { markdownComponents, REMARK_PLUGINS } from "@/components/markdown-config";
 import { Button } from "@/components/ui/button";
 import type { UpdaterApi } from "@/hooks/useUpdater";
 import type { UpdateProgress } from "@/ipc/types";
@@ -11,7 +11,6 @@ export type CheckState = "idle" | "checking" | "latest" | { failure: string };
 
 const MIB = 1024 * 1024;
 const PERCENT_MAX = 100;
-const REMARK_PLUGINS = [remarkGfm];
 
 function downloadPercent(progress: UpdateProgress | null): number | null {
   if (progress && progress.total !== null && progress.total > 0) {
@@ -91,7 +90,9 @@ export function UpdatesScreen({
           {updater.info.notes !== "" && (
             <SettingBlock label="Что нового">
               <div className="prose-answer max-h-56 overflow-y-auto rounded-lg bg-surface px-3 py-2 text-body leading-relaxed text-muted-foreground ring-1 ring-border ring-inset">
-                <Markdown remarkPlugins={REMARK_PLUGINS}>{updater.info.notes}</Markdown>
+                <Markdown remarkPlugins={REMARK_PLUGINS} components={markdownComponents}>
+                  {updater.info.notes}
+                </Markdown>
               </div>
             </SettingBlock>
           )}

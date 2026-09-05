@@ -1,10 +1,16 @@
 import { useEffect, useMemo } from "react";
 import { onEvent } from "@/ipc/events";
 import type { HotkeyBinding } from "@/ipc/types";
-import { matchesPrepared, prepareCombo } from "@/lib/hotkey-match";
-import { matchesModifier, parseFamilyModifier, type ModifierState } from "@/lib/hotkey-modifier";
+import {
+  matchesModifier,
+  matchesPrepared,
+  parseFamilyModifier,
+  prepareCombo,
+  type ModifierState,
+} from "@/lib/hotkey-match";
 import { effectiveCombo } from "@/lib/hotkeys";
 import { type WindowDimension } from "@/lib/window-size";
+import { useLatestRef } from "./useLatestRef";
 
 const KEYDOWN_EVENT = "keydown";
 const OPACITY_UP_CODE = "Equal";
@@ -33,12 +39,20 @@ export function useWindowControls(
   onChatFontStep: (dir: 1 | -1) => void,
   onResizeKey: ResizeKeyHandler,
 ): void {
+  // Колбэки читаются из ref, подписки ставятся один раз: переподписка на
+  // смену идентичности колбэка снимала бы `unlisten` синхронно, а новый
+  // `listen` вставал бы после round-trip в Rust — событие в зазоре терялось бы.
+  const onResizeKeyRef = useLatestRef(onResizeKey);
+  const onSendRef = useLatestRef(onSend);
+  const onOpacityStepRef = useLatestRef(onOpacityStep);
+  const onChatFontStepRef = useLatestRef(onChatFontStep);
+
   useEffect(
     () =>
       onEvent("resize-key", ({ dim, dir }) => {
-        onResizeKey(dim, dir);
+        onResizeKeyRef.current(dim, dir);
       }),
-    [onResizeKey],
+    [onResizeKeyRef],
   );
 
   const opacityModifier = effectiveCombo(hotkeys, "opacity");
@@ -53,23 +67,23 @@ export function useWindowControls(
       const opacityDir = familyStepFromEvent(e, opacityState, OPACITY_UP_CODE, OPACITY_DOWN_CODE);
       if (opacityDir !== null) {
         e.preventDefault();
-        onOpacityStep(opacityDir);
+        onOpacityStepRef.current(opacityDir);
         return;
       }
       const fontDir = familyStepFromEvent(e, chatFontState, FONT_UP_CODE, FONT_DOWN_CODE);
       if (fontDir !== null) {
         e.preventDefault();
-        onChatFontStep(fontDir);
+        onChatFontStepRef.current(fontDir);
         return;
       }
       if (matchesPrepared(e, preparedSend)) {
         e.preventDefault();
-        onSend();
+        onSendRef.current();
       }
     };
     document.addEventListener(KEYDOWN_EVENT, onKey);
     return () => {
       document.removeEventListener(KEYDOWN_EVENT, onKey);
     };
-  }, [onSend, onOpacityStep, onChatFontStep, opacityState, chatFontState, preparedSend]);
+  }, [onSendRef, onOpacityStepRef, onChatFontStepRef, opacityState, chatFontState, preparedSend]);
 }

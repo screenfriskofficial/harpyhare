@@ -9,6 +9,12 @@ export interface Connectivity {
   retry: () => void;
 }
 
+/**
+ * Немедленную пробу при переходе в offline запускает ОДИН источник — эффект
+ * на `offline`. `reportNetworkError` и событие `offline` только поднимают флаг:
+ * каждая проба собирает в Rust отдельный HTTP-клиент с 5-секундным таймаутом,
+ * и вторая на тот же переход была бы чистой платой.
+ */
 export function useConnectivity(): Connectivity {
   const [offline, setOffline] = useState(() => !navigator.onLine);
   const probeGen = useRef(0);
@@ -31,15 +37,14 @@ export function useConnectivity(): Connectivity {
 
   const reportNetworkError = useCallback(() => {
     setOffline(true);
-    void check();
-  }, [check]);
+  }, []);
 
   useEffect(() => {
-    void check();
+    // На старте в offline пробу делает эффект ниже — иначе их было бы две.
+    if (navigator.onLine) void check();
     const onOnline = () => void check();
     const onOffline = () => {
       setOffline(true);
-      void check();
     };
     window.addEventListener("online", onOnline);
     window.addEventListener("offline", onOffline);

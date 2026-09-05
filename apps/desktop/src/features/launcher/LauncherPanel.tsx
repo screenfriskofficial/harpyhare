@@ -38,6 +38,7 @@ export function LauncherPanel({
   launching,
   saving,
   onRedeem,
+  onUnlink,
   onCheckUpdates,
   onSave,
   onLaunch,
@@ -169,6 +170,7 @@ export function LauncherPanel({
                 set={set}
                 tab={settingsTab}
                 onRedeem={onRedeem}
+                onUnlink={onUnlink}
                 onTabChange={setSettingsTab}
               />
             )}

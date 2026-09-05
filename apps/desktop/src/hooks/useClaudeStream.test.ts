@@ -332,4 +332,37 @@ describe("useClaudeStream (per-chat)", () => {
     expect(result.current.error["A"]).toEqual({ code: "api", message: "сломалось" });
     expect(result.current.streaming["A"]).toBeFalsy();
   });
+
+  it("второй send в тот же чат до ре-рендера отвергается, первый стрим живёт", () => {
+    const onComplete = vi.fn();
+    const { result } = renderHook(() => useClaudeStream(onComplete, vi.fn()));
+    act(() => {
+      void result.current.send("A", [], "", "m", { thinking: false, webSearch: false });
+      void result.current.send("A", [], "", "m", { thinking: false, webSearch: false });
+    });
+    expect(sendToClaude).toHaveBeenCalledTimes(1);
+    expect(result.current.isStreaming("A")).toBe(true);
+    emit("llm-delta", { chatId: "A", delta: "ответ" });
+    emit("llm-done", { chatId: "A" });
+    expect(onComplete).toHaveBeenCalledWith("A", "ответ");
+    expect(result.current.isStreaming("A")).toBe(false);
+  });
+
+  it("discard отменяет стрим и выбрасывает буфер без onComplete", () => {
+    const onComplete = vi.fn();
+    const { result } = renderHook(() => useClaudeStream(onComplete, vi.fn()));
+    act(() => {
+      void result.current.send("A", [], "", "m", { thinking: false, webSearch: false });
+    });
+    emit("llm-delta", { chatId: "A", delta: "частичный" });
+    act(() => {
+      result.current.discard("A");
+    });
+    expect(cancelStream).toHaveBeenCalledWith("A", streamIdOf("A"));
+    expect(onComplete).not.toHaveBeenCalled();
+    expect(result.current.partial["A"]).toBeUndefined();
+    expect(result.current.streaming["A"]).toBe(false);
+    emit("llm-done", { chatId: "A" });
+    expect(onComplete).not.toHaveBeenCalled();
+  });
 });

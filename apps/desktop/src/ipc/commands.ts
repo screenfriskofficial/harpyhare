@@ -69,6 +69,10 @@ export async function setSettings(newSettings: Settings): Promise<Settings> {
   return commands.setSettings(newSettings) as Promise<Settings>;
 }
 
+export async function clearAccessToken(): Promise<Settings> {
+  return commands.clearAccessToken() as Promise<Settings>;
+}
+
 export async function checkForUpdate(): Promise<UpdateInfo | null> {
   return commands.checkForUpdate();
 }

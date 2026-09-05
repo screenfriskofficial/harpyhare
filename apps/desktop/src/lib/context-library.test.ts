@@ -12,7 +12,6 @@ import {
   removeFolder,
   renameFolder,
   rootDocs,
-  sanitizeSelectedIds,
   serializeLibrary,
   updateDoc,
   DOC_TEXT_LIMIT_CHARS,
@@ -69,6 +68,11 @@ describe("библиотека контекстов", () => {
     expect(docNameFromFileName(".md")).toBe("Без имени");
   });
 
+  it("docNameFromFileName понимает пути Windows из drag-and-drop", () => {
+    expect(docNameFromFileName("C:\\Users\\mark\\Desktop\\notes.md")).toBe("notes");
+    expect(docNameFromFileName("C:\\Users\\mark/mixed/Отчёт.pdf")).toBe("Отчёт");
+  });
+
   it("isPdfFileName распознаёт только pdf по расширению", () => {
     expect(isPdfFileName("Отчёт.pdf")).toBe(true);
     expect(isPdfFileName("/tmp/scan.PDF")).toBe(true);
@@ -82,10 +86,6 @@ describe("библиотека контекстов", () => {
     expect(blocks).toEqual(["Справочный материал «Резюме»:\nтекст резюме"]);
   });
 
-  it("sanitizeSelectedIds выбрасывает удалённые материалы", () => {
-    expect(sanitizeSelectedIds(libWithFolderAndDoc(), ["d1", "gone"])).toEqual(["d1"]);
-  });
-
   it("serialize/deserialize — раунд-трип; битый folderId чинится в корень", () => {
     const lib = libWithFolderAndDoc();
     expect(deserializeLibrary(serializeLibrary(lib))).toEqual(lib);
@@ -96,5 +96,14 @@ describe("библиотека контекстов", () => {
     expect(deserializeLibrary(broken)?.docs[0]?.folderId).toBe("");
     expect(deserializeLibrary("не json")).toBeNull();
     expect(deserializeLibrary("")).toBeNull();
+  });
+
+  it("null вместо объектов не роняет десериализацию", () => {
+    expect(deserializeLibrary("null")).toBeNull();
+    expect(deserializeLibrary("[]")).toBeNull();
+    expect(deserializeLibrary(JSON.stringify({ folders: [null], docs: [null] }))).toEqual({
+      folders: [],
+      docs: [],
+    });
   });
 });

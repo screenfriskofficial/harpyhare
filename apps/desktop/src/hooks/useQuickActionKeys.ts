@@ -1,6 +1,6 @@
 import { useEffect } from "react";
 import { useLatestRef } from "@/hooks/useLatestRef";
-import { matchesModifier, parseFamilyModifier } from "@/lib/hotkey-modifier";
+import { matchesModifier, parseFamilyModifier } from "@/lib/hotkey-match";
 import { quickActionDigit } from "@/lib/quick-actions";
 
 const DIGIT_CODE_PREFIX = "Digit";

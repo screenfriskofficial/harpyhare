@@ -1,3 +1,11 @@
+import {
+  ALT_MODIFIER,
+  CMD_MODIFIER,
+  COMBO_SEPARATOR,
+  CTRL_MODIFIER,
+  SHIFT_MODIFIER,
+  splitCombo,
+} from "./hotkeys";
 import { PLATFORM, type Platform } from "./platform";
 
 export interface HotkeyEvent {
@@ -8,23 +16,12 @@ export interface HotkeyEvent {
   code: string;
 }
 
-const HOTKEY_SEPARATOR = "+";
 const PLATFORMS_WITH_ASSIGNABLE_META: readonly Platform[] = ["macos"];
 const LETTER_CODE_RE = /^Key([A-Z])$/;
 const FUNCTION_KEY_CODE_RE = /^F(?:[1-9]|1[0-9]|2[0-4])$/;
 const DIGIT_CODE_RE = /^Digit([0-9])$/;
 const NUMPAD_CODE_RE = /^Numpad(?:[0-9]|Add|Subtract|Multiply|Divide|Decimal|Enter)$/;
 const SINGLE_LETTER_OR_DIGIT_RE = /^[a-z0-9]$/i;
-const TYPING_SAFE_MODIFIERS = new Set([
-  "cmd",
-  "command",
-  "meta",
-  "super",
-  "ctrl",
-  "control",
-  "alt",
-  "option",
-]);
 
 const NAMED_CODES = new Set([
   "Escape",
@@ -81,15 +78,11 @@ function mainKeyToken(code: string): string | null {
   return null;
 }
 
+/** Shift — единственный модификатор, который при печати и так зажат: он от конфликта не спасает. */
 export function conflictsWithTyping(hotkey: string): boolean {
-  const parts = hotkey
-    .split(HOTKEY_SEPARATOR)
-    .map((p) => p.trim())
-    .filter((p) => p !== "");
-  const key = parts[parts.length - 1] ?? "";
-  const mods = parts.slice(0, -1).map((m) => m.toLowerCase());
-  if (mods.some((m) => TYPING_SAFE_MODIFIERS.has(m))) return false;
-  return SINGLE_LETTER_OR_DIGIT_RE.test(key);
+  const { modifiers, key } = splitCombo(hotkey);
+  if (modifiers.some((m) => m !== SHIFT_MODIFIER)) return false;
+  return SINGLE_LETTER_OR_DIGIT_RE.test(key ?? "");
 }
 
 export function hotkeyFromEvent(e: HotkeyEvent, platform: Platform = PLATFORM): string | null {
@@ -97,9 +90,9 @@ export function hotkeyFromEvent(e: HotkeyEvent, platform: Platform = PLATFORM): 
   if (key === null) return null;
   if (e.metaKey && !PLATFORMS_WITH_ASSIGNABLE_META.includes(platform)) return null;
   const mods: string[] = [];
-  if (e.metaKey) mods.push("Cmd");
-  if (e.ctrlKey) mods.push("Ctrl");
-  if (e.altKey) mods.push("Alt");
-  if (e.shiftKey) mods.push("Shift");
-  return [...mods, key].join(HOTKEY_SEPARATOR);
+  if (e.metaKey) mods.push(CMD_MODIFIER);
+  if (e.ctrlKey) mods.push(CTRL_MODIFIER);
+  if (e.altKey) mods.push(ALT_MODIFIER);
+  if (e.shiftKey) mods.push(SHIFT_MODIFIER);
+  return [...mods, key].join(COMBO_SEPARATOR);
 }

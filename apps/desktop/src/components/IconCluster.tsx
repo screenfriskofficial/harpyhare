@@ -9,3 +9,13 @@ export const ICON_CLUSTER_CLASS =
 
 /** Поверхность даёт кластер, поэтому у кнопки внутри своей заливки нет. */
 export const ICON_CLUSTER_BUTTON_CLASS = "rounded-full hover:bg-surface";
+
+/** Кнопки в кластерах над сообщением и в шапке блока кода — одного размера. */
+export const ICON_CLUSTER_BUTTON_SIZE_CLASS = "size-6";
+
+/**
+ * Непрозрачный чип поверх ленты («↓ Вниз», кластер действий ответа). Без
+ * `backdrop-blur`: он пересэмплировал бы подложку на каждом кадре прокрутки
+ * в прозрачном frameless-окне, а при почти сплошной заливке не был виден.
+ */
+export const FLOATING_CHIP_CLASS = "border bg-popover shadow-pop";
