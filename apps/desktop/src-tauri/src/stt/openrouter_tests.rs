@@ -8,6 +8,38 @@ fn client(server: &MockServer) -> SttHttpClient {
 }
 
 #[tokio::test]
+async fn factory_uses_the_selected_model_only_for_openrouter() {
+    for id in [registry::PROVIDER_OPENROUTER, registry::PROVIDER_OPENAI] {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .respond_with(
+                ResponseTemplate::new(200).set_body_json(serde_json::json!({"text":"ok"})),
+            )
+            .expect(1)
+            .mount(&server)
+            .await;
+        let spec = registry::resolve(id);
+        let engine = build_engine(
+            spec,
+            SttClientConfig {
+                api_key: "test".into(),
+                proxy_base_url: Some(server.uri()),
+                model: Some("vendor/selected-model".into()),
+                language: "ru".into(),
+                translate: false,
+            },
+        );
+        assert_eq!(engine.transcribe(&[0.1], &[]).await.unwrap(), "ok");
+        let requests = server.received_requests().await.unwrap();
+        let body = String::from_utf8_lossy(&requests[0].body);
+        assert_eq!(
+            body.contains("vendor/selected-model"),
+            id == registry::PROVIDER_OPENROUTER
+        );
+    }
+}
+
+#[tokio::test]
 async fn multipart_transcription_uses_openrouter_auth_model_and_language() {
     let server = MockServer::start().await;
     Mock::given(method("POST"))

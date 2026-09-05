@@ -25,6 +25,7 @@ pub fn builder() -> Builder<tauri::Wry> {
             chat::count_chat_tokens,
             chat::probe_connectivity,
             chat::list_models,
+            stt::models::list_openrouter_stt_models,
             storage::load_chats,
             storage::save_chats,
             storage::load_context_library,

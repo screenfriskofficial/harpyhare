@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import type { ModelInfo } from "@/lib/models";
 import {
@@ -50,6 +50,18 @@ const renderMenu = (overrides: Partial<Parameters<typeof ModelCommandMenu>[0]> =
     open: true,
     onOpenChange: vi.fn(),
     sttProvider: STT_PROVIDER_GROQ,
+    activeSttModelId: "openai/gpt-4o-mini-transcribe",
+    sttCatalog: {
+      models: [
+        { id: "openai/gpt-4o-mini-transcribe", name: "OpenAI: GPT-4o Mini Transcribe" },
+        { id: "mistralai/voxtral-mini-transcribe", name: "Mistral: Voxtral Mini Transcribe" },
+      ],
+      pending: false,
+      loaded: true,
+      failed: false,
+      refresh: vi.fn(),
+    },
+    onSelectSttModel: vi.fn(),
     providersMissingKey: [] as readonly string[],
     onSwitchSttProvider: vi.fn(),
     models,
@@ -65,6 +77,54 @@ const renderMenu = (overrides: Partial<Parameters<typeof ModelCommandMenu>[0]> =
 };
 
 describe("ModelCommandMenu", () => {
+  it("OpenRouter opens its catalog without switching provider, then selects a model", () => {
+    const props = renderMenu();
+    expect(screen.queryByText("Mistral: Voxtral Mini Transcribe")).toBeNull();
+    fireEvent.click(screen.getByText("OpenRouter"));
+    expect(props.onSwitchSttProvider).not.toHaveBeenCalled();
+    expect(props.onOpenChange).not.toHaveBeenCalled();
+    expect(screen.queryByText("Opus 5")).toBeNull();
+    fireEvent.click(screen.getByText("Mistral: Voxtral Mini Transcribe"));
+    expect(props.onSelectSttModel).toHaveBeenCalledWith("mistralai/voxtral-mini-transcribe");
+    expect(props.onOpenChange).toHaveBeenCalledWith(false);
+  });
+
+  it("global search finds an OpenRouter model by ID without entering a submenu", async () => {
+    const props = renderMenu();
+    fireEvent.change(screen.getByRole("combobox"), { target: { value: "mistralai/voxtral" } });
+    await waitFor(() => {
+      expect(screen.queryByText("Opus 5")).toBeNull();
+    });
+    fireEvent.click(screen.getByText("Mistral: Voxtral Mini Transcribe"));
+    expect(props.onSelectSttModel).toHaveBeenCalledWith("mistralai/voxtral-mini-transcribe");
+    expect(props.onSelectModel).not.toHaveBeenCalled();
+  });
+
+  it("can return from the catalog with Backspace and cannot choose without a key", () => {
+    const props = renderMenu({ providersMissingKey: ["openrouter"] });
+    fireEvent.click(screen.getByText("OpenRouter"));
+    const item = screen.getByText("Mistral: Voxtral Mini Transcribe").closest("[cmdk-item]");
+    expect(item?.getAttribute("data-disabled")).toBe("true");
+    if (!item) throw new Error("model row missing");
+    fireEvent.click(item);
+    expect(props.onSelectSttModel).not.toHaveBeenCalled();
+    fireEvent.keyDown(screen.getByRole("combobox"), { key: "Backspace" });
+    expect(screen.getByText("Opus 5")).toBeTruthy();
+  });
+
+  it("supports keyboard selection inside the catalog", async () => {
+    const props = renderMenu();
+    fireEvent.click(screen.getByText("OpenRouter"));
+    const search = screen.getByRole("combobox");
+    fireEvent.change(search, { target: { value: "Voxtral" } });
+    await waitFor(() => {
+      expect(screen.getAllByRole("option")).toHaveLength(1);
+    });
+    fireEvent.keyDown(search, { key: "ArrowDown" });
+    fireEvent.keyDown(search, { key: "Enter" });
+    expect(props.onSelectSttModel).toHaveBeenCalledWith("mistralai/voxtral-mini-transcribe");
+  });
+
   it("показывает обе группы и все варианты", () => {
     renderMenu();
     expect(screen.getByText("Голосовая модель")).toBeTruthy();

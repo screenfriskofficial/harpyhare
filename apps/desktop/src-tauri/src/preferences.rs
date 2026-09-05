@@ -172,6 +172,7 @@ fn stt_client_needs_rebuild(old: &settings::Settings, new: &settings::Settings) 
     old.access_token != new.access_token
         || stt_credentials_changed(old, new)
         || old.stt_provider != new.stt_provider
+        || old.openrouter_stt_model != new.openrouter_stt_model
         || old.stt_language != new.stt_language
         || old.stt_translate != new.stt_translate
 }

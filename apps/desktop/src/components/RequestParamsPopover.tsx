@@ -1,15 +1,14 @@
 import { Lock, SlidersHorizontal } from "lucide-react";
 import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
+import { SearchableSelect } from "@/components/SearchableSelect";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
   Select,
   SelectContent,
-  SelectGroup,
   SelectItem,
-  SelectLabel,
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
@@ -62,38 +61,25 @@ function ModelSelect(props: ModelSelectProps) {
   const groups = modelGroups(props.models);
   const showHeadings = groups.length > 1;
   return (
-    <Select value={props.value} onValueChange={props.onChange}>
-      <SelectTrigger className={SELECT_TRIGGER_CLASS} aria-label={t("hud.params.model")}>
-        <SelectValue />
-      </SelectTrigger>
-      <SelectContent position={SELECT_CONTENT_POSITION}>
-        {groups.map((group) => {
-          const locked = props.providersMissingKey.includes(group.id);
-          return (
-            <SelectGroup key={group.id}>
-              {showHeadings && (
-                <SelectLabel>
-                  {group.label}
-                  {locked && (
-                    <span className="ml-1.5 text-hint font-normal text-muted-foreground">
-                      {missingKeyHint()}
-                    </span>
-                  )}
-                </SelectLabel>
-              )}
-              {group.models.map((m) => (
-                <SelectItem key={m.id} value={m.id} disabled={locked}>
-                  <span className="flex items-center gap-1.5">
-                    {locked && <Lock className="size-3" aria-hidden />}
-                    {modelLabel(m)}
-                  </span>
-                </SelectItem>
-              ))}
-            </SelectGroup>
-          );
-        })}
-      </SelectContent>
-    </Select>
+    <SearchableSelect
+      value={props.value}
+      onValueChange={props.onChange}
+      ariaLabel={t("hud.params.model")}
+      placeholder={t("hud.modelMenu.placeholder")}
+      emptyLabel={t("hud.modelMenu.empty")}
+      options={groups.flatMap((group) => {
+        const locked = props.providersMissingKey.includes(group.id);
+        return group.models.map((model) => ({
+          value: model.id,
+          label: modelLabel(model),
+          group: showHeadings ? group.label : undefined,
+          keywords: [group.label],
+          disabled: locked,
+          description: locked ? missingKeyHint() : undefined,
+          icon: locked ? <Lock className="size-3" aria-hidden /> : undefined,
+        }));
+      })}
+    />
   );
 }
 

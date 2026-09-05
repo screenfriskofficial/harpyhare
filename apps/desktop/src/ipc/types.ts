@@ -37,6 +37,7 @@ export interface Settings {
   stt_language: string;
   stt_translate: boolean;
   stt_provider: string;
+  openrouter_stt_model: string;
   screen_share_visible: boolean;
   teleprompter_speed: number;
   teleprompter_font_size: number;

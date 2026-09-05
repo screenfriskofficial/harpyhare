@@ -36,6 +36,12 @@ export const STT_PROVIDERS: readonly SttProviderOption[] = GENERATED_STT_PROVIDE
 /** The default vendor — first row of the registry, as `default_spec()` in Rust. */
 const DEFAULT_PROVIDER_KEY_ID: ApiKeyId = GENERATED_STT_PROVIDERS[0].keyId;
 
+const openrouterProvider = GENERATED_STT_PROVIDERS.find(
+  (provider) => provider.keyId === "openrouter",
+);
+if (!openrouterProvider) throw new Error("OpenRouter is missing from the STT registry");
+export const OPENROUTER_STT_PROVIDER = openrouterProvider.id;
+
 /**
  * The key a vendor needs, falling back to the default vendor's for an id the
  * registry does not know — the frontend half of `stt::registry::resolve`.

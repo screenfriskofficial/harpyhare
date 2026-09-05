@@ -295,6 +295,7 @@ fn load_missing_stt_and_screen_share_fields_default() {
     assert!(!s.screen_share_visible);
     assert_eq!(s.stt_provider, STT_PROVIDER_GROQ);
     assert!(s.openrouter_api_key.is_empty());
+    assert_eq!(s.openrouter_stt_model, crate::stt::registry::DEFAULT_OPENROUTER_MODEL);
 }
 
 #[test]
@@ -546,6 +547,7 @@ fn save_load_roundtrip_with_owner_only_perms() {
     let s = Settings {
         groq_api_key: "gsk_test".into(),
         openrouter_api_key: "sk-or-test".into(),
+        openrouter_stt_model: "vendor/custom-stt-model".into(),
         stt_provider: crate::stt::registry::PROVIDER_OPENROUTER.into(),
         chat_font_size: 15.0,
         window_opacity: 0.5,
@@ -564,6 +566,7 @@ fn save_load_roundtrip_with_owner_only_perms() {
     let loaded = Settings::load(&path).unwrap();
     assert_eq!(loaded.groq_api_key, "gsk_test");
     assert_eq!(loaded.openrouter_api_key, "sk-or-test");
+    assert_eq!(loaded.openrouter_stt_model, "vendor/custom-stt-model");
     assert_eq!(loaded.stt_provider, crate::stt::registry::PROVIDER_OPENROUTER);
     assert_eq!(loaded.chat_font_size, 15.0);
     assert_eq!(loaded.window_opacity, 0.5);
@@ -801,4 +804,17 @@ fn source_switches_are_independent_and_survive_persistence() {
             (system, microphone)
         );
     }
+}
+
+#[test]
+fn openrouter_model_clamp_defaults_only_blank_ids_and_preserves_dynamic_choices() {
+    let mut settings = Settings {
+        openrouter_stt_model: "   ".into(),
+        ..Default::default()
+    };
+    settings.clamp();
+    assert_eq!(settings.openrouter_stt_model, crate::stt::registry::DEFAULT_OPENROUTER_MODEL);
+    settings.openrouter_stt_model = " vendor/new-model ".into();
+    settings.clamp();
+    assert_eq!(settings.openrouter_stt_model, "vendor/new-model");
 }

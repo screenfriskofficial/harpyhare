@@ -297,6 +297,7 @@ pub struct Settings {
     pub stt_language: String,
     pub stt_translate: bool,
     pub stt_provider: String,
+    pub openrouter_stt_model: String,
     pub screen_share_visible: bool,
     pub teleprompter_speed: f64,
     pub teleprompter_font_size: f64,
@@ -341,6 +342,7 @@ impl Default for Settings {
             stt_language: defaults::STT_LANGUAGE.into(),
             stt_translate: false,
             stt_provider: crate::stt::registry::default_spec().id.into(),
+            openrouter_stt_model: crate::stt::registry::DEFAULT_OPENROUTER_MODEL.into(),
             screen_share_visible: false,
             teleprompter_speed: limits::teleprompter::SPEED.default,
             teleprompter_font_size: limits::teleprompter::FONT_SIZE.default,
@@ -418,6 +420,12 @@ impl Settings {
         // The registry owns "unknown resolves to the default"; clamping here by
         // hand would be a second, silently divergent copy of that rule.
         self.stt_provider = crate::stt::registry::resolve(&self.stt_provider).id.into();
+        // The catalog is dynamic: retain saved IDs even while offline or after
+        // a catalog change. Only a blank value falls back to the default.
+        self.openrouter_stt_model = self.openrouter_stt_model.trim().to_string();
+        if self.openrouter_stt_model.is_empty() {
+            self.openrouter_stt_model = crate::stt::registry::DEFAULT_OPENROUTER_MODEL.into();
+        }
         self.quick_actions.truncate(QUICK_ACTION_LIMIT);
         crate::hotkeys::normalize(&mut self.hotkeys);
     }

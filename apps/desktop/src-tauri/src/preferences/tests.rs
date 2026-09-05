@@ -66,6 +66,13 @@ fn every_field_the_stt_client_is_built_from_triggers_its_rebuild() {
             },
         ),
         (
+            "openrouter_stt_model",
+            settings::Settings {
+                openrouter_stt_model: "vendor/new-transcription-model".into(),
+                ..base.clone()
+            },
+        ),
+        (
             "stt_translate",
             settings::Settings {
                 stt_translate: true,

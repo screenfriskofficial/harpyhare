@@ -35,6 +35,7 @@ import { useSendPipeline } from "@/hooks/useSendPipeline";
 import { useSettings } from "@/hooks/useSettings";
 import { useSttFeedback } from "@/hooks/useSttFeedback";
 import { useSttKeyterms } from "@/hooks/useSttKeyterms";
+import { useSttModels } from "@/hooks/useSttModels";
 import { useTeleprompterSession } from "@/hooks/useTeleprompterSession";
 import { useTranscription } from "@/hooks/useTranscription";
 import { useUnreadChats } from "@/hooks/useUnreadChats";
@@ -123,6 +124,7 @@ export default function App() {
 
   const [updateOpen, setUpdateOpen] = useState(false);
   const [modelMenuOpen, setModelMenuOpen] = useState(false);
+  const sttCatalog = useSttModels(modelMenuOpen);
   const [miniMode, setMiniMode] = useState(false);
   const [mode, setMode] = useState<AppModeId>(DEFAULT_MODE);
   const notesMode = mode === NOTES_MODE;
@@ -228,8 +230,13 @@ export default function App() {
   const partial = activeStreaming ? (stream.partial[activeId] ?? "") : null;
 
   const connectivity = useConnectivity();
-  const { toggleScreenShareVisible, switchSttProvider, skipVersion, persistTeleprompter } =
-    useHudSettingsActions(settingsRef, save, settingsLoading);
+  const {
+    toggleScreenShareVisible,
+    switchSttProvider,
+    selectOpenrouterSttModel,
+    skipVersion,
+    persistTeleprompter,
+  } = useHudSettingsActions(settingsRef, save, settingsLoading);
   // Суфлёр не открывается, пока поле промпта недоступно: под оверлеем сети он
   // жил бы невидимым и ловил Space/Esc, а в заметках — вставал бы поверх них.
   const teleprompterBlocked = connectivity.offline || miniMode || notesMode;
@@ -601,6 +608,9 @@ export default function App() {
         onOpenChange={setModelMenuOpen}
         onRestoreFocus={focusPromptSoon}
         sttProvider={settings.stt_provider}
+        activeSttModelId={settings.openrouter_stt_model}
+        sttCatalog={sttCatalog}
+        onSelectSttModel={selectOpenrouterSttModel}
         providersMissingKey={lockedSttProviders}
         onSwitchSttProvider={switchSttProvider}
         models={models}

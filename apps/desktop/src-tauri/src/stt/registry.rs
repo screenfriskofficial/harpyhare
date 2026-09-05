@@ -139,6 +139,7 @@ pub const PROVIDER_OPENAI: &str = "openai";
 pub const PROVIDER_XAI: &str = "xai";
 pub const PROVIDER_DEEPGRAM: &str = "deepgram";
 pub const PROVIDER_OPENROUTER: &str = "openrouter";
+pub const DEFAULT_OPENROUTER_MODEL: &str = "openai/gpt-4o-mini-transcribe";
 
 /// Order is UI order, and the first row is the default: an unknown value in
 /// `Settings.stt_provider` resolves to it rather than failing.
@@ -239,7 +240,7 @@ pub const PROVIDERS: &[SttProviderSpec] = &[
     // route. The relay does not proxy OpenRouter; a personal key is required.
     SttProviderSpec {
         id: PROVIDER_OPENROUTER,
-        label: "OpenRouter · gpt-4o mini",
+        label: "OpenRouter",
         key_id: "openrouter",
         proxied: false,
         supports_translate: false,
@@ -249,7 +250,7 @@ pub const PROVIDERS: &[SttProviderSpec] = &[
             base_url: "https://openrouter.ai",
             transcribe_path: "/api/v1/audio/transcriptions",
             warm_up_path: "/api/v1/models?output_modalities=transcription",
-            transcribe_model: "openai/gpt-4o-mini-transcribe",
+            transcribe_model: DEFAULT_OPENROUTER_MODEL,
             translation: None,
             temperature: None,
         },

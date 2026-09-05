@@ -91,6 +91,7 @@ fn main() {
             let client = build_engine(
                 spec,
                 SttClientConfig {
+                    model: std::env::var("OPENROUTER_STT_MODEL").ok(),
                     api_key: key,
                     proxy_base_url: None,
                     language: LANGUAGE.into(),

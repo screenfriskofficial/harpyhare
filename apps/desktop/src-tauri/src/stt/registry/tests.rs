@@ -168,6 +168,7 @@ fn every_row_builds_an_engine_through_the_factory() {
         let _engine = crate::stt::build_engine(
             p,
             crate::stt::SttClientConfig {
+                model: None,
                 api_key: "k".into(),
                 proxy_base_url: None,
                 language: "ru".into(),

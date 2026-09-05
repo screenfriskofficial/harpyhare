@@ -166,6 +166,7 @@ pub fn build_stt_client(s: &settings::Settings) -> Arc<dyn stt::SttEngine> {
     stt::build_engine(
         stt::registry::resolve(plan.provider_id),
         stt::SttClientConfig {
+            model: Some(s.openrouter_stt_model.clone()),
             api_key: plan.api_key,
             proxy_base_url: plan.proxy_base_url,
             language: s.stt_language.clone(),

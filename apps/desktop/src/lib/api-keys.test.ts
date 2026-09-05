@@ -184,11 +184,7 @@ describe("visibleApiKeys", () => {
   });
 
   it("под кодом остаются поля только тех вендоров, до которых relay не дотягивается", () => {
-    expect(vendorsOutsideCode()).toEqual([
-      "Xclis",
-      "Deepgram · Nova-3",
-      "OpenRouter · gpt-4o mini",
-    ]);
+    expect(vendorsOutsideCode()).toEqual(["Xclis", "Deepgram · Nova-3", "OpenRouter"]);
     expect(visibleApiKeys(keys("sk-ant", "gsk_y", "itk_token"))).toEqual([
       "deepgram",
       "openrouter",

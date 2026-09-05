@@ -220,6 +220,19 @@ export const en: Dictionary = {
     skipVersion: "Skip this version",
     install: "Update and restart",
   },
+  sttModels: {
+    label: "OpenRouter model",
+    hint: "Applies to the next recording. Also available in the HUD model menu.",
+    search: "Find a speech recognition model…",
+    searchProvider: "Find a provider…",
+    loading: "Loading OpenRouter models…",
+    failed: "Could not refresh the catalog. Your saved model remains selected.",
+    empty: "No models found",
+    saved: "Saved model",
+    unavailable: "Selected model is no longer in the catalog",
+    browse: "Choose a speech recognition model",
+    back: "All models",
+  },
   hud: {
     header: {
       copyLastAnswer: "Copy the last answer",

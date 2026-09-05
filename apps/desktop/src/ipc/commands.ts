@@ -18,6 +18,7 @@ export const {
   launchMainWindow,
   listAudioDevices,
   listModels,
+  listOpenrouterSttModels,
   loadChats,
   loadContextLibrary,
   openExternal,

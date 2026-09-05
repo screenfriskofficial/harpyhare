@@ -11,6 +11,7 @@ use crate::audio;
 /// The one table a vendor is declared in; its picker half is exported to the
 /// frontend, its transport half deliberately is not.
 pub mod registry;
+pub mod models;
 /// Deepgram говорит не на общем multipart-диалекте: батч — сырой WAV телом,
 /// а низколатентный путь вообще WebSocket. Поэтому у него свой транспорт,
 /// реализующий тот же порт `SttEngine`, а не ветка в общем клиенте.
@@ -92,6 +93,9 @@ pub trait SttEngine: Send + Sync {
 /// Everything a vendor engine is built from, besides its registry row.
 #[derive(Clone, PartialEq)]
 pub struct SttClientConfig {
+    /// Only catalog-backed providers use an override. Fixed-model providers
+    /// retain their own models when the user switches back to them.
+    pub model: Option<String>,
     pub api_key: String,
     /// `Some` — ходить через relay с этим base_url и bearer'ом кода доступа.
     pub proxy_base_url: Option<String>,
@@ -102,6 +106,7 @@ pub struct SttClientConfig {
 impl std::fmt::Debug for SttClientConfig {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("SttClientConfig")
+            .field("model", &self.model)
             .field("api_key", &format_args!("<{} симв.>", self.api_key.chars().count()))
             .field("proxy_base_url", &self.proxy_base_url)
             .field("language", &self.language)
@@ -121,7 +126,10 @@ pub fn build_engine(spec: &'static registry::SttProviderSpec, config: SttClientC
             deepgram::DeepgramStt::from_spec(spec, config.api_key).with_language(config.language),
         ),
         registry::SttWire::OpenAiMultipart { .. } | registry::SttWire::Xai { .. } => {
-            let client = SttHttpClient::over(spec, config.api_key);
+            let mut client = SttHttpClient::over(spec, config.api_key);
+            if spec.id == registry::PROVIDER_OPENROUTER {
+                client.model = config.model.filter(|model| !model.trim().is_empty());
+            }
             let client = match config.proxy_base_url {
                 Some(url) => client.with_base_url(url).with_proxy(true),
                 None => client,
@@ -135,6 +143,7 @@ pub fn build_engine(spec: &'static registry::SttProviderSpec, config: SttClientC
 /// what separates them is a row in `registry`, not a branch in here.
 #[derive(Clone)]
 pub struct SttHttpClient {
+    model: Option<String>,
     spec: &'static registry::SttProviderSpec,
     api_key: String,
     base_url: String,
@@ -186,6 +195,7 @@ impl SttHttpClient {
 
     fn over(spec: &'static registry::SttProviderSpec, api_key: String) -> Self {
         Self {
+            model: None,
             spec,
             api_key,
             base_url: spec.wire.base_url().into(),
@@ -272,10 +282,10 @@ impl SttHttpClient {
             registry::SttWire::OpenAiMultipart { transcribe_model, translation, temperature, .. } => {
                 let model = translation
                     .filter(|_| self.translate())
-                    .map_or(transcribe_model, |t| t.model);
+                    .map_or_else(|| self.model.as_deref().unwrap_or(transcribe_model), |t| t.model);
                 let mut form = reqwest::multipart::Form::new()
                     .part("file", file)
-                    .text("model", model)
+                    .text("model", model.to_string())
                     .text("response_format", "json");
                 if let Some(temperature) = temperature {
                     form = form.text("temperature", temperature);
