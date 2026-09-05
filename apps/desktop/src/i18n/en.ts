@@ -168,7 +168,7 @@ export const en: Dictionary = {
       openai: "GPT answers and speech recognition via OpenAI",
       xai: "Grok answers",
       deepgram: "real-time speech recognition",
-      openrouter: "speech recognition via OpenRouter",
+      openrouter: "speech recognition and answers via OpenRouter",
       xclis: "answers via the Xclis aggregator",
     },
     keyLabel: "{{name}} key",
@@ -275,6 +275,9 @@ export const en: Dictionary = {
       noPreset: "No preprompt",
     },
     modelMenu: {
+      browseAnswers: "Choose a text model",
+      answerSearch: "Search text models…",
+      catalogUnavailable: "Could not load OpenRouter text models. Try refreshing the catalogue.",
       title: "Models",
       description: "Pick the voice model and the answer model",
       placeholder: "Find a model…",

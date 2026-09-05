@@ -24,7 +24,11 @@ pub struct ProviderRouter {
 impl ProviderRouter {
     pub fn new(providers: Vec<Arc<dyn LlmProvider>>, catalog: ModelCatalog) -> Self {
         assert!(!providers.is_empty(), "маршрутизатор без провайдеров");
-        Self { providers, catalog, last_warm_up: Mutex::new(None) }
+        Self {
+            providers,
+            catalog,
+            last_warm_up: Mutex::new(None),
+        }
     }
 
     fn default_provider(&self) -> &Arc<dyn LlmProvider> {
@@ -48,23 +52,30 @@ impl ProviderRouter {
         })
     }
 
-    fn client_for(&self, model_id: &str) -> &Arc<dyn LlmProvider> {
-        let Some(provider) = self.provider_of_model(model_id) else {
-            return self.default_provider();
+    fn client_for(&self, model_id: &str) -> Result<&Arc<dyn LlmProvider>, LlmError> {
+        // Saved aggregator ids keep their owner even after its key is removed.
+        let owner = self.provider_of_model(model_id).or_else(|| {
+            super::registry::PROVIDERS
+                .iter()
+                .find(|p| model_id.starts_with(&format!("{}/", p.id)))
+                .map(|p| p.id.to_string())
+        });
+        let Some(provider) = owner else {
+            return Ok(self.default_provider());
         };
         self.providers
             .iter()
             .find(|p| p.provider_id() == provider)
-            .unwrap_or_else(|| self.default_provider())
+            .ok_or_else(|| match super::registry::spec(&provider) {
+                Some(spec) => LlmError::BadApiKey(spec.wire.key_label()),
+                None => LlmError::Api(format!("Provider {provider} is unavailable")),
+            })
     }
 
     /// Слияние каталогов: вендор, чей `list_models` упал, сохраняет свои
     /// прежние записи, а не выпадает из каталога на всю сессию — иначе один
     /// таймаут при старте отправлял бы все его модели к дефолтному вендору.
-    fn merge_catalogs(
-        &self,
-        fetched: Vec<Result<Vec<ModelInfo>, LlmError>>,
-    ) -> Vec<ModelInfo> {
+    fn merge_catalogs(&self, fetched: Vec<Result<Vec<ModelInfo>, LlmError>>) -> Vec<ModelInfo> {
         let previous = self.catalog.lock_unpoisoned().clone();
         let mut merged = Vec::new();
         for (provider, result) in self.providers.iter().zip(fetched) {
@@ -97,7 +108,10 @@ impl LlmProvider for ProviderRouter {
     }
 
     fn known_models(&self) -> Vec<ModelInfo> {
-        self.providers.iter().flat_map(|p| p.known_models()).collect()
+        self.providers
+            .iter()
+            .flat_map(|p| p.known_models())
+            .collect()
     }
 
     fn owns_model(&self, model_id: &str) -> bool {
@@ -110,13 +124,13 @@ impl LlmProvider for ProviderRouter {
         cancel: CancellationToken,
         sink: &mut dyn LlmStreamSink,
     ) -> Result<(), LlmError> {
-        self.client_for(&request.model)
+        self.client_for(&request.model)?
             .stream(request, cancel, sink)
             .await
     }
 
     async fn count_tokens(&self, request: LlmRequest) -> Result<u32, LlmError> {
-        self.client_for(&request.model).count_tokens(request).await
+        self.client_for(&request.model)?.count_tokens(request).await
     }
 
     async fn list_models(&self) -> Result<Vec<ModelInfo>, LlmError> {

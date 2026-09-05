@@ -113,6 +113,15 @@ impl LlmProvider for StubProvider {
 
 struct NoopSink;
 
+#[tokio::test]
+async fn saved_openrouter_model_without_its_key_never_reaches_another_vendor() {
+    let anthropic = StubProvider::new(PROVIDER_ANTHROPIC, &["claude"], true);
+    let router = ProviderRouter::new(vec![anthropic.clone()], Arc::new(Mutex::new(Vec::new())));
+    let result = router.stream(request("openrouter/openai/gpt-4o-mini"), CancellationToken::new(), &mut NoopSink).await;
+    assert!(matches!(result, Err(LlmError::BadApiKey("OpenRouter"))));
+    assert!(anthropic.calls().is_empty());
+}
+
 impl LlmStreamSink for NoopSink {
     fn text_delta(&mut self, _delta: &str) {}
     fn input_tokens(&mut self, _total: u32) {}

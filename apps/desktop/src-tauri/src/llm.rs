@@ -17,6 +17,7 @@ use http::{Credential, LlmHttp};
 
 /// Transport shared by every vendor: pool, auth, status mapping, SSE pumping.
 pub mod http;
+pub mod openrouter;
 /// The OpenAI Responses dialect, shared by more than one vendor.
 pub mod responses;
 /// OpenAI-compatible Chat Completions as spoken by the Xclis aggregator.

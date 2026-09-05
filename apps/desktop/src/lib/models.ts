@@ -14,6 +14,7 @@ export interface ModelInfo {
 
 /** New chats start here. The id is declared in Rust (`llm::DEFAULT_MODEL`). */
 export const DEFAULT_MODEL: string = GENERATED_DEFAULT_MODEL;
+export const OPENROUTER_PROVIDER = "openrouter";
 
 const UNKNOWN_MAX_INPUT_TOKENS = 0;
 
@@ -106,11 +107,13 @@ export interface ModelGroup {
   models: ModelInfo[];
 }
 
-export function modelGroups(models: ModelInfo[]): ModelGroup[] {
+export function modelGroups(models: ModelInfo[], selectedId?: string): ModelGroup[] {
   const groups = MODEL_PROVIDERS.map((p) => ({
     id: p.id,
     label: p.label,
-    models: modelsOfProvider(models, p.id),
+    models: modelsOfProvider(models, p.id).sort(
+      (a, b) => Number(b.id === selectedId) - Number(a.id === selectedId),
+    ),
   }));
   const rest = modelsOfUnknownProvider(models);
   const unknown =
@@ -144,7 +147,7 @@ function unlistedModel(id: string): ModelInfo {
   return {
     id,
     displayName: id,
-    provider: "",
+    provider: id.startsWith(`${OPENROUTER_PROVIDER}/`) ? OPENROUTER_PROVIDER : "",
     adaptive: true,
     alwaysThinks: false,
     codeExec: true,
@@ -172,7 +175,10 @@ export function thinkingLocked(models: ModelInfo[], currentId: string): boolean 
  * in registry order, and only falls back to `DEFAULT_MODEL` when nothing is
  * unlocked (there is no better answer then, and the picker shows why).
  */
-export function defaultModelFor(lockedProviderIds: readonly string[]): string {
+export function defaultModelFor(
+  lockedProviderIds: readonly string[],
+  models: ModelInfo[] = [],
+): string {
   // Вендор с динамическим каталогом (агрегатор) офлайн не называет дефолта: его
   // список моделей привязан к ключу и приходит только из живого API. Пока он не
   // пришёл, открывать на нём чат не на чем — берём следующего, у кого есть что
@@ -180,5 +186,12 @@ export function defaultModelFor(lockedProviderIds: readonly string[]): string {
   const usable = MODEL_PROVIDERS.find(
     (p) => !lockedProviderIds.includes(p.id) && p.defaultModel !== "",
   );
-  return usable?.defaultModel ?? DEFAULT_MODEL;
+  if (usable) return usable.defaultModel;
+  return (
+    models.find(
+      (model) =>
+        !lockedProviderIds.includes(model.provider) &&
+        MODEL_PROVIDERS.some((p) => p.id === model.provider),
+    )?.id ?? DEFAULT_MODEL
+  );
 }

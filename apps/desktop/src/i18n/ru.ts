@@ -181,7 +181,7 @@ export const ru = {
       openai: "ответов GPT и распознавания речи через OpenAI",
       xai: "ответов Grok",
       deepgram: "распознавания речи в реальном времени",
-      openrouter: "распознавания речи через OpenRouter",
+      openrouter: "распознавания речи и ответов через OpenRouter",
       xclis: "ответов через агрегатор Xclis",
     },
     keyLabel: "Ключ {{name}}",
@@ -288,6 +288,10 @@ export const ru = {
       noPreset: "Без препромпта",
     },
     modelMenu: {
+      browseAnswers: "Выбрать текстовую модель",
+      answerSearch: "Найти текстовую модель…",
+      catalogUnavailable:
+        "Не удалось загрузить текстовые модели OpenRouter. Попробуйте обновить каталог.",
       title: "Модели",
       description: "Выбор голосовой модели и модели ответа",
       placeholder: "Найти модель…",

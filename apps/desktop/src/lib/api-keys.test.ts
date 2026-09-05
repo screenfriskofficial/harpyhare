@@ -106,8 +106,8 @@ describe("modelProvidersMissingKey", () => {
     // которого воркер не проксирует, обязан остаться запертым сам собой.
     const locked = modelProvidersMissingKey(keys("", "", "itk_token"));
     expect(locked).toEqual(MODEL_PROVIDERS.filter((p) => !p.proxied).map((p) => p.id));
-    // Сейчас такой вендор один — Xclis: у relay нет его роута.
-    expect(locked).toEqual(["xclis"]);
+    // Xclis and OpenRouter use personal keys even under an access code.
+    expect(locked).toEqual(["xclis", "openrouter"]);
   });
 
   it("свой ключ xAI открывает Grok и при коде доступа", () => {
@@ -122,7 +122,7 @@ describe("modelProvidersMissingKey", () => {
 });
 
 describe("код доступа и непроксируемые вендоры речи", () => {
-  it("OpenRouter требует свой ключ и не открывает модели ответов", () => {
+  it("OpenRouter uses one personal key for both speech and answers", () => {
     for (const token of ["", "itk_code"]) {
       const settings = { ...keys("sk-ant", "", token), stt_provider: "openrouter" };
       expect(accessGaps(settings).map((g) => g.kind)).toEqual(["speech"]);
@@ -130,7 +130,8 @@ describe("код доступа и непроксируемые вендоры �
       const configured = { ...settings, openrouter_api_key: "sk-or-test" };
       expect(accessGaps(configured)).toEqual([]);
       expect(sttProvidersMissingKey(configured)).not.toContain("openrouter");
-      expect(availableAnswerProviders(configured)).toEqual(availableAnswerProviders(settings));
+      expect(availableAnswerProviders(settings)).not.toContain("openrouter");
+      expect(availableAnswerProviders(configured)).toContain("openrouter");
     }
   });
 
@@ -184,7 +185,7 @@ describe("visibleApiKeys", () => {
   });
 
   it("под кодом остаются поля только тех вендоров, до которых relay не дотягивается", () => {
-    expect(vendorsOutsideCode()).toEqual(["Xclis", "Deepgram · Nova-3", "OpenRouter"]);
+    expect(vendorsOutsideCode()).toEqual(["Xclis", "OpenRouter", "Deepgram · Nova-3"]);
     expect(visibleApiKeys(keys("sk-ant", "gsk_y", "itk_token"))).toEqual([
       "deepgram",
       "openrouter",

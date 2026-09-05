@@ -113,13 +113,19 @@ export default function App() {
   // Read at chat-creation time, not at render time: a key added mid-session
   // changes what the next chat opens on without a reload.
   const settingsRef = useLatestRef(settings);
+  const {
+    models,
+    pending: modelsPending,
+    refreshing: modelsRefreshing,
+    refresh: refreshModels,
+  } = useModels();
+  const modelsRef = useLatestRef(models);
   const newChatModel = useCallback(
-    () => defaultModelFor(modelProvidersMissingKey(settingsRef.current)),
-    [settingsRef],
+    () => defaultModelFor(modelProvidersMissingKey(settingsRef.current), modelsRef.current),
+    [settingsRef, modelsRef],
   );
   const chats = useChats(newChatModel);
   const chatsRef = useLatestRef(chats);
-  const { models, pending: modelsPending } = useModels();
   const updater = useUpdater();
 
   const [updateOpen, setUpdateOpen] = useState(false);
@@ -424,7 +430,7 @@ export default function App() {
     const owner = models.find((m) => m.id === active.model)?.provider;
     if (owner === undefined || !lockedAnswerProviders.includes(owner)) return;
     chatsRef.current.patchChat(active.id, {
-      model: defaultModelFor(lockedAnswerProviders),
+      model: defaultModelFor(lockedAnswerProviders, models),
     });
   }, [settingsLoading, models, active.model, active.id, lockedAnswerProviders, chatsRef]);
 
@@ -617,6 +623,8 @@ export default function App() {
         modelProvidersMissingKey={lockedAnswerProviders}
         activeModelId={active.model}
         modelsPending={modelsPending}
+        modelsRefreshing={modelsRefreshing}
+        onRefreshModels={refreshModels}
         onSelectModel={selectModel}
       />
 

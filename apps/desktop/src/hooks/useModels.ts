@@ -23,10 +23,12 @@ export interface ModelsState {
    * Ошибка загрузки — тоже «не пришёл», а не «пришёл вшитый».
    */
   pending: boolean;
+  refreshing: boolean;
+  refresh: () => void;
 }
 
 export function useModels(): ModelsState {
-  const { data, isPlaceholderData } = useQuery({
+  const { data, isPlaceholderData, isFetching, refetch } = useQuery({
     queryKey: queryKeys.models,
     queryFn: listModelsOrFallback,
     staleTime: MODELS_STALE_MS,
@@ -35,5 +37,9 @@ export function useModels(): ModelsState {
   return {
     models: data ?? CURATED_FALLBACK_MODELS,
     pending: isPlaceholderData || data === undefined,
+    refreshing: isFetching,
+    refresh: () => {
+      void refetch();
+    },
   };
 }

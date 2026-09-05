@@ -154,6 +154,14 @@ describe("models", () => {
     expect(defaultModelFor(allLocked)).toBe(DEFAULT_MODEL);
   });
 
+  it("uses live OpenRouter models for new chats when it is the only unlocked provider", () => {
+    const live = model("openrouter/vendor/model", { provider: "openrouter" });
+    const locked = MODEL_PROVIDERS.filter((p) => p.id !== "openrouter").map((p) => p.id);
+    expect(defaultModelFor(locked, [live])).toBe(live.id);
+    expect(selectableModels([], live.id)[0]?.provider).toBe("openrouter");
+    expect(curatedModels([live])).toEqual([live]);
+  });
+
   it("defaultModelFor без запертых вендоров — дефолт первого в реестре", () => {
     expect(defaultModelFor([])).toBe(DEFAULT_MODEL);
   });

@@ -223,6 +223,18 @@ fn build_provider(
     catalog: &llm::ModelCatalog,
 ) -> Option<Arc<dyn llm::LlmProvider>> {
     Some(match spec.wire {
+        llm::registry::LlmWire::OpenRouter { .. } => match access {
+            ProviderAccess::Direct { api_key } => {
+                Arc::new(llm::openrouter::OpenRouterClient::new(spec, api_key))
+            }
+            ProviderAccess::Proxied { .. } => {
+                eprintln!(
+                    "{}: диалект OpenRouter не ходит через relay — вендор пропущен",
+                    spec.id
+                );
+                return None;
+            }
+        },
         llm::registry::LlmWire::Anthropic { .. } => {
             let client = match access {
                 ProviderAccess::Proxied {

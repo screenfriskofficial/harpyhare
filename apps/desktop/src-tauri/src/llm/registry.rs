@@ -1,7 +1,8 @@
 use serde::Serialize;
 
 use super::{
-    xclis, ModelInfo, PROVIDER_ANTHROPIC, PROVIDER_OPENAI, PROVIDER_XAI, UNKNOWN_MAX_INPUT_TOKENS,
+    openrouter, xclis, ModelInfo, PROVIDER_ANTHROPIC, PROVIDER_OPENAI, PROVIDER_XAI,
+    UNKNOWN_MAX_INPUT_TOKENS,
 };
 
 /// A model the app can name before it holds any credential to verify it with.
@@ -72,6 +73,12 @@ pub struct LlmProviderSpec {
 /// a module beside `responses`, and one arm there.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum LlmWire {
+    /// Chat Completions with a live multimodal catalogue, unified reasoning
+    /// controls and the OpenRouter web plugin.
+    OpenRouter {
+        base_url: &'static str,
+        key_label: &'static str,
+    },
     /// Anthropic Messages API: its own body shape, its own SSE events.
     Anthropic {
         base_url: &'static str,
@@ -104,7 +111,8 @@ impl LlmWire {
         match self {
             LlmWire::Anthropic { base_url, .. }
             | LlmWire::Responses { base_url, .. }
-            | LlmWire::Xclis { base_url, .. } => base_url,
+            | LlmWire::Xclis { base_url, .. }
+            | LlmWire::OpenRouter { base_url, .. } => base_url,
         }
     }
 
@@ -112,7 +120,8 @@ impl LlmWire {
         match self {
             LlmWire::Anthropic { key_label, .. }
             | LlmWire::Responses { key_label, .. }
-            | LlmWire::Xclis { key_label, .. } => key_label,
+            | LlmWire::Xclis { key_label, .. }
+            | LlmWire::OpenRouter { key_label, .. } => key_label,
         }
     }
 }
@@ -295,6 +304,20 @@ pub const PROVIDERS: &[LlmProviderSpec] = &[
             key_label: "Xclis",
         },
     },
+    LlmProviderSpec {
+        id: openrouter::PROVIDER_OPENROUTER,
+        label: "OpenRouter",
+        key_id: "openrouter",
+        families: &[],
+        // The live catalogue is authoritative; do not promise offline models.
+        catalog: &[],
+        default_model: "",
+        proxied: false,
+        wire: LlmWire::OpenRouter {
+            base_url: "https://openrouter.ai/api",
+            key_label: "OpenRouter",
+        },
+    },
 ];
 
 pub fn spec(provider_id: &str) -> Option<&'static LlmProviderSpec> {
@@ -317,13 +340,18 @@ impl CatalogModel {
 
 impl LlmProviderSpec {
     pub fn models(&self) -> Vec<ModelInfo> {
-        self.catalog.iter().map(|m| m.to_model_info(self.id)).collect()
+        self.catalog
+            .iter()
+            .map(|m| m.to_model_info(self.id))
+            .collect()
     }
 }
 
 /// Offline catalogue of a single vendor, tagged with its provider id.
 pub fn catalog_models(provider_id: &str) -> Vec<ModelInfo> {
-    spec(provider_id).map(LlmProviderSpec::models).unwrap_or_default()
+    spec(provider_id)
+        .map(LlmProviderSpec::models)
+        .unwrap_or_default()
 }
 
 #[cfg(test)]

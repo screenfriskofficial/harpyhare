@@ -112,7 +112,7 @@ export function SearchableSelect({
                         {option.label}
                       </span>
                       {option.description && (
-                        <span className="block text-caption text-muted-foreground">
+                        <span className="block text-caption break-words text-muted-foreground">
                           {option.description}
                         </span>
                       )}

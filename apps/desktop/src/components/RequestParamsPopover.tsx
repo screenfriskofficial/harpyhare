@@ -15,7 +15,7 @@ import {
 import { Switch } from "@/components/ui/switch";
 import { missingKeyHint } from "@/lib/api-keys";
 import type { Chat, ChatPatch } from "@/lib/chats";
-import { modelGroups, modelLabel, type ModelInfo } from "@/lib/models";
+import { modelGroups, modelLabel, OPENROUTER_PROVIDER, type ModelInfo } from "@/lib/models";
 
 export interface RequestParamsPopoverProps {
   chat: Chat;
@@ -58,7 +58,7 @@ interface ModelSelectProps {
 
 function ModelSelect(props: ModelSelectProps) {
   const { t } = useTranslation();
-  const groups = modelGroups(props.models);
+  const groups = modelGroups(props.models, props.value);
   const showHeadings = groups.length > 1;
   return (
     <SearchableSelect
@@ -75,7 +75,11 @@ function ModelSelect(props: ModelSelectProps) {
           group: showHeadings ? group.label : undefined,
           keywords: [group.label],
           disabled: locked,
-          description: locked ? missingKeyHint() : undefined,
+          description: locked
+            ? missingKeyHint()
+            : group.id === OPENROUTER_PROVIDER
+              ? model.id.slice(OPENROUTER_PROVIDER.length + 1)
+              : undefined,
           icon: locked ? <Lock className="size-3" aria-hidden /> : undefined,
         }));
       })}

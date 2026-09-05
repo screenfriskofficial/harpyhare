@@ -1,5 +1,6 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import { t } from "@/i18n";
 import type { ModelInfo } from "@/lib/models";
 import {
   PROVIDER_ANTHROPIC,
@@ -67,6 +68,8 @@ const renderMenu = (overrides: Partial<Parameters<typeof ModelCommandMenu>[0]> =
     models,
     modelProvidersMissingKey: [] as readonly string[],
     modelsPending: false,
+    modelsRefreshing: false,
+    onRefreshModels: vi.fn(),
     activeModelId: "claude-haiku-4-5",
     onSelectModel: vi.fn(),
     onRestoreFocus: vi.fn(),
@@ -77,10 +80,68 @@ const renderMenu = (overrides: Partial<Parameters<typeof ModelCommandMenu>[0]> =
 };
 
 describe("ModelCommandMenu", () => {
+  const textModel: ModelInfo = {
+    id: "openrouter/google/gemini-2.5-flash",
+    displayName: "Google: Gemini 2.5 Flash",
+    provider: "openrouter",
+    adaptive: true,
+    alwaysThinks: false,
+    codeExec: false,
+    maxInputTokens: 1048576,
+  };
+
+  it("keeps text models in their own compact page and selects their namespaced id", async () => {
+    const props = renderMenu({ models: [...models, textModel] });
+    expect(screen.queryByText(textModel.displayName)).toBeNull();
+    fireEvent.click(
+      screen.getByRole("option", { name: `${t("hud.modelMenu.answer")} · OpenRouter` }),
+    );
+    expect(screen.queryByText("Mistral: Voxtral Mini Transcribe")).toBeNull();
+    fireEvent.change(screen.getByRole("combobox"), { target: { value: "google/gemini" } });
+    await waitFor(() => {
+      expect(screen.getByText(textModel.displayName)).toBeTruthy();
+    });
+    fireEvent.keyDown(screen.getByRole("combobox"), { key: "Enter" });
+    expect(props.onSelectModel).toHaveBeenCalledWith(textModel.id);
+    expect(props.onSelectSttModel).not.toHaveBeenCalled();
+    expect(props.onOpenChange).toHaveBeenCalledWith(false);
+  });
+
+  it("global search finds text models without opening their provider page", async () => {
+    const props = renderMenu({ models: [...models, textModel] });
+    fireEvent.change(screen.getByRole("combobox"), { target: { value: "google/gemini" } });
+    await waitFor(() => {
+      expect(screen.queryByText("Opus 5")).toBeNull();
+    });
+    fireEvent.click(screen.getByText(textModel.displayName));
+    expect(props.onSelectModel).toHaveBeenCalledWith(textModel.id);
+  });
+
+  it("text catalogue can be retried, and an absent key locks its models", () => {
+    const props = renderMenu();
+    fireEvent.click(
+      screen.getByRole("option", { name: `${t("hud.modelMenu.answer")} · OpenRouter` }),
+    );
+    expect(screen.getByRole("status").textContent).toContain(t("hud.modelMenu.catalogUnavailable"));
+    fireEvent.click(screen.getByRole("button", { name: t("common.retry") }));
+    expect(props.onRefreshModels).toHaveBeenCalledOnce();
+    cleanup();
+    const locked = renderMenu({ models: [textModel], modelProvidersMissingKey: ["openrouter"] });
+    fireEvent.click(
+      screen.getByRole("option", { name: `${t("hud.modelMenu.answer")} · OpenRouter` }),
+    );
+    const row = screen.getByText(textModel.displayName).closest("[cmdk-item]");
+    expect(row?.getAttribute("aria-disabled")).toBe("true");
+    fireEvent.click(screen.getByText(textModel.displayName));
+    expect(locked.onSelectModel).not.toHaveBeenCalled();
+  });
+
   it("OpenRouter opens its catalog without switching provider, then selects a model", () => {
     const props = renderMenu();
     expect(screen.queryByText("Mistral: Voxtral Mini Transcribe")).toBeNull();
-    fireEvent.click(screen.getByText("OpenRouter"));
+    fireEvent.click(
+      screen.getByRole("option", { name: `${t("hud.modelMenu.voice")} · OpenRouter` }),
+    );
     expect(props.onSwitchSttProvider).not.toHaveBeenCalled();
     expect(props.onOpenChange).not.toHaveBeenCalled();
     expect(screen.queryByText("Opus 5")).toBeNull();
@@ -102,7 +163,9 @@ describe("ModelCommandMenu", () => {
 
   it("can return from the catalog with Backspace and cannot choose without a key", () => {
     const props = renderMenu({ providersMissingKey: ["openrouter"] });
-    fireEvent.click(screen.getByText("OpenRouter"));
+    fireEvent.click(
+      screen.getByRole("option", { name: `${t("hud.modelMenu.voice")} · OpenRouter` }),
+    );
     const item = screen.getByText("Mistral: Voxtral Mini Transcribe").closest("[cmdk-item]");
     expect(item?.getAttribute("data-disabled")).toBe("true");
     if (!item) throw new Error("model row missing");
@@ -114,7 +177,9 @@ describe("ModelCommandMenu", () => {
 
   it("supports keyboard selection inside the catalog", async () => {
     const props = renderMenu();
-    fireEvent.click(screen.getByText("OpenRouter"));
+    fireEvent.click(
+      screen.getByRole("option", { name: `${t("hud.modelMenu.voice")} · OpenRouter` }),
+    );
     const search = screen.getByRole("combobox");
     fireEvent.change(search, { target: { value: "Voxtral" } });
     await waitFor(() => {
@@ -128,7 +193,7 @@ describe("ModelCommandMenu", () => {
   it("показывает обе группы и все варианты", () => {
     renderMenu();
     expect(screen.getByText("Голосовая модель")).toBeTruthy();
-    expect(screen.getByText("Модель ответа")).toBeTruthy();
+    expect(screen.getByText("Модель ответа · Claude")).toBeTruthy();
     expect(screen.getByText("Groq · Whisper")).toBeTruthy();
     expect(screen.getByText("OpenAI · gpt-4o mini")).toBeTruthy();
     expect(screen.getByText("Opus 5")).toBeTruthy();
