@@ -1,4 +1,5 @@
 import { useCallback, useRef, useState, type ReactNode } from "react";
+import { useTranslation } from "react-i18next";
 import { SectionLabel } from "@/components/SectionLabel";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -166,6 +167,7 @@ function SliderReadout({
   disabled?: boolean;
   onCommit: (value: number) => void;
 }) {
+  const { t } = useTranslation();
   const [text, setText] = useState<string | null>(null);
   const cancelledRef = useRef(false);
   const focusField = useCallback((field: HTMLInputElement | null) => {
@@ -178,8 +180,8 @@ function SliderReadout({
       <button
         type="button"
         disabled={disabled}
-        title="Ввести число с клавиатуры"
-        aria-label={`${ariaLabel}: ввести число с клавиатуры`}
+        title={t("launcher.fields.typeNumber")}
+        aria-label={t("launcher.fields.typeNumberAria", { label: ariaLabel })}
         className={cn(
           "w-12 shrink-0 text-right font-mono text-caption text-muted-foreground tabular-nums",
           disabled ? "opacity-50" : "hover:text-foreground",

@@ -5,6 +5,7 @@ use crate::stt::SttError;
 #[test]
 fn llm_errors_map_to_codes() {
     assert_eq!(LlmError::BadApiKey("Anthropic").code(), ErrorCode::BadApiKey);
+    assert_eq!(LlmError::BadAccessCode("x".into()).code(), ErrorCode::BadAccessCode);
     assert_eq!(LlmError::Retryable(503).code(), ErrorCode::Retryable);
     assert_eq!(LlmError::Network("x".into()).code(), ErrorCode::Network);
     assert_eq!(LlmError::Api("x".into()).code(), ErrorCode::Api);
@@ -20,6 +21,7 @@ fn stt_errors_map_to_codes() {
     );
     assert_eq!(SttError::Retryable(429).code(), ErrorCode::Retryable);
     assert_eq!(SttError::Network("x".into()).code(), ErrorCode::Network);
+    assert_eq!(SttError::Cancelled.code(), ErrorCode::Cancelled);
     assert_eq!(SttError::Other("x".into()).code(), ErrorCode::Api);
 }
 

@@ -1,11 +1,23 @@
+import { t, type TranslationKey } from "@/i18n";
 import { HOTKEY_ACTIONS, type HotkeyKind } from "@/ipc/bindings";
 import { apiKeyInfo, type ApiKeyId } from "@/lib/api-keys";
-import { hotkeyAction, type HotkeyActionId } from "@/lib/hotkeys";
+import { actionLabel, actionHint, type HotkeyActionId } from "@/lib/hotkeys";
 import { foldForSearch } from "@/lib/notes-search";
 import { PLATFORM, type Platform } from "@/lib/platform";
-import { PERMISSION_ROWS } from "./permission-rows";
-import { SCREEN_GROUPS, screenGroup, screenMeta, type ScreenId } from "./screens";
-import { SETTINGS_TABS, settingsTabMeta, type SettingsTabId } from "./settings-tabs";
+import { PERMISSION_ROWS, permissionTitle, permissionPurpose } from "./permission-rows";
+import {
+  SCREEN_GROUPS,
+  screenGroup,
+  screenLabel,
+  screenDescription,
+  type ScreenId,
+} from "./screens";
+import {
+  SETTINGS_TABS,
+  settingsTabLabel,
+  settingsTabDescription,
+  type SettingsTabId,
+} from "./settings-tabs";
 
 export interface SearchHit {
   id: string;
@@ -60,86 +72,56 @@ const HOTKEYS_WITHOUT_SETTINGS_ROW: ReadonlySet<HotkeyActionId> = new Set([
   "chat_font_size",
 ]);
 
-const STEP_TITLE_SUFFIX = ": шаг";
+const WINDOW_STEP_ACTIONS = ["move_window", "resize_window", "scroll_chat"] as const;
 
-const WINDOW_STEP_ROWS = [
-  {
-    action: "move_window",
-    hint: "Модификатор со стрелками двигает окно, шаг — на сколько пикселей за нажатие.",
-  },
-  { action: "resize_window", hint: "Модификатор со стрелками меняет ширину и высоту окна." },
-  { action: "scroll_chat", hint: "Прокрутка переписки стрелками вверх и вниз." },
-] as const satisfies readonly { action: HotkeyActionId; hint: string }[];
-
+// Reuse the visible field copy so search follows the interface language.
 const SETTINGS_ROWS = [
-  { title: "Код доступа", hint: "Быстрый путь: заводить ключи не нужно.", tab: "access" },
+  { title: "launcher.access.code", hint: "launcher.access.codeHint", tab: "access" },
+  { title: "launcher.access.codeActive", hint: "launcher.access.unlinkHint", tab: "access" },
+  { title: "launcher.speech.device", hint: "launcher.speech.deviceHint", tab: "speech" },
+  { title: "launcher.speech.provider", hint: "launcher.speech.providerHint", tab: "speech" },
+  { title: "launcher.speech.language", hint: "launcher.speech.languageHint", tab: "speech" },
+  { title: "launcher.speech.translate", hint: "launcher.speech.translateHint", tab: "speech" },
+  { title: "launcher.speech.buffer", hint: "launcher.speech.bufferHint", tab: "speech" },
+  { title: "launcher.speech.bufferDepth", hint: "launcher.speech.bufferDepthHint", tab: "speech" },
   {
-    title: "Код доступа активен",
-    hint: "Отвязка вернёт запросы на ваши ключи API.",
-    tab: "access",
-  },
-  {
-    title: "Устройство захвата",
-    hint: "Звук снимается с того выхода, который слышите вы.",
-    tab: "speech",
-  },
-  {
-    title: "Провайдер распознавания",
-    hint: "OpenAI точнее удерживает английские термины в русской речи.",
-    tab: "speech",
-  },
-  {
-    title: "Язык распознавания",
-    hint: "Распознавание точнее, когда язык задан явно.",
-    tab: "speech",
-  },
-  {
-    title: "Перевод на английский",
-    hint: "Речь на любом языке приходит в чат по-английски.",
-    tab: "speech",
-  },
-  {
-    title: "Фоновый буфер",
-    hint: "Подхватывает сказанное за секунды до нажатия записи.",
-    tab: "speech",
-  },
-  { title: "Глубина буфера", hint: "Сколько секунд звука держится в памяти.", tab: "speech" },
-  {
-    title: "Прикреплять вложения",
-    hint: "Быстрое действие отправит картинки из поля ввода вместе с заготовленным промптом.",
+    title: "launcher.quickActions.attachments",
+    hint: "launcher.quickActions.attachmentsHint",
     tab: "quick-actions",
   },
+  { title: "launcher.behavior.autoSend", hint: "launcher.behavior.autoSendHint", tab: "behavior" },
   {
-    title: "Отправлять сразу после распознавания",
-    hint: "Расшифровка уходит в чат без нажатия отправки.",
+    title: "launcher.behavior.autoPreview",
+    hint: "launcher.behavior.autoPreviewHint",
     tab: "behavior",
   },
   {
-    title: "Открывать превью HTML",
-    hint: "Если в ответе есть HTML-блок, рядом с чатом открывается панель просмотра.",
+    title: "launcher.behavior.teleprompterResume",
+    hint: "launcher.behavior.teleprompterResumeHint",
     tab: "behavior",
   },
   {
-    title: "Суфлёр продолжает с места остановки",
-    hint: "Иначе текст каждый раз начинается сверху.",
+    title: "launcher.behavior.screenShare",
+    hint: "launcher.behavior.screenShareHint",
     tab: "behavior",
   },
+  { title: "launcher.appearance.theme", hint: "launcher.appearance.themeHint", tab: "appearance" },
   {
-    title: "Показывать окно при демонстрации экрана",
-    hint: "По умолчанию окно вырезано из захвата — собеседники его не видят. Включите, только если хотите показать его намеренно.",
-    tab: "behavior",
-  },
-  { title: "Тема", hint: "Серая светлее, чёрная контрастнее.", tab: "appearance" },
-  {
-    title: "Размер шрифта чата",
-    hint: "Влияет на текст переписки и код в ответах.",
+    title: "launcher.appearance.language",
+    hint: "launcher.appearance.languageHint",
     tab: "appearance",
   },
-  { title: "Прозрачность окна", hint: "Сквозь окно видно то, что под ним.", tab: "appearance" },
-] as const satisfies readonly SettingsRow[];
-
-const QUICK_ACTION_HINT =
-  "Кнопки над полем ввода: каждая отправляет в чат свой заготовленный промпт.";
+  {
+    title: "launcher.appearance.fontSize",
+    hint: "launcher.appearance.fontSizeHint",
+    tab: "appearance",
+  },
+  {
+    title: "launcher.appearance.opacity",
+    hint: "launcher.appearance.opacityHint",
+    tab: "appearance",
+  },
+] as const satisfies readonly { title: TranslationKey; hint: TranslationKey; tab: SettingsTabId }[];
 
 const RANK_TITLE_PREFIX = 0;
 const RANK_TITLE_INSIDE = 1;
@@ -150,16 +132,16 @@ function hitId(kind: string, key: string): string {
 }
 
 function breadcrumbOf(screen: ScreenId, tab: SettingsTabId | null): string {
-  const label = screenMeta(screen).label;
-  return tab === null ? label : [label, settingsTabMeta(tab).label].join(BREADCRUMB_SEPARATOR);
+  const label = screenLabel(screen);
+  return tab === null ? label : [label, settingsTabLabel(tab)].join(BREADCRUMB_SEPARATOR);
 }
 
 function screenHits(platform: Platform): SearchHit[] {
   return SCREEN_GROUPS.flatMap((group) =>
     screenGroup(group, platform).map((screen) => ({
       id: hitId(SCREEN_HIT, screen.id),
-      title: screen.label,
-      hint: screen.description,
+      title: screenLabel(screen.id),
+      hint: screenDescription(screen.id),
       screen: screen.id,
       tab: null,
       breadcrumb: breadcrumbOf(screen.id, null),
@@ -173,8 +155,8 @@ function hotkeyHits(): SearchHit[] {
       const tab = TAB_BY_HOTKEY_KIND[action.kind];
       return {
         id: hitId(HOTKEY_HIT, action.id),
-        title: action.label,
-        hint: action.hint,
+        title: actionLabel(action.id),
+        hint: actionHint(action.id),
         screen: SETTINGS_SCREEN,
         tab,
         breadcrumb: breadcrumbOf(SETTINGS_SCREEN, tab),
@@ -186,8 +168,8 @@ function hotkeyHits(): SearchHit[] {
 function tabHits(): SearchHit[] {
   return SETTINGS_TABS.map((tab) => ({
     id: hitId(TAB_HIT, tab.id),
-    title: tab.label,
-    hint: tab.description,
+    title: settingsTabLabel(tab.id),
+    hint: settingsTabDescription(tab.id),
     screen: SETTINGS_SCREEN,
     tab: tab.id,
     breadcrumb: breadcrumbOf(SETTINGS_SCREEN, tab.id),
@@ -199,8 +181,8 @@ function permissionHits(platform: Platform): SearchHit[] {
   if (!visible) return [];
   return PERMISSION_ROWS.map((row) => ({
     id: hitId(PERMISSION_HIT, row.kind),
-    title: row.title,
-    hint: row.purpose,
+    title: permissionTitle(row.kind),
+    hint: permissionPurpose(row.kind),
     screen: PERMISSIONS_SCREEN,
     tab: null,
     breadcrumb: breadcrumbOf(PERMISSIONS_SCREEN, null),
@@ -208,7 +190,7 @@ function permissionHits(platform: Platform): SearchHit[] {
 }
 
 function contextDocHits(contextDocs: SearchSources["contextDocs"]): SearchHit[] {
-  const hint = screenMeta(CONTEXTS_SCREEN).description;
+  const hint = screenDescription(CONTEXTS_SCREEN);
   return contextDocs
     .filter((doc) => doc.name.trim() !== "")
     .map((doc) => ({
@@ -224,41 +206,48 @@ function contextDocHits(contextDocs: SearchSources["contextDocs"]): SearchHit[] 
 function apiKeyRows(apiKeys: SearchSources["apiKeys"]): SettingsRow[] {
   return apiKeys.map((id): SettingsRow => {
     const info = apiKeyInfo(id);
-    return { title: `Ключ ${info.name}`, hint: `Нужен для ${info.purpose}.`, tab: "access" };
+    return {
+      title: t("apiKeys.keyLabel", { name: info.name }),
+      hint: t("apiKeys.keyHint", { purpose: info.purpose }),
+      tab: "access",
+    };
   });
 }
 
 function windowStepRows(): SettingsRow[] {
-  return WINDOW_STEP_ROWS.map(({ action, hint }): SettingsRow => ({
-    title: `${hotkeyAction(action).label}${STEP_TITLE_SUFFIX}`,
-    hint,
+  return WINDOW_STEP_ACTIONS.map((action): SettingsRow => ({
+    title: t("launcher.window.stepAria", { action: actionLabel(action) }),
+    hint: t(`launcher.window.pairs.${action}`),
     tab: "window",
   }));
 }
 
 function quickActionComboRow(): SettingsRow {
   return {
-    title: "Сочетание",
-    hint: hotkeyAction("quick_action").hint,
+    title: t("launcher.quickActions.combo"),
+    hint: actionHint("quick_action"),
     tab: QUICK_ACTIONS_TAB,
   };
 }
 
 function settingsRowHits(apiKeys: SearchSources["apiKeys"]): SearchHit[] {
-  return [...SETTINGS_ROWS, quickActionComboRow(), ...apiKeyRows(apiKeys), ...windowStepRows()].map(
-    (row) => ({
-      id: hitId(SETTING_HIT, [row.tab, row.title].join(HIT_ID_SEPARATOR)),
-      title: row.title,
-      hint: row.hint,
-      screen: SETTINGS_SCREEN,
-      tab: row.tab,
-      breadcrumb: breadcrumbOf(SETTINGS_SCREEN, row.tab),
-    }),
-  );
+  return [
+    ...SETTINGS_ROWS.map((row) => ({ ...row, title: t(row.title), hint: t(row.hint) })),
+    quickActionComboRow(),
+    ...apiKeyRows(apiKeys),
+    ...windowStepRows(),
+  ].map((row) => ({
+    id: hitId(SETTING_HIT, [row.tab, row.title].join(HIT_ID_SEPARATOR)),
+    title: row.title,
+    hint: row.hint,
+    screen: SETTINGS_SCREEN,
+    tab: row.tab,
+    breadcrumb: breadcrumbOf(SETTINGS_SCREEN, row.tab),
+  }));
 }
 
 function presetHits(presets: SearchSources["presets"]): SearchHit[] {
-  const hint = screenMeta(PRESETS_SCREEN).description;
+  const hint = screenDescription(PRESETS_SCREEN);
   return presets
     .filter((preset) => preset.name.trim() !== "")
     .map((preset) => ({
@@ -277,7 +266,7 @@ function quickActionHits(quickActions: SearchSources["quickActions"]): SearchHit
     .map((action) => ({
       id: hitId(QUICK_ACTION_HIT, action.id),
       title: action.title,
-      hint: QUICK_ACTION_HINT,
+      hint: t("launcher.quickActions.description"),
       screen: SETTINGS_SCREEN,
       tab: QUICK_ACTIONS_TAB,
       breadcrumb: breadcrumbOf(SETTINGS_SCREEN, QUICK_ACTIONS_TAB),

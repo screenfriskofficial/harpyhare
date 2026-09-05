@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
+import { useTranslation } from "react-i18next";
 import { SelectItem } from "@/components/ui/select";
 import { SETTINGS_LIMITS } from "@/ipc/bindings";
 import { listAudioOutputDevices } from "@/ipc/commands";
@@ -10,6 +11,7 @@ import { SettingGroup, SettingRow, SettingSelect, SettingSlider, SettingSwitch }
 
 const STT_LANGUAGE_AUTO = "auto";
 
+/** Языки распознавания подписаны эндонимами — так их находят носители при любом языке интерфейса. */
 const STT_LANGUAGES = [
   { value: "ru", label: "Русский" },
   { value: "en", label: "English" },
@@ -17,11 +19,9 @@ const STT_LANGUAGES = [
   { value: "de", label: "Deutsch" },
   { value: "es", label: "Español" },
   { value: "fr", label: "Français" },
-  { value: STT_LANGUAGE_AUTO, label: "Автоопределение" },
 ];
 
 const CAPTURE_DEVICE_SYSTEM_DEFAULT = "system-default";
-const CAPTURE_DEVICE_MISSING_LABEL = "Недоступное устройство";
 const BUFFER_SECONDS_STEP = 1;
 
 const AUDIO_DEVICES_STALE_MS = 30 * 1000;
@@ -35,17 +35,27 @@ function useAudioOutputDevices(): AudioOutputDevice[] {
   return data ?? [];
 }
 
-function withSavedDevice(devices: AudioOutputDevice[], savedUid: string): AudioOutputDevice[] {
+function withSavedDevice(
+  devices: AudioOutputDevice[],
+  savedUid: string,
+  missingLabel: string,
+): AudioOutputDevice[] {
   if (savedUid === "" || devices.some((d) => d.uid === savedUid)) return devices;
-  return [...devices, { uid: savedUid, name: CAPTURE_DEVICE_MISSING_LABEL }];
+  return [...devices, { uid: savedUid, name: missingLabel }];
 }
 
 function CaptureDeviceRow({ draft, set }: SectionProps) {
-  const devices = withSavedDevice(useAudioOutputDevices(), draft.capture_device_uid);
+  const { t } = useTranslation();
+  const label = t("launcher.speech.device");
+  const devices = withSavedDevice(
+    useAudioOutputDevices(),
+    draft.capture_device_uid,
+    t("launcher.speech.missingDevice"),
+  );
   return (
-    <SettingRow label="Устройство захвата" hint="Звук снимается с того выхода, который слышите вы.">
+    <SettingRow label={label} hint={t("launcher.speech.deviceHint")}>
       <SettingSelect
-        ariaLabel="Устройство захвата"
+        ariaLabel={label}
         value={
           draft.capture_device_uid === "" ? CAPTURE_DEVICE_SYSTEM_DEFAULT : draft.capture_device_uid
         }
@@ -53,7 +63,9 @@ function CaptureDeviceRow({ draft, set }: SectionProps) {
           set("capture_device_uid", v === CAPTURE_DEVICE_SYSTEM_DEFAULT ? "" : v);
         }}
       >
-        <SelectItem value={CAPTURE_DEVICE_SYSTEM_DEFAULT}>Системный вывод</SelectItem>
+        <SelectItem value={CAPTURE_DEVICE_SYSTEM_DEFAULT}>
+          {t("launcher.speech.systemOutput")}
+        </SelectItem>
         {devices.map((d) => (
           <SelectItem key={d.uid} value={d.uid}>
             {d.name}
@@ -65,20 +77,20 @@ function CaptureDeviceRow({ draft, set }: SectionProps) {
 }
 
 export function SttSection({ draft, set }: SectionProps) {
+  const { t } = useTranslation();
   const translateAvailable = sttProviderSupportsTranslate(draft.stt_provider);
   const translatingNow = draft.stt_translate && translateAvailable;
+  const providerLabel = t("launcher.speech.provider");
+  const languageLabel = t("launcher.speech.language");
+  const translateLabel = t("launcher.speech.translate");
+  const bufferLabel = t("launcher.speech.buffer");
+  const bufferDepthLabel = t("launcher.speech.bufferDepth");
   return (
-    <SettingGroup
-      title="Распознавание речи"
-      description="Что именно слушает приложение и на каком языке расшифровывает."
-    >
+    <SettingGroup title={t("launcher.speech.title")} description={t("launcher.speech.description")}>
       <CaptureDeviceRow draft={draft} set={set} />
-      <SettingRow
-        label="Провайдер распознавания"
-        hint="OpenAI точнее удерживает английские термины в русской речи."
-      >
+      <SettingRow label={providerLabel} hint={t("launcher.speech.providerHint")}>
         <SettingSelect
-          ariaLabel="Провайдер распознавания"
+          ariaLabel={providerLabel}
           value={draft.stt_provider}
           onValueChange={(v) => {
             set("stt_provider", v);
@@ -92,15 +104,13 @@ export function SttSection({ draft, set }: SectionProps) {
         </SettingSelect>
       </SettingRow>
       <SettingRow
-        label="Язык распознавания"
+        label={languageLabel}
         hint={
-          translatingNow
-            ? "При переводе язык определяется автоматически."
-            : "Распознавание точнее, когда язык задан явно."
+          translatingNow ? t("launcher.speech.languageAutoHint") : t("launcher.speech.languageHint")
         }
       >
         <SettingSelect
-          ariaLabel="Язык распознавания"
+          ariaLabel={languageLabel}
           value={draft.stt_language === "" ? STT_LANGUAGE_AUTO : draft.stt_language}
           disabled={translatingNow}
           onValueChange={(v) => {
@@ -112,18 +122,19 @@ export function SttSection({ draft, set }: SectionProps) {
               {l.label}
             </SelectItem>
           ))}
+          <SelectItem value={STT_LANGUAGE_AUTO}>{t("launcher.speech.autoDetect")}</SelectItem>
         </SettingSelect>
       </SettingRow>
       <SettingRow
-        label="Перевод на английский"
+        label={translateLabel}
         hint={
           translateAvailable
-            ? "Речь на любом языке приходит в чат по-английски."
-            : "Выбранный провайдер не умеет переводить — выбери другого."
+            ? t("launcher.speech.translateHint")
+            : t("launcher.speech.translateUnavailable")
         }
       >
         <SettingSwitch
-          ariaLabel="Перевод на английский"
+          ariaLabel={translateLabel}
           checked={draft.stt_translate && translateAvailable}
           disabled={!translateAvailable}
           onCheckedChange={(v) => {
@@ -131,23 +142,23 @@ export function SttSection({ draft, set }: SectionProps) {
           }}
         />
       </SettingRow>
-      <SettingRow label="Фоновый буфер" hint="Подхватывает сказанное за секунды до нажатия записи.">
+      <SettingRow label={bufferLabel} hint={t("launcher.speech.bufferHint")}>
         <SettingSwitch
-          ariaLabel="Фоновый буфер"
+          ariaLabel={bufferLabel}
           checked={draft.buffer_enabled}
           onCheckedChange={(v) => {
             set("buffer_enabled", v);
           }}
         />
       </SettingRow>
-      <SettingRow label="Глубина буфера" hint="Сколько секунд звука держится в памяти.">
+      <SettingRow label={bufferDepthLabel} hint={t("launcher.speech.bufferDepthHint")}>
         <SettingSlider
-          ariaLabel="Глубина буфера"
+          ariaLabel={bufferDepthLabel}
           value={draft.buffer_seconds}
           min={SETTINGS_LIMITS.bufferSeconds.min}
           max={SETTINGS_LIMITS.bufferSeconds.max}
           step={BUFFER_SECONDS_STEP}
-          readout={`${String(draft.buffer_seconds)} с`}
+          readout={t("units.secondsShort", { count: draft.buffer_seconds })}
           disabled={!draft.buffer_enabled}
           onChange={(v) => {
             set("buffer_seconds", v);

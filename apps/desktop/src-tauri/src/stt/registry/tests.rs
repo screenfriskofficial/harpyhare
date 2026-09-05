@@ -123,7 +123,7 @@ fn a_known_id_resolves_to_itself() {
 
 #[test]
 fn lookup_finds_declared_vendors_and_nothing_else() {
-    for id in [PROVIDER_GROQ, PROVIDER_OPENAI, PROVIDER_XAI] {
+    for id in [PROVIDER_GROQ, PROVIDER_OPENAI, PROVIDER_XAI, PROVIDER_DEEPGRAM] {
         assert_eq!(spec(id).map(|p| p.id), Some(id));
     }
     assert!(spec("нет такого").is_none());
@@ -155,4 +155,21 @@ fn a_row_needs_nothing_but_data_to_be_well_formed() {
     assert_eq!(SCRIBE.wire.path(true), "/v1/speech-to-text/translate");
     assert_eq!(SCRIBE.wire.base_url(), "https://api.elevenlabs.io");
     assert!(effective_translate(&SCRIBE, true));
+}
+
+/// Фабрика обязана собрать движок по КАЖДОЙ строке реестра — без паник и
+/// без ветвления по вендору снаружи: диалект решает транспорт.
+#[test]
+fn every_row_builds_an_engine_through_the_factory() {
+    for p in PROVIDERS {
+        let _engine = crate::stt::build_engine(
+            p,
+            crate::stt::SttClientConfig {
+                api_key: "k".into(),
+                proxy_base_url: None,
+                language: "ru".into(),
+                translate: false,
+            },
+        );
+    }
 }

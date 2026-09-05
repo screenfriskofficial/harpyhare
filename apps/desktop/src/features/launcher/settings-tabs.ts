@@ -8,64 +8,33 @@ import {
   Zap,
   type LucideIcon,
 } from "lucide-react";
+import { t } from "@/i18n";
 
+/** Реестр без текста: подпись и описание таба переводятся по `id` (`launcher.tabs.*`). */
 interface SettingsTabMeta {
   id: string;
-  label: string;
-  description: string;
   icon: LucideIcon;
 }
 
+/** Порядок — по частоте задач, а не по алфавиту: «Действия» раньше «Окна» намеренно. */
 export const SETTINGS_TABS = [
-  {
-    id: "access",
-    label: "Ключи",
-    description: "Ключи Anthropic и Groq либо код доступа вместо них.",
-    icon: KeyRound,
-  },
-  {
-    id: "speech",
-    label: "Речь",
-    description: "Устройство захвата, язык расшифровки и фоновый буфер.",
-    icon: Mic,
-  },
-  {
-    id: "hotkeys",
-    label: "Клавиши",
-    description:
-      "Сочетания записи, отправки, снимка и суфлёра. Работают, пока запущено основное окно.",
-    icon: Keyboard,
-  },
-  {
-    id: "quick-actions",
-    label: "Действия",
-    description: "Кнопки над полем ввода и цифровые сочетания к ним.",
-    icon: Zap,
-  },
-  {
-    id: "window",
-    label: "Окно",
-    description: "Модификаторы со стрелками: сдвиг, размер и скролл чата.",
-    icon: AppWindow,
-  },
-  {
-    id: "behavior",
-    label: "Поведение",
-    description: "Демонстрация экрана, автоотправка, превью HTML, суфлёр и стиль ответа.",
-    icon: Workflow,
-  },
-  {
-    id: "appearance",
-    label: "Вид",
-    description: "Тема, прозрачность окна и размер шрифта чата.",
-    icon: Palette,
-  },
+  { id: "access", icon: KeyRound },
+  { id: "speech", icon: Mic },
+  { id: "hotkeys", icon: Keyboard },
+  { id: "quick-actions", icon: Zap },
+  { id: "window", icon: AppWindow },
+  { id: "behavior", icon: Workflow },
+  { id: "appearance", icon: Palette },
 ] as const satisfies readonly SettingsTabMeta[];
 
 export type SettingsTabId = (typeof SETTINGS_TABS)[number]["id"];
 
 export const DEFAULT_SETTINGS_TAB: SettingsTabId = "access";
 
-export function settingsTabMeta(id: SettingsTabId) {
-  return SETTINGS_TABS.find((tab) => tab.id === id) ?? SETTINGS_TABS[0];
+export function settingsTabLabel(id: SettingsTabId): string {
+  return t(`launcher.tabs.${id}.label`);
+}
+
+export function settingsTabDescription(id: SettingsTabId): string {
+  return t(`launcher.tabs.${id}.description`);
 }

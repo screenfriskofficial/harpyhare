@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useMemo, useRef } from "react";
+import { useTranslation } from "react-i18next";
 import { type Components } from "react-markdown";
 import { ChatEmptyState } from "@/components/ChatEmptyState";
 import { ChatHistory } from "@/components/ChatHistory";
@@ -30,6 +31,7 @@ export interface AnswerPanelProps {
 }
 
 function JumpToBottomButton({ onClick }: { onClick: () => void }) {
+  const { t } = useTranslation();
   return (
     <button
       type="button"
@@ -39,7 +41,7 @@ function JumpToBottomButton({ onClick }: { onClick: () => void }) {
         "absolute bottom-2 left-1/2 -translate-x-1/2 rounded-full px-2.5 py-1 text-caption text-muted-foreground transition-colors outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/60 active:bg-surface-active",
       )}
     >
-      ↓ Вниз
+      {t("hud.jumpToBottom")}
     </button>
   );
 }

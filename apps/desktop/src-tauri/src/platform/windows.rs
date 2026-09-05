@@ -102,16 +102,23 @@ fn hud_is_focused(app: &AppHandle) -> bool {
     foreground == hwnd || owner == hwnd
 }
 
+/// Хук низкоуровневый и глобальный, поэтому обязан быть дешёвым: сначала
+/// модификаторы (четыре `GetAsyncKeyState`), и только для стрелки с зажатым
+/// модификатором — сверка фокуса с HUD (лок карты окон Tauri). Голые стрелки
+/// в любом приложении раньше платили за этот лок на каждое нажатие.
 unsafe extern "system" fn arrow_keys_hook(code: i32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
     if code == HC_ACTION as i32 && is_key_down(wparam) {
         let event = unsafe { &*(lparam.0 as *const KBDLLHOOKSTRUCT) };
         if let (Some((dx, dy)), Some(app)) = (arrow_delta(event.vkCode), HOOK_APP.get()) {
-            let focused = hud_is_focused(app);
-            if cfg!(debug_assertions) && !focused {
-                eprintln!("[стрелки] окно HUD не активно — событие пропущено дальше");
-            }
-            if focused && handle_arrow_key(app, pressed_modifiers(), dx, dy) {
-                return SWALLOW_EVENT;
+            let modifiers = pressed_modifiers();
+            if !modifiers.is_empty() {
+                let focused = hud_is_focused(app);
+                if cfg!(debug_assertions) && !focused {
+                    eprintln!("[стрелки] окно HUD не активно — событие пропущено дальше");
+                }
+                if focused && handle_arrow_key(app, modifiers, dx, dy) {
+                    return SWALLOW_EVENT;
+                }
             }
         }
     }

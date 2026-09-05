@@ -1,18 +1,19 @@
+import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import type { PermissionsApi } from "@/hooks/usePermissions";
 import type { PermissionState } from "@/ipc/bindings";
 import { cn } from "@/lib/utils";
 import { SettingGroup } from "../fields";
-import { PERMISSION_ROWS, type PermissionRow } from "../permission-rows";
+import {
+  PERMISSION_ROWS,
+  permissionPurpose,
+  permissionTitle,
+  type PermissionRow,
+} from "../permission-rows";
 import { ScreenShell } from "../ScreenShell";
 
-const STATE_LABEL: Record<PermissionState, string> = {
-  granted: "выдан",
-  denied: "нет доступа",
-  unknown: "не выдан",
-};
-
 function StatusChip({ state }: { state: PermissionState }) {
+  const { t } = useTranslation();
   return (
     <span className="inline-flex shrink-0 items-center gap-1.5 text-caption text-muted-foreground">
       <span
@@ -22,7 +23,7 @@ function StatusChip({ state }: { state: PermissionState }) {
         )}
         aria-hidden
       />
-      {STATE_LABEL[state]}
+      {t(`launcher.permissions.states.${state}`)}
     </span>
   );
 }
@@ -34,6 +35,7 @@ function PermissionRowView({
   row: PermissionRow;
   permissions: PermissionsApi;
 }) {
+  const { t } = useTranslation();
   const state = permissions.status[row.kind];
   const granted = state === "granted";
   return (
@@ -45,13 +47,13 @@ function PermissionRowView({
 
       <div className="flex min-w-0 flex-col gap-0.5">
         <div className="flex flex-wrap items-center gap-x-2">
-          <span className="text-body">{row.title}</span>
+          <span className="text-body">{permissionTitle(row.kind)}</span>
           <StatusChip state={state} />
           <span className="text-hint text-muted-foreground/80">
-            {row.required ? "обязателен" : "необязателен"}
+            {row.required ? t("launcher.permissions.required") : t("launcher.permissions.optional")}
           </span>
         </div>
-        <p className="min-h-9 text-caption text-muted-foreground">{row.purpose}</p>
+        <p className="min-h-9 text-caption text-muted-foreground">{permissionPurpose(row.kind)}</p>
       </div>
 
       <div className="flex items-center justify-end gap-1.5">
@@ -64,7 +66,7 @@ function PermissionRowView({
                 permissions.openSettings(row.kind);
               }}
             >
-              Настройки
+              {t("launcher.permissions.settings")}
             </Button>
             <Button
               size="sm"
@@ -72,7 +74,9 @@ function PermissionRowView({
               disabled={permissions.pending !== null}
               onClick={() => void permissions.request(row.kind)}
             >
-              {permissions.pending === row.kind ? "Запрашиваю…" : "Выдать"}
+              {permissions.pending === row.kind
+                ? t("launcher.permissions.granting")
+                : t("launcher.permissions.grant")}
             </Button>
           </>
         )}
@@ -82,18 +86,19 @@ function PermissionRowView({
 }
 
 export function PermissionsScreen({ permissions }: { permissions: PermissionsApi }) {
+  const { t } = useTranslation();
   return (
     <ScreenShell
       screen="permissions"
       actions={
         <Button variant="ghost" size="sm" onClick={() => void permissions.refresh()}>
-          Проверить заново
+          {t("launcher.permissions.recheck")}
         </Button>
       }
     >
       <SettingGroup
-        title="Разрешения macOS"
-        description="Система выдаёт их только по запросу. Нажмите «Выдать» — macOS спросит подтверждение; если окно не появилось, доступ уже решён и меняется в системных настройках. Меняли что-то там — нажмите «Проверить заново»."
+        title={t("launcher.permissions.title")}
+        description={t("launcher.permissions.description")}
       >
         {PERMISSION_ROWS.map((row) => (
           <PermissionRowView key={row.kind} row={row} permissions={permissions} />

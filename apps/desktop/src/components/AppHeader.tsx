@@ -1,5 +1,6 @@
 import { ArrowDownCircle, Copy, Cpu, Eye, EyeOff, Minus, ScrollText, Square } from "lucide-react";
 import { memo, useMemo } from "react";
+import { useTranslation } from "react-i18next";
 import { ChatTabs } from "@/components/ChatTabs";
 import { HotkeysPopover } from "@/components/HotkeysPopover";
 import { ModeSwitch } from "@/components/ModeSwitch";
@@ -10,9 +11,6 @@ import type { Chat } from "@/lib/chats";
 import { effectiveCombo, formatCombo } from "@/lib/hotkeys";
 import type { AppModeId } from "@/lib/modes";
 import { cn } from "@/lib/utils";
-
-const SCREEN_SHARE_VISIBLE_LABEL = "Видно при демонстрации экрана — нажмите, чтобы скрыть";
-const SCREEN_SHARE_HIDDEN_LABEL = "Скрыто при демонстрации экрана — нажмите, чтобы показывать";
 
 export interface UpdateBadge {
   version: string;
@@ -76,18 +74,19 @@ export const AppHeader = memo(function AppHeader({
   onCollapse,
   onOpenUpdate,
 }: AppHeaderProps) {
+  const { t } = useTranslation();
   const dockItems = useMemo<ToolbarDockItem[]>(
     () => [
       {
         id: "copy",
-        label: "Копировать последний ответ",
+        label: t("hud.header.copyLastAnswer"),
         icon: <Copy />,
         disabled: !canCopy,
         onClick: onCopy,
       },
       {
         id: "teleprompter",
-        label: "Суфлёр",
+        label: t("hud.header.teleprompter"),
         icon: <ScrollText />,
         shortcut: formatCombo(effectiveCombo(hotkeys, "teleprompter")),
         disabled: !canTeleprompt,
@@ -95,21 +94,23 @@ export const AppHeader = memo(function AppHeader({
       },
       {
         id: "models",
-        label: "Модели",
+        label: t("hud.header.models"),
         icon: <Cpu />,
         shortcut: formatCombo(effectiveCombo(hotkeys, "model_menu")),
         onClick: onOpenModelMenu,
       },
       {
         id: "screen-share",
-        label: screenShareVisible ? SCREEN_SHARE_VISIBLE_LABEL : SCREEN_SHARE_HIDDEN_LABEL,
+        label: screenShareVisible
+          ? t("hud.header.screenShareVisible")
+          : t("hud.header.screenShareHidden"),
         icon: screenShareVisible ? <Eye /> : <EyeOff />,
         iconClass: screenShareVisible ? "text-primary hover:text-primary/85" : undefined,
         onClick: onToggleScreenShare,
       },
       {
         id: "hotkeys",
-        label: "Горячие клавиши",
+        label: t("hud.header.hotkeys"),
         element: <HotkeysPopover hotkeys={hotkeys} triggerClass={DOCK_BUTTON_CLASS} />,
       },
       ...(update
@@ -117,8 +118,8 @@ export const AppHeader = memo(function AppHeader({
             {
               id: "update",
               label: update.busy
-                ? `Обновление до ${update.version}…`
-                : `Доступна версия ${update.version}`,
+                ? t("updates.updating", { version: update.version })
+                : t("updates.available", { version: update.version }),
               icon: <ArrowDownCircle className={cn(update.busy && "animate-pulse")} />,
               iconClass: "text-primary hover:text-primary/85",
               onClick: onOpenUpdate,
@@ -127,14 +128,15 @@ export const AppHeader = memo(function AppHeader({
         : []),
       {
         id: "mini",
-        label: "Свернуть в мини-режим",
+        label: t("hud.header.collapse"),
         icon: <Minus />,
         shortcut: formatCombo(effectiveCombo(hotkeys, "toggle_window")),
         onClick: onCollapse,
       },
-      { id: "stop", label: "Стоп — вернуться в лаунчер", icon: <Square />, onClick: onStop },
+      { id: "stop", label: t("hud.header.stop"), icon: <Square />, onClick: onStop },
     ],
     [
+      t,
       hotkeys,
       update,
       canCopy,

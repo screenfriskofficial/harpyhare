@@ -1,3 +1,4 @@
+use crate::sync::LockUnpoisoned;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::time::Duration;
@@ -22,12 +23,28 @@ pub struct PresetPool {
 }
 
 impl PresetPool {
+    /// Пул принимается только целым: непустой, без пустых и повторяющихся id.
+    /// Опечатка при публикации (пустой список, задвоенный id) иначе за полчаса
+    /// доезжала до всех и кэшировалась до следующего бампа версии.
     pub fn parse(raw: &str) -> Option<Self> {
         let pool: PresetPool = serde_json::from_str(raw).ok()?;
-        if pool.presets.iter().any(|p| p.id.trim().is_empty()) {
+        if pool.presets.is_empty() || pool.presets.iter().any(|p| p.id.trim().is_empty()) {
+            return None;
+        }
+        let mut ids: Vec<&str> = pool.presets.iter().map(|p| p.id.trim()).collect();
+        ids.sort_unstable();
+        if ids.windows(2).any(|pair| pair[0] == pair[1]) {
             return None;
         }
         Some(pool)
+    }
+
+    /// Правило `apply`: сетевой пул применяется, если не старше локального и
+    /// отличается содержимым или версией. Даже без правки текста повышение
+    /// версии нужно сохранить: оно запрещает последующий откат.
+    pub fn should_replace(&self, current_version: u32, current: &[PromptPreset]) -> bool {
+        self.version > current_version
+            || (self.version == current_version && self.presets != current)
     }
 
     fn bundled() -> Self {
@@ -74,6 +91,7 @@ async fn fetch() -> Result<PresetPool, String> {
 }
 
 async fn fetch_raw() -> reqwest::Result<String> {
+    crate::tls::ensure_crypto_provider();
     let client = reqwest::Client::builder().timeout(FETCH_TIMEOUT).build()?;
     client
         .get(PRESETS_URL)
@@ -94,16 +112,15 @@ async fn fetch_raw() -> reqwest::Result<String> {
 fn apply(app: &AppHandle, pool: PresetPool) {
     let st = app.state::<crate::app_state::App>();
     {
-        let mut current_version = st.official_presets_version.lock().unwrap();
-        if pool.version < *current_version {
-            eprintln!(
-                "{LOG_TAG} пул из сети версии {} старше локального {} — не применяю",
-                pool.version, *current_version
-            );
-            return;
-        }
-        let mut current = st.official_presets.lock().unwrap();
-        if *current == pool.presets {
+        let mut current_version = st.official_presets_version.lock_unpoisoned();
+        let mut current = st.official_presets.lock_unpoisoned();
+        if !pool.should_replace(*current_version, &current) {
+            if pool.version < *current_version {
+                eprintln!(
+                    "{LOG_TAG} пул из сети версии {} старше локального {} — не применяю",
+                    pool.version, *current_version
+                );
+            }
             return;
         }
         *current = pool.presets.clone();

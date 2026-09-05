@@ -1,5 +1,6 @@
 import { CopyPlus, Plus, X } from "lucide-react";
 import { memo, useEffect, useRef } from "react";
+import { useTranslation } from "react-i18next";
 import { IconButton } from "@/components/IconButton";
 import { ShortcutTooltip } from "@/components/ShortcutTooltip";
 import { CHAT_LIMIT, type Chat } from "@/lib/chats";
@@ -18,9 +19,6 @@ export interface ChatTabsProps {
   duplicateCombo: string;
 }
 
-const NEW_CHAT_TITLE = "Новый чат";
-const DUPLICATE_TITLE = "Дубликат чата — те же параметры, без сообщений";
-
 /** `memo`: шапка не перерисовывается на каждый кадр стрима — App даёт стабильные колбэки. */
 export const ChatTabs = memo(function ChatTabs({
   chats,
@@ -33,8 +31,11 @@ export const ChatTabs = memo(function ChatTabs({
   onDuplicate,
   duplicateCombo,
 }: ChatTabsProps) {
+  const { t } = useTranslation();
   const atLimit = chats.length >= CHAT_LIMIT;
   const activeRef = useRef<HTMLButtonElement>(null);
+  const newChatTitle = t("chats.new");
+  const duplicateTitle = t("chats.duplicate");
 
   useEffect(() => {
     activeRef.current?.scrollIntoView({ block: "nearest", inline: "nearest" });
@@ -43,7 +44,7 @@ export const ChatTabs = memo(function ChatTabs({
   return (
     <div className="flex min-w-0 shrink items-center gap-1">
       <nav
-        aria-label="Чаты"
+        aria-label={t("chats.tabs")}
         className="no-scrollbar flex min-w-0 shrink items-center gap-1 overflow-x-auto"
       >
         {chats.map((c, i) => {
@@ -68,13 +69,13 @@ export const ChatTabs = memo(function ChatTabs({
           );
         })}
       </nav>
-      <ShortcutTooltip label={NEW_CHAT_TITLE}>
-        <IconButton title="" aria-label={NEW_CHAT_TITLE} onClick={onNew} disabled={atLimit}>
+      <ShortcutTooltip label={newChatTitle}>
+        <IconButton title="" aria-label={newChatTitle} onClick={onNew} disabled={atLimit}>
           <Plus />
         </IconButton>
       </ShortcutTooltip>
-      <ShortcutTooltip label={DUPLICATE_TITLE} shortcut={formatCombo(duplicateCombo)}>
-        <IconButton title="" aria-label={DUPLICATE_TITLE} onClick={onDuplicate} disabled={atLimit}>
+      <ShortcutTooltip label={duplicateTitle} shortcut={formatCombo(duplicateCombo)}>
+        <IconButton title="" aria-label={duplicateTitle} onClick={onDuplicate} disabled={atLimit}>
           <CopyPlus />
         </IconButton>
       </ShortcutTooltip>
@@ -105,9 +106,10 @@ function ChatTab({
   onSelect,
   onRemove,
 }: ChatTabProps) {
+  const { t } = useTranslation();
   const closeOnClick = isActive && closable;
-  const name = title === "" ? `Чат ${String(number)}` : title;
-  const label = closeOnClick ? `Закрыть «${name}» вместе с перепиской` : name;
+  const name = title === "" ? t("chats.numbered", { number }) : title;
+  const label = closeOnClick ? t("chats.closeTab", { name }) : name;
   return (
     <ShortcutTooltip label={label}>
       <button

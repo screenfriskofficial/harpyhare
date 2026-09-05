@@ -170,6 +170,8 @@ async fn transcribe_stream_sends_chunked_body_and_parses_text() {
     Mock::given(method("POST"))
         .and(path(groq().wire.path(false)))
         .and(header("authorization", "Bearer gsk_test"))
+        .and(BodyHas("RIFF"))
+        .and(BodyHas("WAVE"))
         .respond_with(
             ResponseTemplate::new(200).set_body_json(serde_json::json!({"text": " стрим ок "})),
         )
@@ -177,8 +179,8 @@ async fn transcribe_stream_sends_chunked_body_and_parses_text() {
         .await;
     let stt = SttHttpClient::for_provider(registry::PROVIDER_GROQ, "gsk_test".into()).with_base_url(server.uri());
 
+    // Конвейер отдаёт сырой PCM; WAV-заголовок подшивает сам клиент.
     let chunks: Vec<Result<Vec<u8>, std::io::Error>> = vec![
-        Ok(crate::audio::wav_header_streaming().to_vec()),
         Ok(crate::audio::f32_to_i16le_bytes(&vec![0.1f32; 8000])),
         Ok(crate::audio::f32_to_i16le_bytes(&vec![0.2f32; 8000])),
     ];
@@ -215,7 +217,7 @@ async fn transcribe_stream_cancel_aborts() {
         .transcribe_stream(Box::pin(endless), NO_KEYTERMS, cancel)
         .await
         .unwrap_err();
-    assert!(matches!(err, SttError::Other(m) if m.contains(CANCELLED_MESSAGE)));
+    assert!(matches!(err, SttError::Cancelled));
 }
 
 #[tokio::test]
@@ -274,8 +276,10 @@ async fn transcribe_200_without_text_field_is_error() {
     assert!(matches!(stt.transcribe(&samples(), NO_KEYTERMS).await, Err(SttError::Other(_))));
 }
 
+/// Таймаут при живой сети — «сервер не успел», а не «нет соединения»: второе
+/// поднимает во фронте оверлей связи, хотя сеть в порядке.
 #[tokio::test]
-async fn transcribe_maps_timeout_to_network() {
+async fn transcribe_maps_timeout_to_retryable() {
     let server = MockServer::start().await;
     Mock::given(method("POST"))
         .respond_with(ResponseTemplate::new(200).set_delay(std::time::Duration::from_secs(3)))
@@ -284,7 +288,22 @@ async fn transcribe_maps_timeout_to_network() {
     let stt = SttHttpClient::for_provider(registry::PROVIDER_GROQ, "k".into())
         .with_base_url(server.uri())
         .with_timeout(std::time::Duration::from_millis(200));
-    assert!(matches!(stt.transcribe(&samples(), NO_KEYTERMS).await, Err(SttError::Network(_))));
+    assert!(matches!(stt.transcribe(&samples(), NO_KEYTERMS).await, Err(SttError::Retryable(_))));
+}
+
+#[test]
+fn the_batch_timeout_grows_with_the_recording() {
+    let stt = SttHttpClient::for_provider(registry::PROVIDER_GROQ, "k".into());
+    let short = stt.batch_timeout(crate::audio::TARGET_SAMPLE_RATE as usize);
+    let long = stt.batch_timeout(crate::audio::TARGET_SAMPLE_RATE as usize * 600);
+    assert_eq!(short, DEFAULT_REQUEST_TIMEOUT + std::time::Duration::from_secs(1));
+    assert_eq!(long, DEFAULT_REQUEST_TIMEOUT + std::time::Duration::from_secs(600));
+}
+
+#[tokio::test]
+async fn a_deepgram_row_is_refused_by_the_multipart_client_without_panicking() {
+    let stt = SttHttpClient::for_provider(registry::PROVIDER_DEEPGRAM, "k".into());
+    assert!(matches!(stt.transcribe(&samples(), NO_KEYTERMS).await, Err(SttError::Other(_))));
 }
 
 fn xai() -> &'static registry::SttProviderSpec {

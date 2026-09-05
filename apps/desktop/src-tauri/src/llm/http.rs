@@ -3,8 +3,8 @@ use std::time::Duration;
 use tokio_util::sync::CancellationToken;
 
 use super::{
-    build_http_client, build_probe_http_client, pump_sse_stream,
-    require_ok_status, LlmError, LlmStreamSink, SseParser, DEFAULT_READ_TIMEOUT, WARM_UP_TIMEOUT,
+    build_http_client, network_error, probe_http_client, pump_sse_stream, require_ok_status,
+    HttpClientOptions, LlmError, LlmStreamSink, SseParser, REQUEST_TIMEOUT, WARM_UP_TIMEOUT,
 };
 
 /// How a request proves who it is.
@@ -12,8 +12,8 @@ use super::{
 /// `Bearer` covers two different things on purpose: a vendor whose own scheme is
 /// bearer auth, and the relay's `itk_` token, which replaces the vendor
 /// credential entirely. `LlmHttp::proxy` is what tells them apart, and it only
-/// matters for error mapping — a 401 from the relay is an API error, a 401 from
-/// the vendor means the user's key is wrong.
+/// matters for error mapping — a 401 from the relay means the access code is
+/// dead, a 401 from the vendor means the user's key is wrong.
 #[derive(Clone)]
 pub enum Credential {
     ApiKeyHeader { header: &'static str, key: String },
@@ -38,18 +38,30 @@ pub struct LlmHttp {
     key_label: &'static str,
     headers: StaticHeaders,
     proxy: bool,
+    options: HttpClientOptions,
 }
 
 impl LlmHttp {
     /// Straight at the vendor with the user's own credential.
     pub fn direct(base_url: impl Into<String>, credential: Credential, key_label: &'static str) -> Self {
+        Self::with_options(base_url, credential, key_label, HttpClientOptions::default())
+    }
+
+    /// `direct` with an explicit pool configuration (idle timeout, proxy policy).
+    pub(crate) fn with_options(
+        base_url: impl Into<String>,
+        credential: Credential,
+        key_label: &'static str,
+        options: HttpClientOptions,
+    ) -> Self {
         Self {
-            client: build_http_client(DEFAULT_READ_TIMEOUT),
+            client: build_http_client(options),
             base_url: base_url.into(),
             credential,
             key_label,
             headers: &[],
             proxy: false,
+            options,
         }
     }
 
@@ -68,12 +80,21 @@ impl LlmHttp {
     }
 
     pub fn with_read_timeout(mut self, d: Duration) -> Self {
-        self.client = build_http_client(d);
+        self.options.read_timeout = d;
+        self.client = build_http_client(self.options);
         self
     }
 
     pub fn with_base_url(mut self, base_url: String) -> Self {
         self.base_url = base_url;
+        self
+    }
+
+    /// The same pool under another credential — for a vendor whose endpoints
+    /// authenticate differently (Xclis: bearer for chat, `x-api-key` for the
+    /// Anthropic-shaped catalogue and token counter).
+    pub fn with_credential(mut self, credential: Credential) -> Self {
+        self.credential = credential;
         self
     }
 
@@ -97,14 +118,11 @@ impl LlmHttp {
     }
 
     async fn send(&self, req: reqwest::RequestBuilder) -> Result<reqwest::Response, LlmError> {
-        self.prepared(req)
-            .send()
-            .await
-            .map_err(|e| LlmError::Network(e.to_string()))
+        self.prepared(req).send().await.map_err(network_error)
     }
 
     async fn json_of(resp: reqwest::Response) -> Result<Value, LlmError> {
-        resp.json().await.map_err(|e| LlmError::Network(e.to_string()))
+        resp.json().await.map_err(network_error)
     }
 
     /// `path` carries its own query string when the vendor needs one.
@@ -115,9 +133,33 @@ impl LlmHttp {
     }
 
     pub async fn post_json(&self, path: &str, body: &Value) -> Result<Value, LlmError> {
-        let resp = self.send(self.client.post(self.url(path)).json(body)).await?;
+        let resp = self
+            .send(self.client.post(self.url(path)).json(body).timeout(REQUEST_TIMEOUT))
+            .await?;
         let resp = require_ok_status(resp, self.key_label, self.proxy).await?;
         Self::json_of(resp).await
+    }
+
+    /// POST a body and hand back the status-checked response, honouring
+    /// `cancel` while the request is in flight. What the body is — SSE, JSON —
+    /// is the caller's call; `post_sse` is the common case.
+    pub async fn post_response(
+        &self,
+        path: &str,
+        body: &Value,
+        cancel: &CancellationToken,
+        accept: Option<&'static str>,
+    ) -> Result<reqwest::Response, LlmError> {
+        let mut req = self.client.post(self.url(path)).json(body);
+        if let Some(mime) = accept {
+            req = req.header(reqwest::header::ACCEPT, mime);
+        }
+        let send = self.prepared(req).send();
+        let resp = tokio::select! {
+            r = send => r.map_err(network_error)?,
+            _ = cancel.cancelled() => return Err(LlmError::Cancelled),
+        };
+        require_ok_status(resp, self.key_label, self.proxy).await
     }
 
     /// POST a body and pump the SSE answer into `sink`, honouring `cancel` both
@@ -131,21 +173,15 @@ impl LlmHttp {
         cancel: CancellationToken,
         sink: &mut dyn LlmStreamSink,
     ) -> Result<(), LlmError> {
-        let send = self.prepared(self.client.post(self.url(path)).json(body)).send();
-        let resp = tokio::select! {
-            r = send => r.map_err(|e| LlmError::Network(e.to_string()))?,
-            _ = cancel.cancelled() => return Err(LlmError::Cancelled),
-        };
-        let resp = require_ok_status(resp, self.key_label, self.proxy).await?;
+        let resp = self.post_response(path, body, &cancel, None).await?;
         pump_sse_stream(resp, parser, &cancel, sink).await
     }
 
-    /// Connectivity probe. Deliberately its own short-timeout, pool-less client:
-    /// a probe issued on the shared pool can park behind a dead keep-alive
-    /// connection and hang far past its own timeout.
+    /// Connectivity probe on the process-wide pool-less client: a probe issued
+    /// on the shared pool can park behind a dead keep-alive connection and hang
+    /// far past its own timeout.
     pub async fn reachable(&self, path: &str) -> bool {
-        let probe = build_probe_http_client();
-        self.prepared(probe.get(self.url(path))).send().await.is_ok()
+        self.prepared(probe_http_client().get(self.url(path))).send().await.is_ok()
     }
 
     /// Opens the connection so the first real request does not pay for TLS.

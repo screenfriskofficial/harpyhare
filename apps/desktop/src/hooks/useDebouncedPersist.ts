@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef } from "react";
-import { onSaveError } from "@/lib/persist-errors";
+import { onSaveError, type PersistSubject } from "@/lib/persist-errors";
 import { useLatestRef } from "./useLatestRef";
 
 const PERSIST_DEBOUNCE_MS = 500;
@@ -27,7 +27,7 @@ export function useDebouncedPersist<T>(
   value: T,
   serialize: (value: T) => string,
   save: (json: string) => Promise<unknown>,
-  subject: string,
+  subject: PersistSubject,
 ): DebouncedPersist<T> {
   const latest = useLatestRef(value);
   const serializeRef = useLatestRef(serialize);

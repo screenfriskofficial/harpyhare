@@ -1,7 +1,7 @@
 use std::ffi::c_void;
 use std::sync::OnceLock;
 
-use png::{BitDepth, ColorType, Encoder};
+use png::{BitDepth, ColorType, Compression, Encoder};
 use windows::core::{w, PCWSTR};
 use windows::Win32::Foundation::{COLORREF, HWND, LPARAM, LRESULT, POINT, RECT, WPARAM};
 use windows::Win32::Graphics::Gdi::{
@@ -11,9 +11,6 @@ use windows::Win32::Graphics::Gdi::{
     PAINTSTRUCT, SRCCOPY,
 };
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
-use windows::Win32::UI::HiDpi::{
-    SetProcessDpiAwarenessContext, DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2,
-};
 use windows::Win32::UI::Input::KeyboardAndMouse::{SetFocus, VK_ESCAPE};
 use windows::Win32::UI::WindowsAndMessaging::{
     CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW, GetMessageW,
@@ -23,6 +20,8 @@ use windows::Win32::UI::WindowsAndMessaging::{
     WM_ERASEBKGND, WM_KEYDOWN, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MOUSEMOVE, WM_NCCREATE, WM_PAINT,
     WM_RBUTTONDOWN, WNDCLASSW, WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_POPUP,
 };
+
+use super::geom::{self, Point as GeomPoint, Rect as GeomRect};
 
 const OVERLAY_CLASS_NAME: PCWSTR = w!("HarpyRegionCaptureOverlay");
 const OVERLAY_WINDOW_TITLE: PCWSTR = w!("");
@@ -51,9 +50,6 @@ const CHANNEL_GREEN: usize = 1;
 const CHANNEL_RED: usize = 2;
 const DIB_SECTION_OFFSET: u32 = 0;
 
-const COORDINATE_MASK: u32 = 0xFFFF;
-const COORDINATE_SHIFT: u32 = 16;
-
 const MESSAGE_HANDLED: isize = 0;
 const ERASE_HANDLED: isize = 1;
 const NO_MESSAGE_FILTER: u32 = 0;
@@ -69,8 +65,10 @@ const CLASS_FAILED: &str = "не удалось создать класс ове
 const WINDOW_FAILED: &str = "не удалось создать окно выделения";
 const PNG_ENCODE_FAILED: &str = "не удалось закодировать PNG";
 
+/// DPI-awareness процесса выставляет tao при создании цикла событий (per-monitor
+/// v2); менять её посреди процесса нельзя, и прежний вызов здесь всегда падал
+/// и игнорировался — координаты виртуального экрана и так физические.
 pub fn capture_region() -> Result<Option<Vec<u8>>, String> {
-    apply_dpi_awareness();
     let bounds = virtual_screen_bounds()?;
     let screen = ScreenDc::open()?;
     let original = capture_virtual_screen(&screen, &bounds)?;
@@ -79,12 +77,6 @@ pub fn capture_region() -> Result<Option<Vec<u8>>, String> {
     match run_overlay(&original, &dimmed, &back, &bounds)? {
         Some(area) => crop_to_png(&original, area).map(Some),
         None => Ok(None),
-    }
-}
-
-fn apply_dpi_awareness() {
-    unsafe {
-        let _ = SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
     }
 }
 
@@ -290,25 +282,19 @@ impl Overlay {
         }
     }
 
-    fn selection(&self) -> Option<RECT> {
+    fn selection(&self) -> Option<GeomRect> {
         if !self.started {
             return None;
         }
-        let area = normalized_rect(self.anchor, self.pointer);
-        non_empty(area)
+        geom::non_empty(geom::normalized_rect(as_geom_point(self.anchor), as_geom_point(self.pointer)))
     }
 
-    fn accepted(&self) -> Option<RECT> {
-        self.selection().filter(|area| {
-            area.right - area.left >= MIN_SELECTION_PX && area.bottom - area.top >= MIN_SELECTION_PX
-        })
+    fn accepted(&self) -> Option<GeomRect> {
+        geom::accepted(self.selection(), MIN_SELECTION_PX)
     }
 
     fn inside(&self, point: POINT) -> POINT {
-        POINT {
-            x: point.x.clamp(0, self.width),
-            y: point.y.clamp(0, self.height),
-        }
+        as_win_point(geom::clamp_point(as_geom_point(point), self.width, self.height))
     }
 
     fn begin(&mut self, point: POINT) {
@@ -337,67 +323,28 @@ impl Overlay {
     }
 }
 
-fn normalized_rect(anchor: POINT, pointer: POINT) -> RECT {
-    RECT {
-        left: anchor.x.min(pointer.x),
-        top: anchor.y.min(pointer.y),
-        right: anchor.x.max(pointer.x),
-        bottom: anchor.y.max(pointer.y),
-    }
+fn as_geom_point(point: POINT) -> GeomPoint {
+    GeomPoint { x: point.x, y: point.y }
 }
 
-fn non_empty(area: RECT) -> Option<RECT> {
-    (area.right > area.left && area.bottom > area.top).then_some(area)
+fn as_win_point(point: GeomPoint) -> POINT {
+    POINT { x: point.x, y: point.y }
 }
 
-fn inflated(area: RECT, amount: i32) -> RECT {
-    RECT {
-        left: area.left - amount,
-        top: area.top - amount,
-        right: area.right + amount,
-        bottom: area.bottom + amount,
-    }
+fn as_geom_rect(area: RECT) -> GeomRect {
+    GeomRect { left: area.left, top: area.top, right: area.right, bottom: area.bottom }
 }
 
-fn union_of(first: RECT, second: RECT) -> RECT {
-    RECT {
-        left: first.left.min(second.left),
-        top: first.top.min(second.top),
-        right: first.right.max(second.right),
-        bottom: first.bottom.max(second.bottom),
-    }
-}
-
-fn intersection(first: RECT, second: RECT) -> Option<RECT> {
-    non_empty(RECT {
-        left: first.left.max(second.left),
-        top: first.top.max(second.top),
-        right: first.right.min(second.right),
-        bottom: first.bottom.min(second.bottom),
-    })
-}
-
-fn dirty_area(previous: Option<RECT>, current: Option<RECT>) -> Option<RECT> {
-    let previous = previous.map(|area| inflated(area, FRAME_THICKNESS_PX));
-    let current = current.map(|area| inflated(area, FRAME_THICKNESS_PX));
-    match (previous, current) {
-        (Some(before), Some(after)) => Some(union_of(before, after)),
-        (Some(before), None) => Some(before),
-        (None, Some(after)) => Some(after),
-        (None, None) => None,
-    }
+fn as_win_rect(area: GeomRect) -> RECT {
+    RECT { left: area.left, top: area.top, right: area.right, bottom: area.bottom }
 }
 
 fn pointer_position(lparam: LPARAM) -> POINT {
-    let packed = lparam.0 as u32;
-    POINT {
-        x: (packed & COORDINATE_MASK) as u16 as i16 as i32,
-        y: ((packed >> COORDINATE_SHIFT) & COORDINATE_MASK) as u16 as i16 as i32,
-    }
+    as_win_point(geom::unpack_pointer(lparam.0 as u32))
 }
 
-fn request_redraw(window: HWND, area: Option<RECT>) {
-    let Some(area) = area else {
+fn request_redraw(window: HWND, area: Option<GeomRect>) {
+    let Some(area) = area.map(as_win_rect) else {
         return;
     };
     unsafe {
@@ -479,7 +426,7 @@ fn run_overlay(
     dimmed: &Canvas,
     back: &Canvas,
     bounds: &VirtualScreen,
-) -> Result<Option<RECT>, String> {
+) -> Result<Option<GeomRect>, String> {
     let mut state = Overlay::new(original, dimmed, back, bounds);
     let handle: *mut Overlay = &mut state;
     let window = OverlayWindow::open(bounds, handle)?;
@@ -548,14 +495,14 @@ unsafe extern "system" fn overlay_proc(
         WM_LBUTTONDOWN => {
             let previous = state.selection();
             state.begin(pointer_position(lparam));
-            request_redraw(window, dirty_area(previous, state.selection()));
+            request_redraw(window, geom::dirty_area(previous, state.selection(), FRAME_THICKNESS_PX));
             LRESULT(MESSAGE_HANDLED)
         }
         WM_MOUSEMOVE => {
             if state.dragging {
                 let previous = state.selection();
                 state.drag(pointer_position(lparam));
-                request_redraw(window, dirty_area(previous, state.selection()));
+                request_redraw(window, geom::dirty_area(previous, state.selection(), FRAME_THICKNESS_PX));
             }
             LRESULT(MESSAGE_HANDLED)
         }
@@ -581,7 +528,7 @@ unsafe fn paint_overlay(window: HWND, state: &Overlay) {
     if !target.is_invalid() {
         unsafe {
             compose_overlay(state, paint.rcPaint);
-            blit(target, state.back, paint.rcPaint);
+            blit(target, state.back, as_geom_rect(paint.rcPaint));
         }
     }
     unsafe {
@@ -590,20 +537,20 @@ unsafe fn paint_overlay(window: HWND, state: &Overlay) {
 }
 
 unsafe fn compose_overlay(state: &Overlay, clip: RECT) {
-    let Some(clip) = non_empty(clip) else {
+    let Some(clip) = geom::non_empty(as_geom_rect(clip)) else {
         return;
     };
     unsafe { blit(state.back, state.dimmed, clip) };
     let Some(selection) = state.selection() else {
         return;
     };
-    if let Some(visible) = intersection(selection, clip) {
+    if let Some(visible) = geom::intersection(selection, clip) {
         unsafe { blit(state.back, state.original, visible) };
     }
     unsafe { draw_selection_frame(state.back, selection) };
 }
 
-unsafe fn blit(target: HDC, source: HDC, area: RECT) {
+unsafe fn blit(target: HDC, source: HDC, area: GeomRect) {
     unsafe {
         let _ = BitBlt(
             target,
@@ -619,13 +566,13 @@ unsafe fn blit(target: HDC, source: HDC, area: RECT) {
     }
 }
 
-unsafe fn draw_selection_frame(target: HDC, selection: RECT) {
+unsafe fn draw_selection_frame(target: HDC, selection: GeomRect) {
     let brush = unsafe { CreateSolidBrush(FRAME_COLOR) };
     if brush.is_invalid() {
         return;
     }
     for ring in FIRST_FRAME_RING..=FRAME_THICKNESS_PX {
-        let outline = inflated(selection, ring);
+        let outline = as_win_rect(geom::inflated(selection, ring));
         unsafe { FrameRect(target, &outline, brush) };
     }
     unsafe {
@@ -633,15 +580,14 @@ unsafe fn draw_selection_frame(target: HDC, selection: RECT) {
     }
 }
 
-fn crop_to_png(source: &Canvas, area: RECT) -> Result<Vec<u8>, String> {
-    let width = (area.right - area.left) as usize;
-    let height = (area.bottom - area.top) as usize;
+fn crop_to_png(source: &Canvas, area: GeomRect) -> Result<Vec<u8>, String> {
+    let width = area.width() as usize;
+    let height = area.height() as usize;
     let stride = source.width as usize * SOURCE_CHANNELS;
     let pixels = source.pixels();
     let mut rgb = Vec::with_capacity(width * height * OUTPUT_CHANNELS);
     for row in 0..height {
-        let start = (area.top as usize + row) * stride + area.left as usize * SOURCE_CHANNELS;
-        let line = &pixels[start..start + width * SOURCE_CHANNELS];
+        let line = &pixels[geom::row_byte_range(area, row, stride, SOURCE_CHANNELS)];
         let (samples, _) = line.as_chunks::<SOURCE_CHANNELS>();
         for sample in samples {
             rgb.push(sample[CHANNEL_RED]);
@@ -657,6 +603,9 @@ fn encode_png(rgb: &[u8], width: usize, height: usize) -> Result<Vec<u8>, String
     let mut encoder = Encoder::new(&mut png, width as u32, height as u32);
     encoder.set_color(ColorType::Rgb);
     encoder.set_depth(BitDepth::Eight);
+    // Снимок живёт секунды и уходит в модель; сжимать его дефолтным уровнем на
+    // главном потоке — платить сотни миллисекунд за байты, которые никто не хранит.
+    encoder.set_compression(Compression::Fast);
     let mut writer = encoder
         .write_header()
         .map_err(|_| PNG_ENCODE_FAILED.to_string())?;

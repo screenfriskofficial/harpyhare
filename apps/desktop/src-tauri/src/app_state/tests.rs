@@ -176,3 +176,19 @@ fn a_vendor_the_relay_does_not_proxy_stays_locked_under_an_access_code() {
         );
     }
 }
+
+/// Речевой вендор без роута на relay (Deepgram) под кодом доступа берёт
+/// личный ключ и ходит к вендору напрямую — зеркало правила про ответы.
+#[test]
+fn a_speech_vendor_the_relay_does_not_proxy_keeps_its_own_key_under_a_code() {
+    let s = settings::Settings {
+        stt_provider: stt::registry::PROVIDER_DEEPGRAM.into(),
+        access_token: ACCESS_TOKEN.into(),
+        deepgram_api_key: DEEPGRAM_KEY.into(),
+        ..settings::Settings::default()
+    };
+    let plan = stt_client_plan(&s);
+    assert_eq!(plan.provider_id, stt::registry::PROVIDER_DEEPGRAM);
+    assert_eq!(plan.api_key, DEEPGRAM_KEY);
+    assert_eq!(plan.proxy_base_url, None);
+}

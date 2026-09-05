@@ -20,6 +20,17 @@ pub const ACTION_TELEPROMPTER: &str = "teleprompter";
 pub const ACTION_TELEPROMPTER_CLOSE: &str = "teleprompter_close";
 pub const ACTION_TELEPROMPTER_PAUSE: &str = "teleprompter_pause";
 
+/// Group ids of `HOTKEY_ACTIONS`. Ids, not labels: the frontend translates
+/// them (`hotkeys.groups.<id>` in its dictionaries), and a label baked in here
+/// would be one language's text riding a contract that must serve every UI
+/// language the same way.
+pub const GROUP_RECORD: &str = "record";
+pub const GROUP_SEND: &str = "send";
+pub const GROUP_WINDOW: &str = "window";
+pub const GROUP_CHAT: &str = "chat";
+pub const GROUP_NOTES: &str = "notes";
+pub const GROUP_TELEPROMPTER: &str = "teleprompter";
+
 macro_rules! cmd_token {
     () => {
         "Cmd"
@@ -73,14 +84,7 @@ impl PlatformCombo {
     }
 
     pub fn current(&self) -> &'static str {
-        #[cfg(target_os = "macos")]
-        {
-            self.macos
-        }
-        #[cfg(target_os = "windows")]
-        {
-            self.windows
-        }
+        if cfg!(target_os = "macos") { self.macos } else { self.windows }
     }
 }
 
@@ -93,19 +97,46 @@ pub struct PlatformModifierCombos {
 
 impl PlatformModifierCombos {
     pub fn current(&self) -> &'static [&'static str] {
-        #[cfg(target_os = "macos")]
-        {
-            self.macos
-        }
-        #[cfg(target_os = "windows")]
-        {
-            self.windows
-        }
+        if cfg!(target_os = "macos") { self.macos } else { self.windows }
     }
 }
 
 pub const MODIFIER_TOKENS: &[&str] =
     &[MODIFIER_CMD, MODIFIER_CTRL, MODIFIER_ALT, MODIFIER_SHIFT];
+
+/// Все написания модификаторов, которые понимает плагин шорткатов и фронт
+/// (`MODIFIER_ALIASES` в `lib/hotkeys.ts`), с их каноническим токеном.
+/// Единственная таблица: `split_combo` и `platform::modifier_mask` раньше
+/// знали только четыре канонических имени, и `Control+S` из старого или
+/// ручного JSON плагин регистрировал как Ctrl+S, а разбор конфликтов считал
+/// голой `S`, монитор стрелок же не совпадал с ним никогда.
+pub const MODIFIER_ALIASES: &[(&str, &str)] = &[
+    ("cmd", MODIFIER_CMD),
+    ("command", MODIFIER_CMD),
+    ("super", MODIFIER_CMD),
+    ("meta", MODIFIER_CMD),
+    ("ctrl", MODIFIER_CTRL),
+    ("control", MODIFIER_CTRL),
+    ("alt", MODIFIER_ALT),
+    ("option", MODIFIER_ALT),
+    ("shift", MODIFIER_SHIFT),
+];
+
+/// Канонический токен модификатора для любого его написания, регистр не важен.
+pub fn canonical_modifier(token: &str) -> Option<&'static str> {
+    let token = token.trim();
+    MODIFIER_ALIASES
+        .iter()
+        .find(|(alias, _)| alias.eq_ignore_ascii_case(token))
+        .map(|(_, canonical)| *canonical)
+}
+
+/// Позиция канонического модификатора в `MODIFIER_TOKENS` — она же бит
+/// `platform::ModifierMask`.
+pub fn modifier_index(token: &str) -> Option<usize> {
+    let canonical = canonical_modifier(token)?;
+    MODIFIER_TOKENS.iter().position(|m| *m == canonical)
+}
 
 pub const MODIFIER_COMBOS: PlatformModifierCombos = PlatformModifierCombos {
     macos: &[
@@ -164,7 +195,7 @@ pub struct HotkeyAction {
 pub const HOTKEY_ACTIONS: &[HotkeyAction] = &[
     HotkeyAction {
         id: ACTION_RECORD,
-        group: "Запись",
+        group: GROUP_RECORD,
         label: "Записать системный звук",
         hint: "Удерживайте, пока говорит собеседник.",
         kind: HotkeyKind::Combo,
@@ -173,7 +204,7 @@ pub const HOTKEY_ACTIONS: &[HotkeyAction] = &[
     },
     HotkeyAction {
         id: ACTION_CANCEL_RECORDING,
-        group: "Запись",
+        group: GROUP_RECORD,
         label: "Отменить запись",
         hint: "Слушается только пока идёт запись.",
         kind: HotkeyKind::Combo,
@@ -182,7 +213,7 @@ pub const HOTKEY_ACTIONS: &[HotkeyAction] = &[
     },
     HotkeyAction {
         id: ACTION_SEND,
-        group: "Отправка",
+        group: GROUP_SEND,
         label: "Отправить",
         hint: "Работает из любого места окна, не только из поля ввода.",
         kind: HotkeyKind::Combo,
@@ -191,7 +222,7 @@ pub const HOTKEY_ACTIONS: &[HotkeyAction] = &[
     },
     HotkeyAction {
         id: ACTION_CANCEL_STREAM,
-        group: "Отправка",
+        group: GROUP_SEND,
         label: "Остановить ответ",
         hint: "Слушается, только пока пишется ответ.",
         kind: HotkeyKind::Combo,
@@ -200,7 +231,7 @@ pub const HOTKEY_ACTIONS: &[HotkeyAction] = &[
     },
     HotkeyAction {
         id: ACTION_SCREENSHOT,
-        group: "Отправка",
+        group: GROUP_SEND,
         label: "Снимок области экрана",
         hint: "Выделенная область уходит вложением в чат.",
         kind: HotkeyKind::Combo,
@@ -209,7 +240,7 @@ pub const HOTKEY_ACTIONS: &[HotkeyAction] = &[
     },
     HotkeyAction {
         id: ACTION_QUICK_ACTION,
-        group: "Отправка",
+        group: GROUP_SEND,
         label: "Быстрое действие",
         hint: "Модификатор с цифрой: 1…9 по порядку кнопок.",
         kind: HotkeyKind::ModifierDigits,
@@ -218,7 +249,7 @@ pub const HOTKEY_ACTIONS: &[HotkeyAction] = &[
     },
     HotkeyAction {
         id: ACTION_FOCUS_PROMPT,
-        group: "Отправка",
+        group: GROUP_SEND,
         label: "Сфокусировать поле ввода",
         hint: "Поднимает окно и ставит каретку в конец текста.",
         kind: HotkeyKind::Combo,
@@ -227,7 +258,7 @@ pub const HOTKEY_ACTIONS: &[HotkeyAction] = &[
     },
     HotkeyAction {
         id: ACTION_TOGGLE_WINDOW,
-        group: "Окно",
+        group: GROUP_WINDOW,
         label: "Свернуть или развернуть",
         hint: "Сжимает окно в компактный статус и обратно, работает из любого приложения.",
         kind: HotkeyKind::Combo,
@@ -236,7 +267,7 @@ pub const HOTKEY_ACTIONS: &[HotkeyAction] = &[
     },
     HotkeyAction {
         id: ACTION_MOVE_WINDOW,
-        group: "Окно",
+        group: GROUP_WINDOW,
         label: "Передвинуть",
         hint: "Модификатор со стрелками.",
         kind: HotkeyKind::ModifierArrows,
@@ -245,7 +276,7 @@ pub const HOTKEY_ACTIONS: &[HotkeyAction] = &[
     },
     HotkeyAction {
         id: ACTION_RESIZE_WINDOW,
-        group: "Окно",
+        group: GROUP_WINDOW,
         label: "Изменить размер",
         hint: "Модификатор со стрелками.",
         kind: HotkeyKind::ModifierArrows,
@@ -254,7 +285,7 @@ pub const HOTKEY_ACTIONS: &[HotkeyAction] = &[
     },
     HotkeyAction {
         id: ACTION_OPACITY,
-        group: "Окно",
+        group: GROUP_WINDOW,
         label: "Прозрачность",
         hint: "Модификатор с плюсом и минусом.",
         kind: HotkeyKind::ModifierPlusMinus,
@@ -263,7 +294,7 @@ pub const HOTKEY_ACTIONS: &[HotkeyAction] = &[
     },
     HotkeyAction {
         id: ACTION_CHAT_FONT_SIZE,
-        group: "Чат",
+        group: GROUP_CHAT,
         label: "Размер шрифта",
         hint: "Модификатор с квадратными скобками.",
         kind: HotkeyKind::ModifierBrackets,
@@ -272,7 +303,7 @@ pub const HOTKEY_ACTIONS: &[HotkeyAction] = &[
     },
     HotkeyAction {
         id: ACTION_SCROLL_CHAT,
-        group: "Чат",
+        group: GROUP_CHAT,
         label: "Скролл переписки",
         hint: "Модификатор со стрелками вверх и вниз.",
         kind: HotkeyKind::ModifierArrows,
@@ -281,7 +312,7 @@ pub const HOTKEY_ACTIONS: &[HotkeyAction] = &[
     },
     HotkeyAction {
         id: ACTION_DUPLICATE_CHAT,
-        group: "Чат",
+        group: GROUP_CHAT,
         label: "Дубликат чата",
         hint: "Новый чат с параметрами текущего, работает из любого приложения.",
         kind: HotkeyKind::Combo,
@@ -290,7 +321,7 @@ pub const HOTKEY_ACTIONS: &[HotkeyAction] = &[
     },
     HotkeyAction {
         id: ACTION_MODEL_MENU,
-        group: "Чат",
+        group: GROUP_CHAT,
         label: "Меню моделей",
         hint: "Выбор голосовой модели и модели ответа.",
         kind: HotkeyKind::Combo,
@@ -299,7 +330,7 @@ pub const HOTKEY_ACTIONS: &[HotkeyAction] = &[
     },
     HotkeyAction {
         id: ACTION_TELEPROMPTER,
-        group: "Чат",
+        group: GROUP_CHAT,
         label: "Суфлёр",
         hint: "Крупный текст ответа поверх экрана.",
         kind: HotkeyKind::Combo,
@@ -308,7 +339,7 @@ pub const HOTKEY_ACTIONS: &[HotkeyAction] = &[
     },
     HotkeyAction {
         id: ACTION_TOGGLE_MODE,
-        group: "Заметки",
+        group: GROUP_NOTES,
         label: "Режим заметок",
         hint: "Переключает окно между чатом и заметками.",
         kind: HotkeyKind::Combo,
@@ -317,7 +348,7 @@ pub const HOTKEY_ACTIONS: &[HotkeyAction] = &[
     },
     HotkeyAction {
         id: ACTION_TELEPROMPTER_CLOSE,
-        group: "Суфлёр",
+        group: GROUP_TELEPROMPTER,
         label: "Закрыть суфлёр",
         hint: "Слушается только пока суфлёр открыт.",
         kind: HotkeyKind::Combo,
@@ -326,7 +357,7 @@ pub const HOTKEY_ACTIONS: &[HotkeyAction] = &[
     },
     HotkeyAction {
         id: ACTION_TELEPROMPTER_PAUSE,
-        group: "Суфлёр",
+        group: GROUP_TELEPROMPTER,
         label: "Пауза суфлёра",
         hint: "Останавливает автопрокрутку.",
         kind: HotkeyKind::Combo,
@@ -360,13 +391,10 @@ fn split_combo(combo: &str) -> (Vec<String>, Option<String>) {
         if token.is_empty() {
             continue;
         }
-        match MODIFIER_TOKENS
-            .iter()
-            .find(|m| m.eq_ignore_ascii_case(token))
-        {
+        match canonical_modifier(token) {
             Some(canonical) => {
                 if !modifiers.iter().any(|m: &String| m == canonical) {
-                    modifiers.push((*canonical).to_string());
+                    modifiers.push(canonical.to_string());
                 }
             }
             None => key = Some(token.to_string()),
@@ -541,6 +569,30 @@ pub fn migrate_legacy_fields(raw: &mut serde_json::Value) {
     if !migrated.is_empty() {
         object.insert(HOTKEYS_FIELD.to_string(), serde_json::Value::Array(migrated));
     }
+}
+
+/// Выбрасывает из `hotkeys` всё, что не похоже на биндинг (не объект, без
+/// строковых `action` и `combo`), а поле не того типа убирает целиком.
+///
+/// Одна битая запись иначе валила бы десериализацию ВСЕГО файла настроек, и
+/// «починкой» становился бы сброс всех настроек пользователя в дефолты.
+/// `normalize` неизвестные действия и так терпит — десериализация должна быть
+/// не строже его.
+pub fn drop_malformed_bindings(raw: &mut serde_json::Value) {
+    let Some(object) = raw.as_object_mut() else {
+        return;
+    };
+    let Some(field) = object.get_mut(HOTKEYS_FIELD) else {
+        return;
+    };
+    let Some(bindings) = field.as_array_mut() else {
+        object.remove(HOTKEYS_FIELD);
+        return;
+    };
+    bindings.retain(|binding| {
+        binding.get("action").is_some_and(serde_json::Value::is_string)
+            && binding.get("combo").is_some_and(serde_json::Value::is_string)
+    });
 }
 
 #[cfg(test)]

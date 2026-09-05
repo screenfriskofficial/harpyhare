@@ -1,11 +1,11 @@
 import type { RefObject } from "react";
+import { useTranslation } from "react-i18next";
 import { Textarea } from "@/components/ui/textarea";
 import { usePromptAutosize } from "@/hooks/usePromptAutosize";
 import { extractImageItems } from "@/lib/composer";
 
 export const PROMPT_SEND_KEY = "Enter";
 const PROMPT_MAX_HEIGHT_PX = 160;
-const PROMPT_PLACEHOLDER = "Расшифровка появится здесь — или напиши вопрос сам";
 
 export interface PromptTextareaProps {
   value: string;
@@ -21,6 +21,7 @@ function pasteHasImages(items: DataTransferItemList) {
 }
 
 export function PromptTextarea(props: PromptTextareaProps) {
+  const { t } = useTranslation();
   usePromptAutosize(props.fieldRef, props.value, PROMPT_MAX_HEIGHT_PX);
   return (
     <Textarea
@@ -46,7 +47,7 @@ export function PromptTextarea(props: PromptTextareaProps) {
         }
       }}
       spellCheck={false}
-      placeholder={PROMPT_PLACEHOLDER}
+      placeholder={t("hud.composer.placeholder")}
       style={{ maxHeight: PROMPT_MAX_HEIGHT_PX }}
       className="min-h-9 resize-none overflow-y-auto border-0 bg-transparent py-1.5 text-body focus-visible:ring-0"
     />

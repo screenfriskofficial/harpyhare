@@ -1,12 +1,8 @@
 use serde::Serialize;
 
 use super::{
-    ModelInfo, PROVIDER_ANTHROPIC, PROVIDER_OPENAI, PROVIDER_XAI, UNKNOWN_MAX_INPUT_TOKENS,
+    xclis, ModelInfo, PROVIDER_ANTHROPIC, PROVIDER_OPENAI, PROVIDER_XAI, UNKNOWN_MAX_INPUT_TOKENS,
 };
-
-/// Клиент Xclis: OpenAI-совместимый Chat Completions, свой SSE-разбор и
-/// собственная кодировка рассуждения суффиксом модели.
-pub mod xclis;
 
 /// A model the app can name before it holds any credential to verify it with.
 ///
@@ -283,7 +279,8 @@ pub const PROVIDERS: &[LlmProviderSpec] = &[
         },
     },
     // Агрегатор чужих моделей под своим ключом. `proxied: false` — у relay нет
-    // его роута, поэтому код доступа его не открывает.
+    // его роута, поэтому код доступа его не открывает; у диалекта Xclis нет и
+    // прокси-режима вовсе, что закреплено тестом `the_xclis_dialect_cannot_be_proxied`.
     LlmProviderSpec {
         id: xclis::PROVIDER_XCLIS,
         label: "Xclis",

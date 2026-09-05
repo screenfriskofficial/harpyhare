@@ -187,3 +187,13 @@ fn xclis_promises_nothing_offline() {
     assert!(xclis.catalog.is_empty(), "каталог Xclis известен только из живого /v1/models");
     assert!(xclis.default_model.is_empty(), "дефолт Xclis тоже приходит из живого каталога");
 }
+
+/// У relay нет роута под Chat Completions Xclis, а у самого диалекта — прокси-
+/// режима: `build_provider` при `proxied: true` пропустил бы вендора у каждого
+/// держателя кода доступа. Перевернуть флаг можно только вместе с диалектом.
+#[test]
+fn the_xclis_dialect_cannot_be_proxied() {
+    for p in PROVIDERS.iter().filter(|p| matches!(p.wire, LlmWire::Xclis { .. })) {
+        assert!(!p.proxied, "{}: диалект Xclis не умеет ходить через relay", p.id);
+    }
+}

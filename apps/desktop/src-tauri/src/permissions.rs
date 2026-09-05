@@ -1,3 +1,4 @@
+use crate::sync::LockUnpoisoned;
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Manager};
 
@@ -40,7 +41,7 @@ fn audio_state(app: &AppHandle) -> PermissionState {
     if !AUDIO_REQUIRES_PERMISSION {
         return PermissionState::Granted;
     }
-    if app.state::<App>().capture.lock().unwrap().is_some() {
+    if app.state::<App>().capture.lock_unpoisoned().is_some() {
         return PermissionState::Granted;
     }
     if !current_settings(app).audio_permission_requested {
@@ -62,7 +63,8 @@ fn screen_state(app: &AppHandle) -> PermissionState {
 
 fn mark_requested(app: &AppHandle, kind: PermissionKind) -> Result<(), String> {
     let st = app.state::<App>();
-    let mut settings = st.settings.lock().unwrap().clone();
+    let _edit = st.settings_edit.lock_unpoisoned();
+    let mut settings = st.settings.lock_unpoisoned().clone();
     let flag = match kind {
         PermissionKind::Audio => &mut settings.audio_permission_requested,
         PermissionKind::Screen => &mut settings.screen_permission_requested,
@@ -74,32 +76,43 @@ fn mark_requested(app: &AppHandle, kind: PermissionKind) -> Result<(), String> {
     settings
         .save(&settings_path(app))
         .map_err(|e| e.to_string())?;
-    *st.settings.lock().unwrap() = settings;
+    *st.settings.lock_unpoisoned() = settings;
     Ok(())
 }
 
+/// Обе команды — async с `spawn_blocking`: создание Core Audio tap (и его
+/// дроп с join потоков) стоит сотен миллисекунд, а синхронная команда делала
+/// это на главном потоке — при каждом монтировании лаунчера, пока капчера нет.
 #[tauri::command]
 #[specta::specta]
-pub fn permissions_status(app: AppHandle) -> PermissionsStatus {
-    PermissionsStatus {
+pub async fn permissions_status(app: AppHandle) -> PermissionsStatus {
+    tokio::task::spawn_blocking(move || PermissionsStatus {
         audio: audio_state(&app),
         screen: screen_state(&app),
-    }
+    })
+    .await
+    .unwrap_or(PermissionsStatus { audio: PermissionState::Unknown, screen: PermissionState::Unknown })
 }
 
 #[tauri::command]
 #[specta::specta]
-pub fn request_permission(app: AppHandle, kind: PermissionKind) -> Result<PermissionState, String> {
+pub async fn request_permission(app: AppHandle, kind: PermissionKind) -> Result<PermissionState, String> {
+    tokio::task::spawn_blocking(move || request_permission_blocking(&app, kind))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+fn request_permission_blocking(app: &AppHandle, kind: PermissionKind) -> Result<PermissionState, String> {
     match kind {
         PermissionKind::Audio => {
             if !AUDIO_REQUIRES_PERMISSION {
                 return Ok(PermissionState::Granted);
             }
-            mark_requested(&app, kind)?;
-            Ok(state_from_granted(recording::rebuild_capture(&app)))
+            mark_requested(app, kind)?;
+            Ok(state_from_granted(recording::rebuild_capture(app)))
         }
         PermissionKind::Screen => {
-            mark_requested(&app, kind)?;
+            mark_requested(app, kind)?;
             Ok(state_from_granted(platform::request_screen_capture_access()))
         }
     }

@@ -1,5 +1,6 @@
 import { Search } from "lucide-react";
 import { useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import { searchLauncher, type SearchHit, type SearchSources } from "./search";
@@ -9,8 +10,6 @@ const FIRST_INDEX = 0;
 const NEXT_STEP = 1;
 const PREVIOUS_STEP = -1;
 
-const PLACEHOLDER = "Поиск по настройкам";
-const EMPTY_NOTE = "Ничего не найдено";
 const LIST_ID = "launcher-search-results";
 
 function optionDomId(hitId: string): string {
@@ -22,16 +21,17 @@ interface LauncherSearchProps {
   onNavigate: (hit: SearchHit) => void;
 }
 
-function overflowNote(shown: number, total: number): string {
-  return `Показаны первые ${String(shown)} из ${String(total)} — уточните запрос`;
-}
-
 export function LauncherSearch({ sources, onNavigate }: LauncherSearchProps) {
+  const { t } = useTranslation();
   const [query, setQuery] = useState("");
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(FIRST_INDEX);
+  const placeholder = t("launcher.search.placeholder");
 
-  const hits = useMemo(() => searchLauncher(query, sources), [query, sources]);
+  // `t` в зависимостях: индекс собирается из словаря и пересобирается со сменой языка.
+  // Translation helpers read the active language; changing it invalidates this memo.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const hits = useMemo(() => searchLauncher(query, sources), [query, sources, t]);
   const shown = hits.slice(FIRST_INDEX, MAX_RESULTS);
   const activeIndex = Math.min(active, shown.length - 1);
   const listVisible = open && query.trim() !== "";
@@ -63,8 +63,8 @@ export function LauncherSearch({ sources, onNavigate }: LauncherSearchProps) {
       />
       <Input
         value={query}
-        placeholder={PLACEHOLDER}
-        aria-label={PLACEHOLDER}
+        placeholder={placeholder}
+        aria-label={placeholder}
         role="combobox"
         aria-autocomplete="list"
         aria-expanded={listVisible}
@@ -113,7 +113,7 @@ export function LauncherSearch({ sources, onNavigate }: LauncherSearchProps) {
         <div
           role="listbox"
           id={LIST_ID}
-          aria-label={PLACEHOLDER}
+          aria-label={placeholder}
           data-no-drag
           className="absolute top-full right-0 left-0 z-20 mt-1.5 max-h-80 animate-in overflow-y-auto rounded-lg border bg-popover p-1 shadow-pop duration-150 fade-in-0 slide-in-from-top-1 motion-reduce:animate-none"
           onMouseDown={(e) => {
@@ -121,7 +121,9 @@ export function LauncherSearch({ sources, onNavigate }: LauncherSearchProps) {
           }}
         >
           {shown.length === 0 && (
-            <p className="px-2 py-1.5 text-caption text-muted-foreground">{EMPTY_NOTE}</p>
+            <p className="px-2 py-1.5 text-caption text-muted-foreground">
+              {t("common.nothingFound")}
+            </p>
           )}
           {shown.map((hit, index) => (
             <button
@@ -151,7 +153,7 @@ export function LauncherSearch({ sources, onNavigate }: LauncherSearchProps) {
           ))}
           {hits.length > shown.length && (
             <p className="mt-1 border-t border-border px-2 py-1.5 text-hint text-muted-foreground">
-              {overflowNote(shown.length, hits.length)}
+              {t("launcher.search.overflow", { shown: shown.length, total: hits.length })}
             </p>
           )}
         </div>

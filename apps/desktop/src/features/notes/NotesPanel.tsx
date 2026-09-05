@@ -8,6 +8,7 @@ import {
   type ChangeEvent,
   type KeyboardEvent as ReactKeyboardEvent,
 } from "react";
+import { useTranslation } from "react-i18next";
 import { IconButton } from "@/components/IconButton";
 import { Input } from "@/components/ui/input";
 import type { ContextLibraryApi } from "@/hooks/useContextLibrary";
@@ -26,8 +27,6 @@ import { EmptyLibraryHint, NoteBrowseList } from "./NoteBrowseList";
 import { NoteReader } from "./NoteReader";
 import { NoteSuggestions, SUGGESTIONS_ID } from "./NoteSuggestions";
 
-const SEARCH_PLACEHOLDER = "Поиск по заметкам";
-const IMPORT_TITLE = "Добавить файлы в заметки";
 const ESCAPE_KEY = "Escape";
 const ARROW_DOWN_KEY = "ArrowDown";
 const ARROW_UP_KEY = "ArrowUp";
@@ -52,6 +51,7 @@ export function NotesPanel({
   onToggleDoc,
   onLeave,
 }: NotesPanelProps) {
+  const { t } = useTranslation();
   const [query, setQuery] = useState("");
   const [suggestionsDismissed, setSuggestionsDismissed] = useState(false);
   const [openDocId, setOpenDocId] = useState<string | null>(null);
@@ -184,12 +184,16 @@ export function NotesPanel({
             aria-controls={SUGGESTIONS_ID}
             aria-autocomplete="list"
             spellCheck={false}
-            placeholder={SEARCH_PLACEHOLDER}
-            aria-label={SEARCH_PLACEHOLDER}
+            placeholder={t("hud.notes.searchPlaceholder")}
+            aria-label={t("hud.notes.searchPlaceholder")}
             className="h-7 pl-7 text-body"
           />
         </span>
-        <IconButton title={IMPORT_TITLE} className="size-6 shrink-0" onClick={pickFiles}>
+        <IconButton
+          title={t("hud.notes.importTitle")}
+          className="size-6 shrink-0"
+          onClick={pickFiles}
+        >
           <Upload className="size-3.5" />
         </IconButton>
         <input

@@ -120,8 +120,14 @@ pub fn install_move_keys_monitor(app: AppHandle) {
     std::mem::forget(monitor);
 }
 
+/// `open` возвращается сразу, но дочерний процесс кто-то обязан дождаться:
+/// без `wait` каждый клик по ссылке оставлял `<defunct>` до выхода из приложения.
 fn open_with_shell(target: &str) {
-    let _ = std::process::Command::new(OPEN_COMMAND).arg(target).spawn();
+    if let Ok(mut child) = std::process::Command::new(OPEN_COMMAND).arg(target).spawn() {
+        std::thread::spawn(move || {
+            let _ = child.wait();
+        });
+    }
 }
 
 pub fn open_audio_capture_privacy_pane() {

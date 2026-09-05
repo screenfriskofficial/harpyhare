@@ -1,14 +1,18 @@
+use crate::sync::LockUnpoisoned;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use tauri::{AppHandle, Manager};
+use tokio::sync::Notify;
 use tokio_util::sync::CancellationToken;
 
 use crate::app_state::{llm_provider, note_connectivity_probe, ActiveLlmStream, App};
 use crate::error::AppError;
 use crate::{events, llm};
 
+/// Окно коалесинга дельт: флашер просыпается по первой дельте и отдаёт всё,
+/// что накопилось за это время, одним событием.
 const LLM_DELTA_FLUSH_INTERVAL: Duration = Duration::from_millis(25);
 
 type StreamRegistry = HashMap<String, ActiveLlmStream>;
@@ -32,27 +36,62 @@ fn take_stream(
     map.remove(chat_id)
 }
 
-fn register_llm_cancel(app: &AppHandle, chat_id: &str, stream_id: &str) -> CancellationToken {
+/// Регистрирует стрим и отдаёт его токен отмены. Прежний стрим чата
+/// отменяется. Если на месте прежнего лежит надгробие с ТЕМ ЖЕ `stream_id`
+/// (отмена приехала раньше регистрации — `cancel_stream` синхронна, а
+/// `send_to_claude` стартует на рабочем потоке), новый токен гасится сразу.
+fn register_in(map: &mut StreamRegistry, chat_id: &str, stream_id: &str) -> CancellationToken {
     let cancel = CancellationToken::new();
-    let entry = ActiveLlmStream {
-        stream_id: stream_id.to_string(),
-        cancel: cancel.clone(),
-    };
-    let st = app.state::<App>();
-    let mut map = st.llm_cancel.lock().unwrap();
-    if let Some(old) = replace_stream(&mut map, chat_id, entry) {
+    let entry = ActiveLlmStream { stream_id: stream_id.to_string(), cancel: cancel.clone() };
+    if let Some(old) = replace_stream(map, chat_id, entry) {
         old.cancel.cancel();
+        if old.stream_id == stream_id {
+            cancel.cancel();
+        }
     }
     cancel
 }
 
+/// Отменяет стрим, если в реестре лежит именно он. Отмена стрима, которого
+/// ещё нет, оставляет надгробие — уже отменённый токен под его `stream_id`,
+/// чтобы запоздавшая регистрация увидела её; чужой активный стрим при этом
+/// не трогается.
+fn cancel_in(map: &mut StreamRegistry, chat_id: &str, stream_id: &str) {
+    if let Some(stream) = take_stream(map, chat_id, stream_id) {
+        stream.cancel.cancel();
+        return;
+    }
+    if map.contains_key(chat_id) {
+        return;
+    }
+    let tombstone = CancellationToken::new();
+    tombstone.cancel();
+    replace_stream(map, chat_id, ActiveLlmStream { stream_id: stream_id.to_string(), cancel: tombstone });
+}
+
+fn register_llm_cancel(app: &AppHandle, chat_id: &str, stream_id: &str) -> CancellationToken {
+    let st = app.state::<App>();
+    let mut map = st.llm_cancel.lock_unpoisoned();
+    register_in(&mut map, chat_id, stream_id)
+}
+
 fn unregister_llm_cancel(app: &AppHandle, chat_id: &str, stream_id: &str) {
     let st = app.state::<App>();
-    take_stream(&mut st.llm_cancel.lock().unwrap(), chat_id, stream_id);
+    take_stream(&mut st.llm_cancel.lock_unpoisoned(), chat_id, stream_id);
+}
+
+/// Отменяет все активные стримы: HUD закрывается, читать дельты некому.
+pub fn cancel_all_streams(app: &AppHandle) {
+    let st = app.state::<App>();
+    let streams: Vec<ActiveLlmStream> = st.llm_cancel.lock_unpoisoned().drain().map(|(_, s)| s).collect();
+    for stream in streams {
+        stream.cancel.cancel();
+    }
 }
 
 struct LlmDeltaFlusher {
     pending: Arc<Mutex<String>>,
+    wake: Arc<Notify>,
     stop: CancellationToken,
     task: tauri::async_runtime::JoinHandle<()>,
 }
@@ -66,37 +105,44 @@ impl LlmDeltaFlusher {
 
 fn spawn_llm_delta_flusher(app: AppHandle, chat_id: String, stream_id: String) -> LlmDeltaFlusher {
     let pending = Arc::new(Mutex::new(String::new()));
+    let wake = Arc::new(Notify::new());
     let stop = CancellationToken::new();
     let task = {
         let pending = Arc::clone(&pending);
+        let wake = Arc::clone(&wake);
         let stop = stop.clone();
         tauri::async_runtime::spawn(async move {
-            run_llm_delta_flusher(app, chat_id, stream_id, pending, stop).await;
+            run_llm_delta_flusher(app, chat_id, stream_id, pending, wake, stop).await;
         })
     };
-    LlmDeltaFlusher { pending, stop, task }
+    LlmDeltaFlusher { pending, wake, stop, task }
 }
 
+/// Спит, пока дельт нет (минуты тихого рассуждения — ни одного пробуждения),
+/// а по первой дельте выжидает окно коалесинга и отдаёт накопленное. Раньше
+/// тикал 40 раз в секунду весь стрим. Финальный дрен уходит ДО `llm-done` —
+/// это инвариант, на котором держится хвост ответа во фронте.
 async fn run_llm_delta_flusher(
     app: AppHandle,
     chat_id: String,
     stream_id: String,
     pending: Arc<Mutex<String>>,
+    wake: Arc<Notify>,
     stop: CancellationToken,
 ) {
-    let mut tick = tokio::time::interval(LLM_DELTA_FLUSH_INTERVAL);
     loop {
         tokio::select! {
-            _ = tick.tick() => {}
-            _ = stop.cancelled() => break,
+            () = wake.notified() => {}
+            () = stop.cancelled() => break,
         }
+        tokio::time::sleep(LLM_DELTA_FLUSH_INTERVAL).await;
         flush_pending_delta(&app, &chat_id, &stream_id, &pending);
     }
     flush_pending_delta(&app, &chat_id, &stream_id, &pending);
 }
 
 fn flush_pending_delta(app: &AppHandle, chat_id: &str, stream_id: &str, pending: &Mutex<String>) {
-    let delta = std::mem::take(&mut *pending.lock().unwrap());
+    let delta = std::mem::take(&mut *pending.lock_unpoisoned());
     if !delta.is_empty() {
         events::llm_delta(app, chat_id, stream_id, delta);
     }
@@ -119,6 +165,7 @@ struct ChatStreamSink {
     chat_id: String,
     stream_id: String,
     pending: Arc<Mutex<String>>,
+    wake: Arc<Notify>,
     started: std::time::Instant,
     got_first_delta: bool,
 }
@@ -132,7 +179,8 @@ impl llm::LlmStreamSink for ChatStreamSink {
                 self.started.elapsed()
             );
         }
-        self.pending.lock().unwrap().push_str(delta);
+        self.pending.lock_unpoisoned().push_str(delta);
+        self.wake.notify_one();
     }
 
     fn input_tokens(&mut self, total: u32) {
@@ -167,6 +215,7 @@ pub async fn send_to_claude(
         chat_id: chat_id.clone(),
         stream_id: stream_id.clone(),
         pending: Arc::clone(&flusher.pending),
+        wake: Arc::clone(&flusher.wake),
         started,
         got_first_delta: false,
     };
@@ -201,10 +250,7 @@ pub async fn count_chat_tokens(
 #[specta::specta]
 pub fn cancel_stream(app: AppHandle, chat_id: String, stream_id: String) {
     let st = app.state::<App>();
-    let taken = take_stream(&mut st.llm_cancel.lock().unwrap(), &chat_id, &stream_id);
-    if let Some(s) = taken {
-        s.cancel.cancel();
-    }
+    cancel_in(&mut st.llm_cancel.lock_unpoisoned(), &chat_id, &stream_id);
 }
 
 #[tauri::command]
@@ -220,7 +266,7 @@ pub async fn probe_connectivity(app: AppHandle) -> bool {
 pub async fn list_models(app: AppHandle) -> Vec<llm::ModelInfo> {
     match llm_provider(&app).list_models().await {
         Ok(models) if !models.is_empty() => models,
-        _ => app.state::<App>().models.lock().unwrap().clone(),
+        _ => app.state::<App>().models.lock_unpoisoned().clone(),
     }
 }
 

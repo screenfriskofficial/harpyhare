@@ -284,11 +284,67 @@ fn sse_parser_handles_chunk_split_mid_event() {
     assert_eq!(text, "Привет!");
 }
 
+/// Перегрузка приходит СОБЫТИЕМ внутри 200-стрима, не статусом; без этого
+/// она уезжала кодом `api` — без кнопки «Повторить» там, где она нужнее всего.
 #[test]
-fn sse_parser_surfaces_api_error_event() {
+fn sse_parser_reports_an_overloaded_event_as_retryable() {
     let mut p = SseParser::anthropic();
     let out = p.feed("event: error\ndata: {\"type\":\"error\",\"error\":{\"type\":\"overloaded_error\",\"message\":\"Overloaded\"}}\n\n");
-    assert!(matches!(&out[0], SseOut::ApiError(m) if m.contains("Overloaded")));
+    assert_eq!(out, vec![SseOut::Retryable { code: 529, message: "Overloaded".into() }]);
+}
+
+#[test]
+fn sse_parser_surfaces_a_non_retryable_api_error_event() {
+    let mut p = SseParser::anthropic();
+    let out = p.feed("event: error\ndata: {\"type\":\"error\",\"error\":{\"type\":\"invalid_request_error\",\"message\":\"bad\"}}\n\n");
+    assert_eq!(out, vec![SseOut::ApiError("bad".into())]);
+}
+
+#[test]
+fn sse_parser_accepts_crlf_separators_and_data_without_a_space() {
+    let mut p = SseParser::anthropic();
+    let out = p.feed("event: content_block_delta\r\ndata:{\"type\":\"content_block_delta\",\"delta\":{\"type\":\"text_delta\",\"text\":\"a\"}}\r\n\r\n");
+    assert_eq!(out, vec![SseOut::TextDelta("a".into())]);
+}
+
+#[test]
+fn sse_parser_joins_multiline_data_and_skips_comments() {
+    let mut p = SseParser::anthropic();
+    let out = p.feed(": keep-alive\ndata: {\"type\":\"content_block_delta\",\ndata: \"delta\":{\"type\":\"text_delta\",\"text\":\"b\"}}\n\n");
+    assert_eq!(out, vec![SseOut::TextDelta("b".into())]);
+}
+
+#[tokio::test]
+async fn stream_ending_after_a_soft_finish_is_a_success() {
+    use wiremock::matchers::method;
+    use wiremock::{Mock, MockServer, ResponseTemplate};
+    fn soft_finish(data: &str) -> Vec<SseOut> {
+        match data {
+            "end" => vec![SseOut::Finished],
+            other => vec![SseOut::TextDelta(other.to_string())],
+        }
+    }
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .insert_header("content-type", "text/event-stream")
+                .set_body_raw(b"data: hi\n\ndata: end\n\n".to_vec(), "text/event-stream"),
+        )
+        .mount(&server)
+        .await;
+    let http = LlmHttp::direct(server.uri(), Credential::Bearer("k".into()), "T");
+    let mut sink = TestSink::default();
+    http.post_sse(
+        "/x",
+        &json!({}),
+        SseParser::with_block_parser(soft_finish),
+        tokio_util::sync::CancellationToken::new(),
+        &mut sink,
+    )
+    .await
+    .unwrap();
+    assert_eq!(sink.text, "hi");
 }
 
 #[test]
@@ -520,7 +576,7 @@ async fn proxy_mode_authorizes_with_bearer_not_api_key() {
 }
 
 #[tokio::test]
-async fn proxy_mode_401_surfaces_body_message_not_bad_key() {
+async fn proxy_mode_401_is_a_dead_access_code_with_the_relays_message() {
     use wiremock::matchers::method;
     use wiremock::{Mock, MockServer, ResponseTemplate};
     let server = MockServer::start().await;
@@ -541,7 +597,7 @@ async fn proxy_mode_401_surfaces_body_message_not_bad_key() {
         .await
         .unwrap_err();
     assert!(
-        matches!(&err, LlmError::Api(m) if m.contains("Код доступа недействителен")),
+        matches!(&err, LlmError::BadAccessCode(m) if m.contains("Код доступа недействителен")),
         "got: {err:?}"
     );
 }
@@ -601,4 +657,28 @@ async fn reachable_is_false_when_the_host_refuses() {
         .unwrap();
     let client = AnthropicClient::new("k".into()).with_base_url(format!("http://{addr}"));
     assert!(!client.reachable().await);
+}
+
+fn echo_sse_payload(payload: &str) -> Vec<SseOut> {
+    vec![SseOut::TextDelta(payload.to_string())]
+}
+
+#[test]
+fn sse_framing_survives_every_byte_boundary_and_batches_of_events() {
+    let source = "data: Привет\r\n\r\ndata: second\n\ndata: third\r\r";
+    for chunk_size in 1..=source.len() {
+        let mut parser = SseParser::with_block_parser(echo_sse_payload);
+        let result: Vec<_> = source.as_bytes().chunks(chunk_size).flat_map(|chunk| parser.feed_bytes(chunk)).collect();
+        assert_eq!(result, vec![SseOut::TextDelta("Привет".into()), SseOut::TextDelta("second".into()), SseOut::TextDelta("third".into())], "chunk size {chunk_size}");
+    }
+    let mut parser = SseParser::with_block_parser(echo_sse_payload);
+    let batch = "data: x\n\n".repeat(4096);
+    assert_eq!(parser.feed(&batch).len(), 4096);
+    assert!(parser.buffer.is_empty());
+}
+
+#[test]
+fn sse_multiline_payload_preserves_empty_data_lines() {
+    let mut parser = SseParser::with_block_parser(echo_sse_payload);
+    assert_eq!(parser.feed("data:\ndata: next\ndata:\n\n"), vec![SseOut::TextDelta("\nnext\n".into())]);
 }

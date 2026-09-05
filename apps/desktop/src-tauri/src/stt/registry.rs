@@ -15,9 +15,9 @@ pub struct SttProviderSpec {
     #[specta(skip)]
     pub keyterms: SttKeyterms,
     /// Whether an access code reaches this vendor. The relay proxies only the
-    /// vendors it has a route and a secret for, so a vendor it does not
-    /// (xAI: `POST /v1/stt` is not in its routing table) still needs the
-    /// user's own key — offering it under a code would 404 on every recording.
+    /// vendors it has a route and a secret for (Groq, OpenAI and xAI today);
+    /// one it does not (Deepgram) still needs the user's own key — offering
+    /// it under a code would 404 on every recording.
     pub proxied: bool,
     /// Whether the vendor can return English for speech in another language.
     /// Exported because the launcher greys its «Перевод на английский» toggle
@@ -78,8 +78,6 @@ pub enum SttWire {
         /// the 4o generation it is undocumented and guessing is not free.
         temperature: Option<&'static str>,
     },
-    /// `POST /v1/stt`: one endpoint, no model to choose, and the audio part
-    /// **must come last** — the server rejects a body that leads with it.
     /// `POST /v1/listen`: сырой WAV телом, без multipart вовсе. Низколатентный
     /// путь у вендора — WebSocket на том же пути, поэтому у него отдельный
     /// транспорт (`stt::deepgram`), а не строка значений в общем клиенте.
@@ -88,6 +86,8 @@ pub enum SttWire {
         listen_path: &'static str,
         warm_up_path: &'static str,
     },
+    /// `POST /v1/stt`: one endpoint, no model to choose, and the audio part
+    /// **must come last** — the server rejects a body that leads with it.
     Xai {
         base_url: &'static str,
         path: &'static str,
@@ -184,8 +184,9 @@ pub const PROVIDERS: &[SttProviderSpec] = &[
     },
     // xAI publishes no translations endpoint, so `supports_translate` is false
     // and the launcher greys the toggle out while this vendor is selected.
-    // Its `keyterm` biasing is deliberately NOT used: a term dictionary was
-    // implemented, measured and rejected here — see CLAUDE.md.
+    // Its `keyterm` biasing carries the terms a prompt declares through
+    // `[keywords]: [...]` — a hand-kept dictionary setting was rejected, the
+    // in-prompt declaration was not (see CLAUDE.md).
     SttProviderSpec {
         id: PROVIDER_XAI,
         label: "Grok · Speech-to-Text",
@@ -203,8 +204,8 @@ pub const PROVIDERS: &[SttProviderSpec] = &[
     },
     // Единственный вендор, который слышит речь ПОКА её говорят: аудио уходит
     // по WebSocket во время удержания клавиши, а не батчем после отпускания.
-    // Ключевые слова он не принимает, перевода не предлагает, и `proxied: false`
-    // здесь по той же причине, что у Grok — в relay нет его роута.
+    // Перевода не предлагает; `proxied: false` — у relay нет его роута, поэтому
+    // под кодом доступа он берёт личный ключ.
     SttProviderSpec {
         id: PROVIDER_DEEPGRAM,
         label: "Deepgram · Nova-3",

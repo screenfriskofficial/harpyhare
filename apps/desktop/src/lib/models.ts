@@ -1,3 +1,4 @@
+import { t } from "@/i18n";
 import { DEFAULT_MODEL as GENERATED_DEFAULT_MODEL, LLM_PROVIDERS } from "@/ipc/bindings";
 import type { ApiKeyId } from "./api-keys";
 
@@ -45,8 +46,6 @@ export const MODEL_PROVIDERS: readonly ModelProvider[] = LLM_PROVIDERS.map((p) =
   defaultModel: p.defaultModel,
   proxied: p.proxied,
 }));
-
-const UNKNOWN_PROVIDER_LABEL = "Другие";
 
 /**
  * Every model the app can name without a credential, tagged with its vendor.
@@ -114,7 +113,8 @@ export function modelGroups(models: ModelInfo[]): ModelGroup[] {
     models: modelsOfProvider(models, p.id),
   }));
   const rest = modelsOfUnknownProvider(models);
-  const unknown = rest.length > 0 ? [{ id: "", label: UNKNOWN_PROVIDER_LABEL, models: rest }] : [];
+  const unknown =
+    rest.length > 0 ? [{ id: "", label: t("models.otherProvider"), models: rest }] : [];
   return [...groups, ...unknown].filter((g) => g.models.length > 0);
 }
 

@@ -1,5 +1,5 @@
 use super::*;
-use crate::llm::{registry, ImageAttachment, PROVIDER_OPENAI, PROVIDER_XAI};
+use crate::llm::{registry, ImageAttachment, SseParser, PROVIDER_OPENAI, PROVIDER_XAI};
 
 fn spec_of(id: &str) -> &'static registry::LlmProviderSpec {
     registry::spec(id).expect("вендор объявлен в реестре")
@@ -134,43 +134,50 @@ fn images_travel_as_data_urls() {
     assert_eq!(content[1]["image_url"], "data:image/png;base64,QUJD");
 }
 
+/// Полный кадр SSE (с `event:`-строкой) проходит через общий фреймер, а
+/// блок-парсер диалекта получает уже склеенную нагрузку `data:`.
 #[test]
 fn text_deltas_are_parsed() {
-    let block = r#"event: response.output_text.delta
-data: {"type":"response.output_text.delta","delta":"при"}"#;
-    assert_eq!(parse_block(block), Some(SseOut::TextDelta("при".into())));
+    let mut parser = SseParser::with_block_parser(parse_block);
+    let frame = "event: response.output_text.delta\ndata: {\"type\":\"response.output_text.delta\",\"delta\":\"при\"}\n\n";
+    assert_eq!(parser.feed(frame), vec![SseOut::TextDelta("при".into())]);
 }
 
 #[test]
 fn completed_event_ends_the_stream_and_carries_input_tokens() {
-    let block = r#"data: {"type":"response.completed","response":{"usage":{"input_tokens":41}}}"#;
-    assert_eq!(parse_block(block), Some(SseOut::Done(Some(41))));
+    let data = r#"{"type":"response.completed","response":{"usage":{"input_tokens":41}}}"#;
+    assert_eq!(parse_block(data), vec![SseOut::Done(Some(41))]);
 }
 
 #[test]
 fn completed_event_without_usage_still_ends_the_stream() {
-    let block = r#"data: {"type":"response.completed","response":{}}"#;
-    assert_eq!(parse_block(block), Some(SseOut::Done(None)));
+    let data = r#"{"type":"response.completed","response":{}}"#;
+    assert_eq!(parse_block(data), vec![SseOut::Done(None)]);
 }
 
 #[test]
 fn failed_response_surfaces_the_api_message() {
-    let block =
-        r#"data: {"type":"response.failed","response":{"error":{"message":"перегрузка"}}}"#;
-    assert_eq!(parse_block(block), Some(SseOut::ApiError("перегрузка".into())));
+    let data = r#"{"type":"response.failed","response":{"error":{"code":"invalid_prompt","message":"нельзя"}}}"#;
+    assert_eq!(parse_block(data), vec![SseOut::ApiError("нельзя".into())]);
 }
 
 #[test]
-fn incomplete_response_surfaces_its_reason() {
-    let block = r#"data: {"type":"response.incomplete","response":{"incomplete_details":{"reason":"max_output_tokens"}}}"#;
+fn a_failure_worth_retrying_is_reported_as_such() {
+    let data = r#"{"type":"response.failed","response":{"error":{"code":"server_error","message":"перегрузка"}}}"#;
     assert_eq!(
-        parse_block(block),
-        Some(SseOut::ApiError("max_output_tokens".into()))
+        parse_block(data),
+        vec![SseOut::Retryable { code: 500, message: "перегрузка".into() }]
     );
 }
 
 #[test]
+fn incomplete_response_surfaces_its_reason() {
+    let data = r#"{"type":"response.incomplete","response":{"incomplete_details":{"reason":"max_output_tokens"}}}"#;
+    assert_eq!(parse_block(data), vec![SseOut::ApiError("max_output_tokens".into())]);
+}
+
+#[test]
 fn unrelated_events_are_ignored() {
-    let block = r#"data: {"type":"response.in_progress","response":{}}"#;
-    assert_eq!(parse_block(block), None);
+    let data = r#"{"type":"response.in_progress","response":{}}"#;
+    assert_eq!(parse_block(data), Vec::<SseOut>::new());
 }

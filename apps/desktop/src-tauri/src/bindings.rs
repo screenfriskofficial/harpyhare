@@ -15,6 +15,7 @@ const QUICK_ACTION_LIMIT_CONSTANT: &str = "QUICK_ACTION_LIMIT";
 const LLM_PROVIDERS_CONSTANT: &str = "LLM_PROVIDERS";
 const STT_PROVIDERS_CONSTANT: &str = "STT_PROVIDERS";
 const DEFAULT_MODEL_CONSTANT: &str = "DEFAULT_MODEL";
+const UI_LANGUAGES_CONSTANT: &str = "UI_LANGUAGES";
 
 pub fn builder() -> Builder<tauri::Wry> {
     Builder::<tauri::Wry>::new()
@@ -38,6 +39,7 @@ pub fn builder() -> Builder<tauri::Wry> {
             preferences::set_ptt_suspended,
             preferences::set_stt_keyterms,
             preferences::redeem_access_code,
+            preferences::clear_access_token,
             window::set_window_size,
             window::close_app,
             window::collapse_main_window,
@@ -81,6 +83,7 @@ pub fn builder() -> Builder<tauri::Wry> {
         .constant(LLM_PROVIDERS_CONSTANT, llm::registry::PROVIDERS)
         .constant(STT_PROVIDERS_CONSTANT, stt::registry::PROVIDERS)
         .constant(DEFAULT_MODEL_CONSTANT, llm::DEFAULT_MODEL)
+        .constant(UI_LANGUAGES_CONSTANT, settings::UI_LANGUAGES)
         .error_handling(ErrorHandlingMode::Throw)
 }
 

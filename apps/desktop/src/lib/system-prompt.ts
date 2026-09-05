@@ -1,9 +1,9 @@
+import { t } from "@/i18n";
 import type { Chat } from "./chats";
 import { libraryContextBlocks, type ContextLibrary } from "./context-library";
 import { stripKeywordBlocks } from "./keywords";
 import { presetText, type PromptPreset } from "./presets";
 
-const USER_CONTEXT_SYSTEM_HEADER = "Контекст от пользователя (справочные материалы):\n";
 const SYSTEM_BLOCKS_SEPARATOR = "\n\n";
 
 export type PromptChat = Pick<Chat, "presetId" | "libraryDocIds" | "context">;
@@ -18,7 +18,7 @@ export function chatPromptSources(
   return [
     presetText(presets, chat.presetId),
     ...libraryContextBlocks(library, chat.libraryDocIds),
-    context === "" ? "" : `${USER_CONTEXT_SYSTEM_HEADER}${context}`,
+    context === "" ? "" : `${t("prompt.userContextHeader")}\n${context}`,
   ].filter((s) => s !== "");
 }
 

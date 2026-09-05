@@ -1,3 +1,4 @@
+import i18next from "i18next";
 import { describe, expect, it } from "vitest";
 import { API_KEY_IDS } from "@/lib/api-keys";
 import { searchLauncher, type SearchHit, type SearchSources } from "./search";
@@ -124,4 +125,13 @@ describe("searchLauncher", () => {
     expect(ids.length).toBeGreaterThan(0);
     expect(new Set(ids).size).toBe(ids.length);
   });
+});
+
+it("searches English settings, hotkeys and breadcrumbs after switching language", async () => {
+  await i18next.changeLanguage("en");
+  const language = searchLauncher("Interface language", SOURCES);
+  expect(language.some((hit) => hit.tab === "appearance")).toBe(true);
+  const screenshot = byId(searchLauncher("screen region", SOURCES), "hotkey:screenshot");
+  expect(screenshot.breadcrumb).toBe("Settings → Shortcuts");
+  expect(searchLauncher("Мой пресет", SOURCES)[0]?.title).toBe("Мой пресет");
 });

@@ -1,7 +1,9 @@
 import { Check, Lock } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import { AccessCodeForm } from "@/components/AccessCodeForm";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { t } from "@/i18n";
 import { openExternal } from "@/ipc/commands";
 import {
   apiKeyInfo,
@@ -31,24 +33,19 @@ const KEY_PLACEHOLDERS: Record<ApiKeyId, string> = {
   xclis: "sk-…",
 };
 
-const GROUP_TITLE = "Доступ к API";
-const KEYS_DESCRIPTION =
-  "Нужен ОДИН ключ для ответов и один для распознавания речи — или код доступа вместо обоих.";
-const CODE_DESCRIPTION = "Код доступа работает вместо ключей API — вводить их не нужно.";
-const CODE_PARTIAL_DESCRIPTION =
-  "Код доступа работает вместо ключей API — свой ключ нужен только для";
+const VENDOR_LIST_SEPARATOR = ", ";
 
 function groupDescription(outside: readonly string[], code: boolean): string {
-  if (!code) return KEYS_DESCRIPTION;
+  if (!code) return t("launcher.access.keysDescription");
   return outside.length === 0
-    ? CODE_DESCRIPTION
-    : `${CODE_PARTIAL_DESCRIPTION} ${outside.join(", ")}.`;
+    ? t("launcher.access.codeDescription")
+    : t("launcher.access.codePartialDescription", { vendors: outside.join(VENDOR_LIST_SEPARATOR) });
 }
 
 function codeRowHint(outside: readonly string[]): string {
   return outside.length === 0
-    ? "Отвязка вернёт запросы на ваши ключи API."
-    : `Покрывает всё, кроме ${outside.join(", ")} — для них нужен свой ключ ниже.`;
+    ? t("launcher.access.unlinkHint")
+    : t("launcher.access.coveredExcept", { vendors: outside.join(VENDOR_LIST_SEPARATOR) });
 }
 
 function VendorState({ ready, label }: { ready: boolean; label: string }) {
@@ -68,18 +65,19 @@ function VendorState({ ready, label }: { ready: boolean; label: string }) {
  * whether a field looks filled.
  */
 function VendorSummary({ draft }: Pick<SectionProps, "draft">) {
+  const { t } = useTranslation();
   const answersLocked = modelProvidersMissingKey(draft);
   const speechLocked = sttProvidersMissingKey(draft);
   return (
     <>
-      <SettingRow label="Отвечают" hint="Достаточно любого одного — модель выбирается в чате.">
+      <SettingRow label={t("launcher.access.answering")} hint={t("launcher.access.answeringHint")}>
         <span className="flex flex-wrap items-center justify-end gap-x-3 gap-y-1">
           {MODEL_PROVIDERS.map((p) => (
             <VendorState key={p.id} ready={!answersLocked.includes(p.id)} label={p.label} />
           ))}
         </span>
       </SettingRow>
-      <SettingRow label="Распознают речь" hint="Активен тот, что выбран на этой же вкладке.">
+      <SettingRow label={t("launcher.access.listening")} hint={t("launcher.access.listeningHint")}>
         <span className="flex flex-wrap items-center justify-end gap-x-3 gap-y-1">
           {STT_PROVIDERS.map((p) => (
             <VendorState key={p.id} ready={!speechLocked.includes(p.id)} label={p.label} />
@@ -91,14 +89,16 @@ function VendorSummary({ draft }: Pick<SectionProps, "draft">) {
 }
 
 function KeyField({ id, draft, set }: { id: ApiKeyId } & SectionProps) {
+  const { t } = useTranslation();
   const info = apiKeyInfo(id);
+  const label = t("apiKeys.keyLabel", { name: info.name });
   return (
-    <SettingBlock label={`Ключ ${info.name}`} hint={`Нужен для ${info.purpose}.`}>
+    <SettingBlock label={label} hint={t("apiKeys.keyHint", { purpose: info.purpose })}>
       <div className="flex items-center gap-2">
         <Input
           type="password"
           autoComplete="off"
-          aria-label={`Ключ ${info.name}`}
+          aria-label={label}
           placeholder={KEY_PLACEHOLDERS[id]}
           value={draft[`${id}_api_key`]}
           onChange={(e) => {
@@ -112,7 +112,7 @@ function KeyField({ id, draft, set }: { id: ApiKeyId } & SectionProps) {
             void openExternal(info.consoleUrl);
           }}
         >
-          Где взять
+          {t("apiKeys.whereToGet")}
         </Button>
       </div>
     </SettingBlock>
@@ -120,13 +120,14 @@ function KeyField({ id, draft, set }: { id: ApiKeyId } & SectionProps) {
 }
 
 export function ApiKeysSection({ draft, set, onRedeem, onUnlink }: ApiKeysSectionProps) {
+  const { t } = useTranslation();
   const code = hasAccessCode(draft);
   const outside = vendorsOutsideCode();
 
   return (
-    <SettingGroup title={GROUP_TITLE} description={groupDescription(outside, code)}>
+    <SettingGroup title={t("launcher.access.title")} description={groupDescription(outside, code)}>
       {code ? (
-        <SettingRow label="Код доступа активен" hint={codeRowHint(outside)}>
+        <SettingRow label={t("launcher.access.codeActive")} hint={codeRowHint(outside)}>
           <Button
             variant="ghost"
             size="sm"
@@ -134,11 +135,11 @@ export function ApiKeysSection({ draft, set, onRedeem, onUnlink }: ApiKeysSectio
               void onUnlink();
             }}
           >
-            Отвязать
+            {t("launcher.access.unlink")}
           </Button>
         </SettingRow>
       ) : (
-        <SettingBlock label="Код доступа" hint="Быстрый путь: заводить ключи не нужно.">
+        <SettingBlock label={t("launcher.access.code")} hint={t("launcher.access.codeHint")}>
           <AccessCodeForm onRedeem={onRedeem} />
         </SettingBlock>
       )}

@@ -1,4 +1,5 @@
 import { useCallback, type RefObject } from "react";
+import { t } from "@/i18n";
 import { dataUrlToFile, fileToAttachmentOrNull } from "@/lib/attachment-files";
 import type { Chat } from "@/lib/chats";
 import {
@@ -10,12 +11,14 @@ import {
 } from "@/lib/composer";
 import { notify } from "@/lib/notify";
 
-const ATTACHMENT_LIMIT_NOTICE = `Больше ${String(ATTACHMENT_LIMIT)} вложений в одном сообщении нельзя`;
-const UNSUPPORTED_FORMAT_NOTICE = "Такой формат картинки не поддерживается";
-const ATTACHMENT_READ_NOTICE = "Не удалось прочитать картинку";
+type AttachmentRejection = "limit" | "unsupported" | "unreadable";
 
-function notifyAttachmentRejected(message: string): void {
-  notify({ variant: "error", title: "Вложение", message });
+function notifyAttachmentRejected(reason: AttachmentRejection): void {
+  notify({
+    variant: "error",
+    title: t("errors.attachment"),
+    message: t(`hud.attachments.${reason}`, { limit: ATTACHMENT_LIMIT }),
+  });
 }
 
 export type PatchChatFn = (id: string, fn: (chat: Chat) => Chat) => void;
@@ -54,18 +57,18 @@ export function useDraftAttachments(
     async (id: string, items: DataTransferItemList) => {
       const files = extractImageItems(items);
       if (files.length === 0) {
-        if (hasFileItems(items)) notifyAttachmentRejected(UNSUPPORTED_FORMAT_NOTICE);
+        if (hasFileItems(items)) notifyAttachmentRejected("unsupported");
         return;
       }
       const slots = acceptedNewAttachments(draftAttachmentCount(id), files.length);
-      if (slots < files.length) notifyAttachmentRejected(ATTACHMENT_LIMIT_NOTICE);
+      if (slots < files.length) notifyAttachmentRejected("limit");
       let unreadable = 0;
       for (const file of files.slice(0, slots)) {
         const att = await fileToAttachmentOrNull(file);
         if (att) appendDraftAttachment(id, att);
         else unreadable += 1;
       }
-      if (unreadable > 0) notifyAttachmentRejected(ATTACHMENT_READ_NOTICE);
+      if (unreadable > 0) notifyAttachmentRejected("unreadable");
     },
     [draftAttachmentCount, appendDraftAttachment],
   );
@@ -73,12 +76,12 @@ export function useDraftAttachments(
   const addDraftImage = useCallback(
     async (id: string, dataUrl: string, mediaType: string) => {
       if (acceptedNewAttachments(draftAttachmentCount(id), 1) < 1) {
-        notifyAttachmentRejected(ATTACHMENT_LIMIT_NOTICE);
+        notifyAttachmentRejected("limit");
         return;
       }
       const att = await fileToAttachmentOrNull(dataUrlToFile(dataUrl, mediaType));
       if (att) appendDraftAttachment(id, att);
-      else notifyAttachmentRejected(ATTACHMENT_READ_NOTICE);
+      else notifyAttachmentRejected("unreadable");
     },
     [draftAttachmentCount, appendDraftAttachment],
   );

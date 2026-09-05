@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties } from "react";
+import { useTranslation } from "react-i18next";
 import { useOfficialPresets } from "@/hooks/useOfficialPresets";
 import type { Settings } from "@/ipc/types";
 import { visibleApiKeys } from "@/lib/api-keys";
@@ -43,6 +44,7 @@ export function LauncherPanel({
   onSave,
   onLaunch,
 }: LauncherPanelProps) {
+  const { t } = useTranslation();
   const [draft, setDraft] = useState<Settings>(settings);
   const [checkState, setCheckState] = useState<CheckState>("idle");
   const [screen, setScreen] = useState<ScreenId>(DEFAULT_SCREEN);
@@ -75,12 +77,12 @@ export function LauncherPanel({
         : [
             {
               screen: "updates",
-              label: `Доступна версия ${updater.info.version}`,
+              label: t("updates.available", { version: updater.info.version }),
               kind: "info",
             } as const satisfies SidebarNotice,
           ]),
     ],
-    [readiness.blockers, updater.info],
+    [readiness.blockers, updater.info, t],
   );
 
   const goTo = ({ screen: target, tab }: LauncherDestination) => {

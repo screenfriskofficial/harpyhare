@@ -5,10 +5,8 @@ use tauri_plugin_clipboard_manager::ClipboardExt;
 const DECODE_ERROR: &str = "Не удалось разобрать картинку для буфера обмена";
 const WRITE_ERROR: &str = "Не удалось положить картинку в буфер обмена";
 
-pub fn write_png(app: &AppHandle, png: &[u8]) {
-    if let Ok(image) = tauri::image::Image::from_bytes(png) {
-        let _ = app.clipboard().write_image(&image);
-    }
+pub fn write_image(app: &AppHandle, image: &tauri::image::Image<'_>) {
+    let _ = app.clipboard().write_image(image);
 }
 
 #[tauri::command]

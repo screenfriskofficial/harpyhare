@@ -1,4 +1,5 @@
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import i18next from "i18next";
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { API_KEY_IDS } from "@/lib/api-keys";
 import { LauncherSearch } from "./LauncherSearch";
@@ -95,4 +96,19 @@ describe("LauncherSearch", () => {
     type("ксилофон");
     expect(screen.getByText("Ничего не найдено")).not.toBeNull();
   });
+});
+
+it("refreshes open search results when the language changes", async () => {
+  render(<LauncherSearch sources={SOURCES} onNavigate={navigateSpy()} />);
+  type("API");
+  expect(
+    screen.getAllByRole("option").some((option) => option.textContent?.includes("Настройки")),
+  ).toBe(true);
+  await act(async () => {
+    await i18next.changeLanguage("en");
+  });
+  expect(
+    screen.getAllByRole("option").some((option) => option.textContent?.includes("Settings")),
+  ).toBe(true);
+  expect(screen.queryByPlaceholderText(PLACEHOLDER)).toBeNull();
 });

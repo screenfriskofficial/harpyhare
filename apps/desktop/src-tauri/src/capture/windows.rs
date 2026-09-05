@@ -29,6 +29,16 @@ const START_TIMEOUT: Duration = Duration::from_secs(5);
 const REOPEN_DELAY: Duration = Duration::from_secs(1);
 const MIN_POLL_INTERVAL: Duration = Duration::from_millis(2);
 const MAX_POLL_INTERVAL: Duration = Duration::from_millis(20);
+/// Шаг, которым поток захвата пережидает `REOPEN_DELAY`, сверяясь с флагом
+/// остановки: `Running::drop` джойнит поток, и секундный сон целиком держал бы
+/// того, кто ждёт капчер.
+const STOP_POLL_SLICE: Duration = Duration::from_millis(50);
+/// Потолок тишины, которую `Timeline` дозаполняет за один опрос. Loopback не
+/// отдаёт пакетов, пока никто не рендерит, и время без пакетов считается по
+/// часам; без потолка десятиминутное отсутствие устройства превращалось в
+/// аллокацию на сотни мегабайт в потоке захвата — в кольцо всё равно влезает
+/// лишь несколько секунд.
+const MAX_SILENCE_GAP: Duration = Duration::from_secs(1);
 const BITS_PER_BYTE: u16 = 8;
 const FLOAT_SAMPLE_BYTES: usize = 4;
 const INT16_SAMPLE_BYTES: usize = 2;
@@ -262,11 +272,25 @@ pub struct Source {
 
 pub struct Running {
     stop: Arc<AtomicBool>,
+    thread: Option<std::thread::JoinHandle<()>>,
 }
 
+/// Флаг и join: поток захвата держит COM-объекты устройства, и «когда-нибудь
+/// сам выйдет» значило бы, что капчер, пересозданный после смены устройства,
+/// какое-то время делит эндпоинт с ещё живым предшественником.
 impl Drop for Running {
     fn drop(&mut self) {
         self.stop.store(true, Ordering::Release);
+        if let Some(thread) = self.thread.take() {
+            let _ = thread.join();
+        }
+    }
+}
+
+fn sleep_unless_stopped(stop: &AtomicBool, total: Duration) {
+    let started = Instant::now();
+    while !stop.load(Ordering::Acquire) && started.elapsed() < total {
+        std::thread::sleep(STOP_POLL_SLICE.min(total));
     }
 }
 
@@ -289,22 +313,32 @@ pub fn start(source: Source, ctx: Box<CallbackCtx>) -> Result<Running, CaptureEr
         channels: ctx.shared.channels,
     };
     let thread_stop = Arc::clone(&stop);
-    std::thread::Builder::new()
+    let thread = std::thread::Builder::new()
         .name(CAPTURE_THREAD_NAME.into())
         .spawn(move || capture_main(source, ctx, spec, thread_stop, ready_tx))
         .map_err(|e| CaptureError::Audio(e.to_string()))?;
 
     let started = ready_rx.recv_timeout(START_TIMEOUT);
     if let Ok(Ok(())) = started {
-        return Ok(Running { stop });
+        return Ok(Running { stop, thread: Some(thread) });
     }
     stop.store(true, Ordering::Release);
+    let _ = thread.join();
     match started {
         Ok(Err(e)) => Err(e),
         _ => Err(CaptureError::Backend(
             "поток захвата не запустился".to_string(),
         )),
     }
+}
+
+/// Почему поток не смог переоткрыть loopback: пройдёт ли это само.
+enum ReopenFailure {
+    /// Устройство пропало или занято — через секунду может вернуться.
+    Transient(CaptureError),
+    /// Формат устройства изменился: с этим `StreamSpec` поток не откроется
+    /// никогда, ретраить бессмысленно — капчер надо пересоздать.
+    Fatal(CaptureError),
 }
 
 struct LoopbackStream {
@@ -329,15 +363,19 @@ fn poll_interval(client: &IAudioClient) -> Duration {
     Duration::from_nanos(nanos).clamp(MIN_POLL_INTERVAL, MAX_POLL_INTERVAL)
 }
 
-fn open_stream(device_id: &str, spec: &StreamSpec) -> Result<LoopbackStream, CaptureError> {
-    let enumerator = enumerator()?;
-    let device = device_by_id(&enumerator, device_id)?;
-    let (client, format) = activate_client(&device)?;
+fn open_stream(device_id: &str, spec: &StreamSpec) -> Result<LoopbackStream, ReopenFailure> {
+    let enumerator = enumerator().map_err(ReopenFailure::Transient)?;
+    let device = device_by_id(&enumerator, device_id).map_err(ReopenFailure::Transient)?;
+    let (client, format) = activate_client(&device).map_err(ReopenFailure::Transient)?;
     if !format.matches(spec) {
-        return Err(CaptureError::Backend(
+        return Err(ReopenFailure::Fatal(CaptureError::Backend(
             "формат устройства вывода изменился — захват пересоздаётся".to_string(),
-        ));
+        )));
     }
+    open_stream_with(client, format).map_err(ReopenFailure::Transient)
+}
+
+fn open_stream_with(client: IAudioClient, format: SampleFormat) -> Result<LoopbackStream, CaptureError> {
     let mix = MixFormat(unsafe { client.GetMixFormat() }.map_err(backend_error)?);
     let buffer_duration = (CLIENT_BUFFER_SECONDS * REFERENCE_TIMES_PER_SECOND as f64) as i64;
     unsafe {
@@ -417,12 +455,27 @@ impl Timeline {
         self.frames += frames as u64;
     }
 
-    fn missing_frames(&self) -> usize {
+    /// Сколько кадров тишины дозаполнить, чтобы таймлайн сошёлся с часами.
+    /// Разрыв больше `MAX_SILENCE_GAP` не догоняется, а списывается: после
+    /// простоя (устройство отсутствовало, машина спала) таймлайн переякоривается,
+    /// иначе один опрос требовал бы аллокацию на весь простой.
+    fn missing_frames(&mut self) -> usize {
         let Some(opened_at) = self.opened_at else {
             return 0;
         };
         let expected = (opened_at.elapsed().as_secs_f64() * f64::from(self.sample_rate)) as u64;
-        expected.saturating_sub(self.frames) as usize
+        let cap = (MAX_SILENCE_GAP.as_secs_f64() * f64::from(self.sample_rate)) as u64;
+        let missing = expected.saturating_sub(self.frames);
+        if missing > cap {
+            self.frames = expected - cap;
+            return cap as usize;
+        }
+        missing as usize
+    }
+
+    /// Поток переоткрыт: таймлайн заводится заново на следующем опросе.
+    fn reset(&mut self) {
+        self.opened_at = None;
     }
 
     fn samples_for(&self, frames: usize) -> usize {
@@ -525,21 +578,28 @@ fn capture_main(
                     announced = true;
                     let _ = ready.send(Ok(()));
                 }
+                timeline.reset();
                 if let Err(e) = run_stream(&stream, &mut ctx, &mut timeline, &stop) {
                     eprintln!("поток захвата прерван, переоткрываю: {e}");
                 }
             }
-            Err(e) => {
-                if !announced {
-                    let _ = ready.send(Err(e));
-                    return;
-                }
+            Err(ReopenFailure::Transient(e) | ReopenFailure::Fatal(e)) if !announced => {
+                let _ = ready.send(Err(e));
+                return;
+            }
+            Err(ReopenFailure::Transient(e)) => {
                 eprintln!("не удалось переоткрыть захват: {e}");
             }
+            Err(ReopenFailure::Fatal(e)) => {
+                // Раньше поток ретраил это раз в секунду вечно, а фасад
+                // оставался «живым» с нулевым таймлайном: каждый PTT давал
+                // «запись слишком короткая». Теперь фасад узнаёт, что капчер
+                // мёртв, и `recording.rs` пересоздаёт его на следующем PTT.
+                eprintln!("захват остановлен окончательно: {e}");
+                ctx.mark_dead();
+                return;
+            }
         }
-        if stop.load(Ordering::Acquire) {
-            return;
-        }
-        std::thread::sleep(REOPEN_DELAY);
+        sleep_unless_stopped(&stop, REOPEN_DELAY);
     }
 }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { APP_MODES, DEFAULT_MODE, nextMode } from "./modes";
+import { APP_MODES, DEFAULT_MODE, modeHint, modeLabel, nextMode } from "./modes";
 
 describe("modes", () => {
   it("стартовый режим — чат", () => {
@@ -23,8 +23,8 @@ describe("modes", () => {
 
   it("у каждого режима есть подпись и подсказка", () => {
     for (const mode of APP_MODES) {
-      expect(mode.label.trim()).not.toBe("");
-      expect(mode.hint.trim()).not.toBe("");
+      expect(modeLabel(mode.id).trim()).not.toBe("");
+      expect(modeHint(mode.id).trim()).not.toBe("");
     }
   });
 });

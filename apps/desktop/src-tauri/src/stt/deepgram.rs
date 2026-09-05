@@ -1,3 +1,13 @@
+//! Deepgram Nova-3 — единственный STT-вендор с реальным временем: аудио уходит
+//! по WebSocket, пока клавиша удерживается, а не батчем после отпускания.
+//! Батч (фолбэк) — сырой WAV телом на тот же путь.
+//!
+//! Адреса, пути и предел ключевых слов берутся из строки реестра, а не
+//! дублируются здесь: у `DeepgramStt` нет своей правды о вендоре.
+
+use std::sync::{Arc, OnceLock};
+use std::time::Duration;
+
 use futures_util::{SinkExt, StreamExt};
 use tokio_tungstenite::tungstenite::{
     client::IntoClientRequest,
@@ -5,27 +15,52 @@ use tokio_tungstenite::tungstenite::{
     Error as WsError, Message as WsMessage,
 };
 
-use crate::audio;
+use super::registry::SttProviderSpec;
 use super::{AudioChunkStream, Keyterms, SttEngine, SttError};
+use crate::audio;
 
-const BASE_URL: &str = "https://api.eu.deepgram.com";
-const LISTEN_PATH: &str = "/v1/listen";
-const PROJECTS_PATH: &str = "/v1/projects";
 const MODEL: &str = "nova-3";
 const MULTI_LANGUAGE: &str = "multi";
 const DEFAULT_LANGUAGE: &str = "ru";
 const WAV_MIME: &str = "audio/wav";
-const CANCELLED_MESSAGE: &str = "отменено";
-const WAV_HEADER_LEN: usize = 44;
-const ERROR_BODY_LIMIT: usize = 300;
-const REQUEST_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
-const WARM_UP_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
-const CLOSE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(15);
-const KEY_LABEL: &str = "Deepgram";
+const REQUEST_TIMEOUT: Duration = Duration::from_secs(60);
+const WARM_UP_TIMEOUT: Duration = Duration::from_secs(5);
+/// Хендшейк WebSocket: столько же, сколько connect у HTTP-клиента.
+const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
+/// Один кадр аудио, который не ушёл за это время, — сеть встала: дальше
+/// ждать нечего, конвейер уходит в батчевый фолбэк.
+const SEND_TIMEOUT: Duration = Duration::from_secs(10);
+/// Весь сеанс от хендшейка до финального транскрипта: запись живёт до 10
+/// минут, минута сверху — на ответ. Раньше дедлайна не было вовсе, и сетевой
+/// столл держал состояние «Расшифровка» до TCP-таймаутов ОС.
+const SESSION_TIMEOUT: Duration = Duration::from_secs(11 * 60);
+const CLOSE_TIMEOUT: Duration = Duration::from_secs(15);
 const KEYTERM_PARAM: &str = "keyterm";
+
+/// Корни доверия читаются из системного хранилища ОДИН раз на процесс:
+/// `connect_async` без готового коннектора загружал keychain на каждое
+/// нажатие PTT — десятки–сотни миллисекунд до первого кадра аудио.
+fn websocket_tls() -> Arc<rustls::ClientConfig> {
+    static TLS: OnceLock<Arc<rustls::ClientConfig>> = OnceLock::new();
+    Arc::clone(TLS.get_or_init(|| {
+        crate::tls::ensure_crypto_provider();
+        let loaded = rustls_native_certs::load_native_certs();
+        for err in &loaded.errors {
+            eprintln!("корневой сертификат пропущен: {err}");
+        }
+        let mut roots = rustls::RootCertStore::empty();
+        roots.add_parsable_certificates(loaded.certs);
+        Arc::new(
+            rustls::ClientConfig::builder()
+                .with_root_certificates(roots)
+                .with_no_client_auth(),
+        )
+    }))
+}
 
 #[derive(Clone)]
 pub struct DeepgramStt {
+    spec: &'static SttProviderSpec,
     api_key: String,
     base_url: String,
     client: reqwest::Client,
@@ -33,10 +68,12 @@ pub struct DeepgramStt {
 }
 
 impl DeepgramStt {
-    pub fn new(api_key: String) -> Self {
+    /// Строка реестра — единственный источник адресов и предела `keyterm`.
+    pub fn from_spec(spec: &'static SttProviderSpec, api_key: String) -> Self {
         Self {
+            spec,
             api_key,
-            base_url: BASE_URL.into(),
+            base_url: spec.wire.base_url().into(),
             client: super::warm_pooled_client(),
             language: DEFAULT_LANGUAGE.into(),
         }
@@ -47,15 +84,25 @@ impl DeepgramStt {
         self
     }
 
-    #[cfg(test)]
-    fn with_base_url(mut self, base_url: String) -> Self {
+    pub fn with_base_url(mut self, base_url: String) -> Self {
         self.base_url = base_url;
         self
+    }
+
+    fn listen_path(&self) -> &'static str {
+        self.spec.wire.path(false)
     }
 
     fn language_param(&self) -> &str {
         let language = self.language.trim();
         if language.is_empty() { MULTI_LANGUAGE } else { language }
+    }
+
+    /// Термины, которые реально уйдут: предел вендора применяет реестр — тот
+    /// же `accepted()`, что и у multipart-вендоров, иначе пресет с длинным
+    /// списком давал бы 400 на каждой записи.
+    fn accepted_keyterms<'a>(&self, keyterms: Keyterms<'a>) -> &'a [String] {
+        self.spec.keyterms.accepted(keyterms)
     }
 
     fn rest_request(&self, wav: Vec<u8>, keyterms: Keyterms<'_>) -> reqwest::RequestBuilder {
@@ -64,20 +111,14 @@ impl DeepgramStt {
             ("language", self.language_param()),
             ("smart_format", "true"),
         ];
-        query.extend(Self::keyterm_params(keyterms));
+        query.extend(self.accepted_keyterms(keyterms).iter().map(|t| (KEYTERM_PARAM, t.as_str())));
         self.client
-            .post(format!("{}{}", self.base_url, LISTEN_PATH))
+            .post(format!("{}{}", self.base_url, self.listen_path()))
             .header("Authorization", format!("Token {}", self.api_key))
             .header(reqwest::header::CONTENT_TYPE, WAV_MIME)
             .query(&query)
             .body(wav)
             .timeout(REQUEST_TIMEOUT)
-    }
-
-    /// Термины уходят повторяющимся `keyterm=`, как требует Nova-3. Резать
-    /// список здесь не надо: предел вендора уже применил `accepted()` реестра.
-    fn keyterm_params(keyterms: Keyterms<'_>) -> Vec<(&str, &str)> {
-        keyterms.iter().map(|term| (KEYTERM_PARAM, term.as_str())).collect()
     }
 
     /// Собираем через `Url`, а не форматированием: термины бывают многословными,
@@ -90,7 +131,7 @@ impl DeepgramStt {
             .map(|rest| format!("wss://{rest}"))
             .or_else(|| base.strip_prefix("http://").map(|rest| format!("ws://{rest}")))
             .unwrap_or_else(|| base.to_string());
-        let endpoint = format!("{ws_base}{LISTEN_PATH}");
+        let endpoint = format!("{ws_base}{}", self.listen_path());
         let Ok(mut url) = reqwest::Url::parse(&endpoint) else {
             return endpoint;
         };
@@ -103,7 +144,7 @@ impl DeepgramStt {
             query.append_pair("channels", "1");
             query.append_pair("smart_format", "true");
             query.append_pair("punctuate", "true");
-            for term in keyterms {
+            for term in self.accepted_keyterms(keyterms) {
                 query.append_pair(KEYTERM_PARAM, term);
             }
         }
@@ -124,7 +165,7 @@ impl DeepgramStt {
         Ok(request)
     }
 
-    fn map_ws_connect_error(error: WsError) -> SttError {
+    fn map_ws_connect_error(&self, error: WsError) -> SttError {
         match error {
             WsError::Http(response) => {
                 let code = response.status().as_u16();
@@ -135,7 +176,7 @@ impl DeepgramStt {
                     .filter(|v| !v.trim().is_empty())
                     .unwrap_or("не удалось открыть WebSocket");
                 match code {
-                    401 | 403 => SttError::BadApiKey(KEY_LABEL),
+                    401 | 403 => SttError::BadApiKey(self.spec.key_label),
                     code @ (429 | 500..=599) => SttError::Retryable(code),
                     _ => SttError::Other(format!("Deepgram WebSocket HTTP {code}: {detail}")),
                 }
@@ -173,94 +214,65 @@ impl DeepgramStt {
         }
     }
 
-    fn transcript_from_segments(segments: &[String]) -> Result<String, SttError> {
-        let text = segments.join(" ").trim().to_string();
-        if text.is_empty() {
-            Err(SttError::Other("Deepgram stream завершился без текста распознавания".into()))
-        } else {
-            Ok(text)
-        }
+    /// Пусто — это пусто, а не ошибка: остальные вендоры отдают `""`, а
+    /// конвейер знает, что делать с пустой расшифровкой. Ошибка здесь гнала
+    /// бы ту же тишину второй раз через REST ради того же результата.
+    fn transcript_from_segments(segments: &[String]) -> String {
+        segments.join(" ").trim().to_string()
     }
 
-    async fn parse_rest_response(resp: reqwest::Response) -> Result<String, SttError> {
+    async fn parse_rest_response(&self, resp: reqwest::Response) -> Result<String, SttError> {
         match resp.status().as_u16() {
             200 => {
                 let value: serde_json::Value = resp
                     .json()
                     .await
                     .map_err(|e| SttError::Other(format!("Deepgram: не удалось разобрать ответ: {e}")))?;
-                value["results"]["channels"][0]["alternatives"][0]["transcript"]
+                Ok(value["results"]["channels"][0]["alternatives"][0]["transcript"]
                     .as_str()
                     .map(str::trim)
-                    .filter(|text| !text.is_empty())
-                    .map(str::to_string)
-                    .ok_or_else(|| SttError::Other("Deepgram вернул ответ без текста распознавания".into()))
+                    .unwrap_or_default()
+                    .to_string())
             }
-            401 | 403 => Err(SttError::BadApiKey(KEY_LABEL)),
+            401 | 403 => Err(SttError::BadApiKey(self.spec.key_label)),
             code @ (429 | 500..=599) => Err(SttError::Retryable(code)),
-            code => {
-                let body = resp.text().await.unwrap_or_default();
-                let json = serde_json::from_str::<serde_json::Value>(&body).ok();
-                let message = json
-                    .as_ref()
-                    .and_then(|v| {
-                        v["err_msg"]
-                            .as_str()
-                            .or_else(|| v["message"].as_str())
-                            .or_else(|| v["error"]["message"].as_str())
-                    })
-                    .map(str::trim)
-                    .filter(|m| !m.is_empty())
-                    .map(str::to_string)
-                    .or_else(|| {
-                        let trimmed = body.trim();
-                        (!trimmed.is_empty()).then(|| trimmed.chars().take(ERROR_BODY_LIMIT).collect())
-                    })
-                    .unwrap_or_else(|| "ответ без тела".into());
-                Err(SttError::Other(format!("Deepgram HTTP {code}: {message}")))
-            }
+            code => Err(SttError::Other(format!(
+                "Deepgram: {}",
+                crate::llm::api_error_message(resp, code).await
+            ))),
         }
     }
-}
 
-#[async_trait::async_trait]
-impl SttEngine for DeepgramStt {
-    async fn transcribe_stream(
+    async fn stream_session(
         &self,
         mut chunks: AudioChunkStream,
         keyterms: Keyterms<'_>,
-        cancel: tokio_util::sync::CancellationToken,
+        cancel: &tokio_util::sync::CancellationToken,
     ) -> Result<String, SttError> {
         let request = self.websocket_request(keyterms)?;
-        let connect = tokio_tungstenite::connect_async(request);
+        let connector = tokio_tungstenite::Connector::Rustls(websocket_tls());
+        let connect = tokio::time::timeout(
+            CONNECT_TIMEOUT,
+            tokio_tungstenite::connect_async_tls_with_config(request, None, true, Some(connector)),
+        );
         let (socket, _) = tokio::select! {
-            result = connect => result.map_err(Self::map_ws_connect_error)?,
-            _ = cancel.cancelled() => return Err(SttError::Other(CANCELLED_MESSAGE.into())),
+            result = connect => match result {
+                Ok(connected) => connected.map_err(|e| self.map_ws_connect_error(e))?,
+                Err(_) => return Err(SttError::Network("Deepgram WebSocket: таймаут подключения".into())),
+            },
+            _ = cancel.cancelled() => return Err(SttError::Cancelled),
         };
         let (mut writer, mut reader) = socket.split();
         let mut segments = Vec::new();
-        let mut first_chunk = true;
 
         loop {
             tokio::select! {
-                _ = cancel.cancelled() => return Err(SttError::Other(CANCELLED_MESSAGE.into())),
+                _ = cancel.cancelled() => return Err(SttError::Cancelled),
                 item = chunks.next() => {
                     let Some(item) = item else { break };
-                    let mut chunk = item.map_err(|e| SttError::Network(e.to_string()))?;
-                    if first_chunk {
-                        first_chunk = false;
-                        if chunk.len() >= WAV_HEADER_LEN
-                            && &chunk[0..4] == b"RIFF"
-                            && &chunk[8..12] == b"WAVE"
-                        {
-                            chunk.drain(..WAV_HEADER_LEN);
-                        }
-                    }
+                    let chunk = item.map_err(|e| SttError::Network(e.to_string()))?;
                     if !chunk.is_empty() {
-                        writer
-                            .send(WsMessage::Binary(chunk.into()))
-                            .await
-                            .map_err(|e| SttError::Network(format!("Deepgram WebSocket send: {e}")))?;
+                        send_frame(&mut writer, WsMessage::Binary(chunk.into()), "send").await?;
                     }
                 }
                 incoming = reader.next() => {
@@ -269,10 +281,7 @@ impl SttEngine for DeepgramStt {
                             let _ = Self::consume_stream_text(&mut segments, text.as_str())?;
                         }
                         Some(Ok(WsMessage::Ping(data))) => {
-                            writer
-                                .send(WsMessage::Pong(data))
-                                .await
-                                .map_err(|e| SttError::Network(format!("Deepgram WebSocket pong: {e}")))?;
+                            send_frame(&mut writer, WsMessage::Pong(data), "pong").await?;
                         }
                         Some(Ok(WsMessage::Close(frame))) => {
                             return Err(SttError::Network(format!(
@@ -287,10 +296,12 @@ impl SttEngine for DeepgramStt {
             }
         }
 
-        writer
-            .send(WsMessage::Text(serde_json::json!({"type": "CloseStream"}).to_string().into()))
-            .await
-            .map_err(|e| SttError::Network(format!("Deepgram CloseStream: {e}")))?;
+        send_frame(
+            &mut writer,
+            WsMessage::Text(serde_json::json!({"type": "CloseStream"}).to_string().into()),
+            "CloseStream",
+        )
+        .await?;
 
         let receive_final = async {
             loop {
@@ -301,10 +312,7 @@ impl SttEngine for DeepgramStt {
                         }
                     }
                     Some(Ok(WsMessage::Ping(data))) => {
-                        writer
-                            .send(WsMessage::Pong(data))
-                            .await
-                            .map_err(|e| SttError::Network(format!("Deepgram WebSocket pong: {e}")))?;
+                        send_frame(&mut writer, WsMessage::Pong(data), "pong").await?;
                     }
                     Some(Ok(WsMessage::Close(_))) | None => return Ok(()),
                     Some(Ok(_)) => {}
@@ -314,7 +322,7 @@ impl SttEngine for DeepgramStt {
         };
 
         match tokio::select! {
-            _ = cancel.cancelled() => return Err(SttError::Other(CANCELLED_MESSAGE.into())),
+            _ = cancel.cancelled() => return Err(SttError::Cancelled),
             result = tokio::time::timeout(CLOSE_TIMEOUT, receive_final) => result,
         } {
             Ok(result) => result?,
@@ -324,13 +332,44 @@ impl SttEngine for DeepgramStt {
             Err(_) => {}
         }
 
-        Self::transcript_from_segments(&segments)
+        Ok(Self::transcript_from_segments(&segments))
+    }
+}
+
+type WsWriter = futures_util::stream::SplitSink<
+    tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>,
+    WsMessage,
+>;
+
+async fn send_frame(writer: &mut WsWriter, message: WsMessage, what: &str) -> Result<(), SttError> {
+    match tokio::time::timeout(SEND_TIMEOUT, writer.send(message)).await {
+        Ok(Ok(())) => Ok(()),
+        Ok(Err(e)) => Err(SttError::Network(format!("Deepgram WebSocket {what}: {e}"))),
+        Err(_) => Err(SttError::Network(format!("Deepgram WebSocket {what}: таймаут отправки"))),
+    }
+}
+
+#[async_trait::async_trait]
+impl SttEngine for DeepgramStt {
+    async fn transcribe_stream(
+        &self,
+        chunks: AudioChunkStream,
+        keyterms: Keyterms<'_>,
+        cancel: tokio_util::sync::CancellationToken,
+    ) -> Result<String, SttError> {
+        match tokio::time::timeout(SESSION_TIMEOUT, self.stream_session(chunks, keyterms, &cancel)).await {
+            Ok(result) => result,
+            Err(_) => Err(SttError::Network("Deepgram WebSocket: сеанс не уложился в отведённое время".into())),
+        }
     }
 
+    /// Греет и HTTP-пул (батч), и TLS-конфиг WebSocket — оба нужны первому
+    /// нажатию, а хранилище корней читается медленно.
     async fn warm_up(&self) {
+        let _ = tokio::task::spawn_blocking(websocket_tls).await;
         let _ = self
             .client
-            .get(format!("{}{}", self.base_url, PROJECTS_PATH))
+            .get(format!("{}{}", self.base_url, self.spec.wire.warm_up_path()))
             .header("Authorization", format!("Token {}", self.api_key))
             .timeout(WARM_UP_TIMEOUT)
             .send()
@@ -348,65 +387,9 @@ impl SttEngine for DeepgramStt {
             .send()
             .await
             .map_err(|e| SttError::Network(e.to_string()))?;
-        Self::parse_rest_response(resp).await
+        self.parse_rest_response(resp).await
     }
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn empty_language_uses_multi() {
-        let stt = DeepgramStt::new("k".into()).with_language(String::new());
-        assert_eq!(stt.language_param(), MULTI_LANGUAGE);
-    }
-
-    #[test]
-    fn websocket_url_uses_eu_host_and_pcm_shape() {
-        let stt = DeepgramStt::new("k".into());
-        let url = stt.websocket_url(&[]);
-        assert!(url.starts_with("wss://api.eu.deepgram.com/v1/listen?"));
-        assert!(url.contains("model=nova-3"));
-        assert!(url.contains("encoding=linear16"));
-        assert!(url.contains("sample_rate=16000"));
-    }
-
-    /// Nova-3 принимает подсказки повторяющимся `keyterm=`; многословные термины
-    /// обязаны быть закодированы, иначе запрос рвётся на первом же пробеле.
-    #[test]
-    fn keyterms_go_into_the_stream_url_encoded() {
-        let stt = DeepgramStt::new("k".into());
-        let terms = vec!["gRPC".to_string(), "Kubernetes Operator".to_string()];
-        let url = stt.websocket_url(&terms);
-        assert!(url.contains("keyterm=gRPC"), "{url}");
-        assert!(url.contains("keyterm=Kubernetes+Operator"), "{url}");
-    }
-
-    #[test]
-    fn no_keyterms_means_no_parameter() {
-        assert!(!DeepgramStt::new("k".into()).websocket_url(&[]).contains("keyterm"));
-    }
-
-    #[test]
-    fn final_results_are_joined() {
-        let mut segments = Vec::new();
-        DeepgramStt::consume_stream_text(
-            &mut segments,
-            r#"{"type":"Results","is_final":true,"channel":{"alternatives":[{"transcript":"привет"}]}}"#,
-        )
-        .unwrap();
-        DeepgramStt::consume_stream_text(
-            &mut segments,
-            r#"{"type":"Results","is_final":true,"channel":{"alternatives":[{"transcript":"мир"}]}}"#,
-        )
-        .unwrap();
-        assert_eq!(DeepgramStt::transcript_from_segments(&segments).unwrap(), "привет мир");
-    }
-
-    #[test]
-    fn test_base_url_switches_ws_scheme() {
-        let stt = DeepgramStt::new("k".into()).with_base_url("http://127.0.0.1:1234".into());
-        assert!(stt.websocket_url(&[]).starts_with("ws://127.0.0.1:1234/v1/listen?"));
-    }
-}
+mod tests;

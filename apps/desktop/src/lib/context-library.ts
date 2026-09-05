@@ -1,3 +1,4 @@
+import { t } from "@/i18n";
 import { isRecord } from "./utils";
 
 export interface ContextFolder {
@@ -32,9 +33,9 @@ const IMPORT_EXTENSION_SUFFIX = new RegExp(
   "i",
 );
 
-const UNNAMED_DOC = "Без имени";
-const UNNAMED_FOLDER = "Папка";
-const LIBRARY_CONTEXT_BLOCK_HEADER = "Справочный материал";
+/** Имена по умолчанию читаются в момент создания — на языке интерфейса на тот момент. */
+const unnamedDoc = () => t("common.unnamed");
+const unnamedFolder = () => t("launcher.contexts.unnamedFolder");
 
 function uid(): string {
   return crypto.randomUUID();
@@ -45,7 +46,7 @@ function clampDocText(text: string): string {
 }
 
 export function addFolder(lib: ContextLibrary, name: string, id: string = uid()): ContextLibrary {
-  const trimmed = name.trim() || UNNAMED_FOLDER;
+  const trimmed = name.trim() || unnamedFolder();
   return { ...lib, folders: [...lib.folders, { id, name: trimmed }] };
 }
 
@@ -70,7 +71,7 @@ export function addDoc(
   doc: { name: string; text: string; folderId: string },
   id: string = uid(),
 ): ContextLibrary {
-  const name = doc.name.trim() || UNNAMED_DOC;
+  const name = doc.name.trim() || unnamedDoc();
   const folderId = lib.folders.some((f) => f.id === doc.folderId) ? doc.folderId : ROOT_FOLDER_ID;
   return {
     ...lib,
@@ -89,7 +90,7 @@ export function updateDoc(
       if (d.id !== id) return d;
       return {
         ...d,
-        name: patch.name !== undefined ? patch.name.trim() || UNNAMED_DOC : d.name,
+        name: patch.name !== undefined ? patch.name.trim() || unnamedDoc() : d.name,
         text: patch.text !== undefined ? clampDocText(patch.text) : d.text,
       };
     }),
@@ -126,7 +127,7 @@ const PATH_SEPARATOR_RE = /[\\/]/;
 export function docNameFromFileName(fileName: string): string {
   const base = fileName.split(PATH_SEPARATOR_RE).pop() ?? fileName;
   const withoutExt = base.replace(IMPORT_EXTENSION_SUFFIX, "");
-  return withoutExt.trim() || UNNAMED_DOC;
+  return withoutExt.trim() || unnamedDoc();
 }
 
 export function isPdfFileName(fileName: string): boolean {
@@ -138,7 +139,7 @@ export function libraryContextBlocks(lib: ContextLibrary, selectedIds: string[])
   return selectedIds
     .map((id) => byId.get(id))
     .filter((d): d is ContextDoc => d !== undefined && d.text.trim() !== "")
-    .map((d) => `${LIBRARY_CONTEXT_BLOCK_HEADER} «${d.name}»:\n${d.text.trim()}`);
+    .map((d) => `${t("prompt.libraryBlockHeader")} «${d.name}»:\n${d.text.trim()}`);
 }
 
 export function serializeLibrary(lib: ContextLibrary): string {

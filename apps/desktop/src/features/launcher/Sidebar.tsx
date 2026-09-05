@@ -1,5 +1,6 @@
+import { useTranslation } from "react-i18next";
 import { cn } from "@/lib/utils";
-import { screenGroup, SCREEN_GROUPS, type ScreenId } from "./screens";
+import { screenGroup, screenLabel, SCREEN_GROUPS, type ScreenId } from "./screens";
 
 export interface SidebarNotice {
   screen: ScreenId;
@@ -69,6 +70,7 @@ function SidebarItem({
 }
 
 export function Sidebar({ active, notices, onSelect }: SidebarProps) {
+  useTranslation();
   return (
     <div
       role="tablist"
@@ -81,7 +83,7 @@ export function Sidebar({ active, notices, onSelect }: SidebarProps) {
             <SidebarItem
               key={screen.id}
               id={screen.id}
-              label={screen.label}
+              label={screenLabel(screen.id)}
               icon={screen.icon}
               active={active === screen.id}
               notice={notices.find((n) => n.screen === screen.id)}

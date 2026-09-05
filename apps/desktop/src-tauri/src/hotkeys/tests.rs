@@ -36,7 +36,7 @@ fn registry_ids_unique_and_defaults_parseable() {
             let combo = combo_of(&a.default_combo);
             match a.kind {
                 HotkeyKind::Combo => assert!(
-                    crate::hotkey::parse_hotkey(combo).is_some(),
+                    crate::global_shortcuts::parse_hotkey(combo).is_some(),
                     "дефолт {} ({platform}) не разбирается: {combo}",
                     a.id
                 ),
@@ -232,4 +232,51 @@ fn migration_keeps_existing_bindings_untouched() {
     let bindings: Vec<HotkeyBinding> =
         serde_json::from_value(raw.get("hotkeys").cloned().unwrap()).unwrap();
     assert_eq!(bindings, vec![binding(ACTION_RECORD, "F6")]);
+}
+
+#[test]
+fn malformed_bindings_are_dropped_and_a_non_array_field_is_removed() {
+    let mut raw = serde_json::json!({
+        "hotkeys": [
+            {"action": "record", "combo": "F8"},
+            5,
+            {"action": "x"},
+            {"combo": "F1"},
+            {"action": 1, "combo": "F2"}
+        ]
+    });
+    drop_malformed_bindings(&mut raw);
+    assert_eq!(raw["hotkeys"], serde_json::json!([{"action": "record", "combo": "F8"}]));
+
+    let mut raw = serde_json::json!({"hotkeys": "F8"});
+    drop_malformed_bindings(&mut raw);
+    assert!(raw.get("hotkeys").is_none(), "поле не того типа убирается целиком");
+
+    let mut raw = serde_json::json!({"auto_send": true});
+    drop_malformed_bindings(&mut raw);
+    assert_eq!(raw, serde_json::json!({"auto_send": true}));
+}
+
+/// Алиасы плагина и фронта разбираются здесь так же, иначе `Control+S` в
+/// файле настроек регистрировался бы как Ctrl+S, а конфликты считались по
+/// голой `S`.
+#[test]
+fn modifier_aliases_resolve_to_the_canonical_tokens() {
+    assert_eq!(canonical_modifier("Control"), Some(MODIFIER_CTRL));
+    assert_eq!(canonical_modifier("command"), Some(MODIFIER_CMD));
+    assert_eq!(canonical_modifier("Super"), Some(MODIFIER_CMD));
+    assert_eq!(canonical_modifier("META"), Some(MODIFIER_CMD));
+    assert_eq!(canonical_modifier("Option"), Some(MODIFIER_ALT));
+    assert_eq!(canonical_modifier("shift"), Some(MODIFIER_SHIFT));
+    assert_eq!(canonical_modifier("Fn"), None);
+    assert!(conflict(ACTION_RECORD, "Control+S", ACTION_SEND, "Ctrl+S"));
+    assert!(conflict(ACTION_RECORD, "Command+Option+S", ACTION_SEND, "Alt+Cmd+S"));
+}
+
+#[test]
+fn every_alias_maps_onto_a_bit_of_the_modifier_mask() {
+    for (alias, canonical) in MODIFIER_ALIASES {
+        let index = modifier_index(alias).unwrap_or_else(|| panic!("{alias} без бита"));
+        assert_eq!(MODIFIER_TOKENS[index], *canonical);
+    }
 }

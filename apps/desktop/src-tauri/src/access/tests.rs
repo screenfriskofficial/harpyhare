@@ -50,3 +50,14 @@ async fn redeem_maps_unparseable_success_body() {
     let err = redeem(&server.uri(), "CODE", "idem-4").await.unwrap_err();
     assert_eq!(err, REDEEM_BAD_RESPONSE);
 }
+
+#[tokio::test]
+async fn a_rate_limited_redeem_names_the_limit_not_the_code() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .respond_with(ResponseTemplate::new(429))
+        .mount(&server)
+        .await;
+    let err = redeem(&server.uri(), "CODE", "idem-5").await.unwrap_err();
+    assert_eq!(err, REDEEM_RATE_LIMITED);
+}

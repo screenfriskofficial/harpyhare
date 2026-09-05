@@ -144,6 +144,7 @@ fn load_missing_window_size_defaults() {
     assert_eq!(s.resize_step, 20);
     assert_eq!(s.capture_device_uid, "");
     assert_eq!(s.theme, "gray");
+    assert_eq!(s.ui_language, "");
     assert_eq!(s.scroll_step, 120);
 }
 
@@ -180,6 +181,18 @@ fn clamp_resolves_hotkey_collisions_in_favour_of_the_latest_binding() {
     s.clamp();
     assert_eq!(crate::hotkeys::effective(&s.hotkeys, ACTION_RECORD), "Cmd+Shift+X");
     assert_eq!(crate::hotkeys::effective(&s.hotkeys, ACTION_TOGGLE_WINDOW), "");
+}
+
+#[test]
+fn clamp_resets_unknown_ui_language_to_system() {
+    let mut s = Settings { ui_language: "de".into(), ..Default::default() };
+    s.clamp();
+    assert_eq!(s.ui_language, UI_LANGUAGE_SYSTEM);
+    for language in UI_LANGUAGES {
+        s.ui_language = (*language).into();
+        s.clamp();
+        assert_eq!(s.ui_language, *language);
+    }
 }
 
 #[test]
@@ -232,42 +245,76 @@ fn clamp_resets_unknown_stt_provider() {
     assert_eq!(s.stt_provider, STT_PROVIDER_OPENAI);
 }
 
+fn env_of<'a>(values: &'a [(&'a str, &'a str)]) -> impl Fn(&str) -> Option<String> + 'a {
+    move |key_id| values.iter().find(|(id, _)| *id == key_id).map(|(_, v)| (*v).to_string())
+}
+
 #[test]
 fn env_fallback_fills_only_empty_keys() {
     let mut s = Settings::default();
-    s.apply_key_fallback(
-        Some("env-ant".into()),
-        Some("env-groq".into()),
-        Some("env-oai".into()),
-        Some("env-xai".into()),
-        Some("env-dg".into()),
-        Some("env-xclis".into()),
-    );
+    s.apply_key_fallback(env_of(&[
+        (API_KEY_ANTHROPIC, "env-ant"),
+        (API_KEY_GROQ, "env-groq"),
+        (API_KEY_OPENAI, "env-oai"),
+    ]));
     assert_eq!(s.anthropic_api_key, "env-ant");
     assert_eq!(s.groq_api_key, "env-groq");
     assert_eq!(s.openai_api_key, "env-oai");
 }
 
 #[test]
-fn env_fallback_skipped_entirely_when_access_token_set() {
+fn env_fallback_covers_every_registry_key() {
+    let mut s = Settings::default();
+    s.apply_key_fallback(|key_id| Some(format!("env-{key_id}")));
+    for (key_id, _) in registry_key_ids() {
+        assert_eq!(
+            api_key_for(&s, key_id),
+            format!("env-{key_id}"),
+            "key_id {key_id} из реестра не заполнился — нет ветки в api_key_mut"
+        );
+    }
+}
+
+#[test]
+fn env_fallback_under_an_access_token_follows_the_registries() {
+    // Ключ вендора, которого relay проксирует, под кодом доступа не берётся:
+    // код его и так глушит. Ключ вендора без роута на relay берётся всегда —
+    // иначе код запирал бы его у того, кто ключ как раз положил.
     let mut s = Settings { access_token: "itk_x".into(), ..Default::default() };
-    s.apply_key_fallback(
-        Some("env-ant".into()),
-        Some("env-groq".into()),
-        Some("env-oai".into()),
-        Some("env-xai".into()),
-        Some("env-dg".into()),
-        Some("env-xclis".into()),
-    );
-    assert_eq!(s.anthropic_api_key, "");
-    assert_eq!(s.groq_api_key, "");
-    assert_eq!(s.openai_api_key, "");
-    // Код доступа не даёт доступа к непроксируемым вендорам, поэтому их ключи
-    // из окружения он подавлять не должен — иначе Grok и Deepgram оказываются
-    // заперты у того, кто ключ как раз положил.
-    assert_eq!(s.xai_api_key, "env-xai");
-    assert_eq!(s.deepgram_api_key, "env-dg");
-    assert_eq!(s.xclis_api_key, "env-xclis");
+    s.apply_key_fallback(|key_id| Some(format!("env-{key_id}")));
+    let ids = registry_key_ids();
+    assert!(ids.iter().any(|(_, proxied)| *proxied), "в реестрах нет ни одного проксируемого ключа");
+    assert!(ids.iter().any(|(_, proxied)| !*proxied), "в реестрах нет ни одного непроксируемого ключа");
+    for (key_id, proxied_everywhere) in ids {
+        let value = api_key_for(&s, key_id);
+        if proxied_everywhere {
+            assert_eq!(value, "", "{key_id}: проксируемый вендор под кодом ключ из окружения не берёт");
+        } else {
+            assert_eq!(value, format!("env-{key_id}"), "{key_id}: непроксируемый вендор берёт ключ и под кодом");
+        }
+    }
+}
+
+#[test]
+fn registry_key_ids_are_unique_and_a_shared_key_is_proxied_only_if_every_row_is() {
+    let ids = registry_key_ids();
+    let mut seen: Vec<&str> = Vec::new();
+    for (key_id, proxied_everywhere) in &ids {
+        assert!(!seen.contains(key_id), "key_id {key_id} встречается дважды");
+        seen.push(key_id);
+        let rows_proxied = crate::llm::registry::PROVIDERS
+            .iter()
+            .filter(|p| p.key_id == *key_id)
+            .map(|p| p.proxied)
+            .chain(
+                crate::stt::registry::PROVIDERS
+                    .iter()
+                    .filter(|p| p.key_id == *key_id)
+                    .map(|p| p.proxied),
+            )
+            .all(|proxied| proxied);
+        assert_eq!(*proxied_everywhere, rows_proxied, "{key_id}");
+    }
 }
 
 #[test]
@@ -282,14 +329,11 @@ fn load_missing_access_token_defaults_empty() {
 #[test]
 fn env_fallback_does_not_override_saved_keys() {
     let mut s = Settings { anthropic_api_key: "saved".into(), ..Default::default() };
-    s.apply_key_fallback(
-        Some("env-ant".into()),
-        Some("env-groq".into()),
-        Some("env-oai".into()),
-        Some("env-xai".into()),
-        Some("env-dg".into()),
-        Some("env-xclis".into()),
-    );
+    s.apply_key_fallback(env_of(&[
+        (API_KEY_ANTHROPIC, "env-ant"),
+        (API_KEY_GROQ, "env-groq"),
+        (API_KEY_OPENAI, "env-oai"),
+    ]));
     assert_eq!(s.anthropic_api_key, "saved");
     assert_eq!(s.groq_api_key, "env-groq");
     assert_eq!(s.openai_api_key, "env-oai");
@@ -298,10 +342,70 @@ fn env_fallback_does_not_override_saved_keys() {
 #[test]
 fn env_fallback_ignores_none_and_blank() {
     let mut s = Settings::default();
-    s.apply_key_fallback(None, Some("   ".into()), None, None, None, None);
+    s.apply_key_fallback(env_of(&[(API_KEY_GROQ, "   ")]));
     assert_eq!(s.anthropic_api_key, "");
     assert_eq!(s.groq_api_key, "");
     assert_eq!(s.openai_api_key, "");
+}
+
+#[test]
+fn debug_output_hides_secrets_but_names_the_fields() {
+    let s = Settings {
+        anthropic_api_key: "sk-ant-secret".into(),
+        deepgram_api_key: "dg-secret".into(),
+        access_token: "itk_secret".into(),
+        ..Default::default()
+    };
+    let printed = format!("{s:?}");
+    for secret in ["sk-ant-secret", "dg-secret", "itk_secret"] {
+        assert!(!printed.contains(secret), "{secret} утёк в Debug: {printed}");
+    }
+    assert!(printed.contains("anthropic_api_key"));
+    assert!(printed.contains("access_token"));
+}
+
+#[test]
+fn load_quarantines_a_corrupt_file_instead_of_silently_defaulting() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("settings.json");
+    std::fs::write(&path, r#"{"auto_send": "not a bool", "anthropic_api_key": "keep-me"#).unwrap();
+
+    let s = Settings::load_or_quarantine(&path);
+
+    assert_eq!(s.anthropic_api_key, "", "битый файл даёт дефолты");
+    assert!(!path.exists(), "битый файл обязан уйти с места, иначе автосейв его затрёт");
+    let quarantined: Vec<_> = std::fs::read_dir(dir.path())
+        .unwrap()
+        .filter_map(Result::ok)
+        .map(|e| e.file_name().to_string_lossy().into_owned())
+        .filter(|name| name.starts_with(&format!("settings.json.{QUARANTINE_SUFFIX}-")))
+        .collect();
+    assert_eq!(quarantined.len(), 1, "рядом должна лежать ровно одна копия: {quarantined:?}");
+    let kept = std::fs::read_to_string(dir.path().join(&quarantined[0])).unwrap();
+    assert!(kept.contains("keep-me"), "содержимое карантина — исходный файл байт в байт");
+}
+
+#[test]
+fn load_or_quarantine_leaves_a_missing_file_alone() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("settings.json");
+    let s = Settings::load_or_quarantine(&path);
+    assert_eq!(s.window_width, limits::window::WIDTH.default);
+    assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 0, "карантину нечего откладывать");
+}
+
+#[test]
+fn load_tolerates_a_malformed_hotkey_binding() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("s.json");
+    std::fs::write(
+        &path,
+        r#"{"anthropic_api_key":"k","hotkeys":[{"action":"record","combo":"F8"},5,{"action":"x"},{"combo":"F1"}]}"#,
+    )
+    .unwrap();
+    let s = Settings::load(&path).expect("одна битая запись не валит весь файл");
+    assert_eq!(s.anthropic_api_key, "k");
+    assert_eq!(crate::hotkeys::effective(&s.hotkeys, crate::hotkeys::ACTION_RECORD), "F8");
 }
 
 #[test]
@@ -473,4 +577,50 @@ fn defaults_struct_uses_the_registry_values() {
     assert_eq!(s.scroll_step, limits::chat::SCROLL_STEP.default);
     assert_eq!(s.teleprompter_speed, limits::teleprompter::SPEED.default);
     assert_eq!(s.buffer_seconds, limits::capture::BUFFER_SECONDS.default);
+}
+
+#[test]
+fn concurrent_saves_publish_whole_files_and_leave_no_temporary_files() {
+    use std::sync::{Arc, Barrier};
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("shared.json");
+    let payloads: Vec<String> = (0..8).map(|i| format!("{i}:{}", "x".repeat(128 * 1024))).collect();
+    let barrier = Arc::new(Barrier::new(payloads.len()));
+    std::thread::scope(|scope| {
+        for payload in &payloads {
+            let barrier = Arc::clone(&barrier);
+            let path = &path;
+            scope.spawn(move || {
+                barrier.wait();
+                for _ in 0..8 {
+                    write_atomic_owner_only(path, payload).unwrap();
+                    let observed = std::fs::read_to_string(path).unwrap();
+                    assert_eq!(observed.len(), payload.len());
+                    assert!(observed.ends_with(&"x".repeat(128 * 1024)));
+                }
+            });
+        }
+    });
+    assert!(payloads.contains(&std::fs::read_to_string(&path).unwrap()));
+    assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 1);
+}
+
+#[test]
+fn failed_atomic_replace_cleans_up_its_temporary_file() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("destination");
+    std::fs::create_dir(&path).unwrap();
+    assert!(write_atomic_owner_only(&path, "cannot replace a directory").is_err());
+    assert!(path.is_dir());
+    assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 1);
+}
+
+#[test]
+fn atomic_save_does_not_touch_a_preexisting_shared_temporary_file() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("settings.json");
+    let legacy_tmp = path.with_extension("tmp");
+    std::fs::write(&legacy_tmp, "belongs to another writer").unwrap();
+    write_atomic_owner_only(&path, "new settings").unwrap();
+    assert_eq!(std::fs::read_to_string(legacy_tmp).unwrap(), "belongs to another writer");
 }

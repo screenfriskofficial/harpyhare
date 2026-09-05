@@ -1,9 +1,8 @@
+import { t } from "@/i18n";
 import type { ChatMessage } from "./chats";
 import { imageDataUrl, toImagePayload, type ImagePayload } from "./composer";
 
 const PNG_MEDIA_TYPE = "image/png";
-const IMAGE_LOAD_FAILED = "Не удалось прочитать картинку сообщения";
-const CANVAS_UNAVAILABLE = "Холст для перекодирования картинки недоступен";
 
 export function messageCopyText(message: ChatMessage): string {
   return message.text.trim();
@@ -25,7 +24,7 @@ function loadImage(src: string): Promise<HTMLImageElement> {
       resolve(img);
     };
     img.onerror = () => {
-      reject(new Error(IMAGE_LOAD_FAILED));
+      reject(new Error(t("errors.messageImageLoadFailed")));
     };
     img.src = src;
   });
@@ -38,7 +37,7 @@ export async function imagePngBase64(image: ImagePayload): Promise<string> {
   canvas.width = loaded.naturalWidth;
   canvas.height = loaded.naturalHeight;
   const context = canvas.getContext("2d");
-  if (!context) throw new Error(CANVAS_UNAVAILABLE);
+  if (!context) throw new Error(t("errors.canvasUnavailable"));
   context.drawImage(loaded, 0, 0);
   return toImagePayload(canvas.toDataURL(PNG_MEDIA_TYPE), PNG_MEDIA_TYPE).data;
 }

@@ -1,7 +1,9 @@
+import { useTranslation } from "react-i18next";
 import Markdown from "react-markdown";
 import { markdownComponents, REMARK_PLUGINS } from "@/components/markdown-config";
 import { Button } from "@/components/ui/button";
 import type { UpdaterApi } from "@/hooks/useUpdater";
+import { t } from "@/i18n";
 import type { UpdateProgress } from "@/ipc/types";
 import { BRAND_NAME } from "@/lib/brand";
 import { SettingBlock, SettingGroup, SettingRow } from "../fields";
@@ -24,19 +26,22 @@ function formatMib(bytes: number): string {
 }
 
 function progressCaption(updater: UpdaterApi, percent: number | null): string {
-  if (updater.status === "restarting") return "Установлено. Перезапуск…";
-  if (percent !== null) return `Загрузка ${String(percent)}%`;
-  return `Загрузка ${formatMib(updater.progress?.downloaded ?? 0)} МиБ`;
+  if (updater.status === "restarting") return t("updates.restarting");
+  if (percent !== null) return t("updates.downloadingPercent", { percent });
+  return t("updates.downloadingMib", {
+    mib: t("units.mib", { value: formatMib(updater.progress?.downloaded ?? 0) }),
+  });
 }
 
 function checkCaption(state: CheckState): string {
-  if (state === "checking") return "Проверяю…";
-  if (state === "latest") return "Установлена последняя версия";
-  if (typeof state === "object") return `Не удалось проверить обновления: ${state.failure}`;
-  return "Проверка идёт автоматически при запуске и раз в шесть часов.";
+  if (state === "checking") return t("launcher.updates.checking");
+  if (state === "latest") return t("launcher.updates.latest");
+  if (typeof state === "object") return t("launcher.updates.checkFailed", { error: state.failure });
+  return t("launcher.updates.autoCheck");
 }
 
 function DownloadProgress({ updater }: { updater: UpdaterApi }) {
+  useTranslation();
   const percent = downloadPercent(updater.progress);
   return (
     <div className="grid gap-1.5">
@@ -66,29 +71,33 @@ export function UpdatesScreen({
   checkState: CheckState;
   onCheck: () => void;
 }) {
+  const { t } = useTranslation();
   const busy = updater.status === "downloading" || updater.status === "restarting";
   const available = updater.info !== null && !busy;
 
   return (
     <ScreenShell screen="updates">
-      <SettingGroup title="Версия" description={`Установленная сборка ${BRAND_NAME}.`}>
+      <SettingGroup
+        title={t("launcher.updates.version")}
+        description={t("launcher.updates.versionDescription", { brand: BRAND_NAME })}
+      >
         <SettingRow
           label={`${BRAND_NAME} ${updater.currentVersion}`}
           hint={checkCaption(checkState)}
         >
           <Button variant="ghost" size="sm" disabled={checkState === "checking"} onClick={onCheck}>
-            Проверить
+            {t("launcher.updates.check")}
           </Button>
         </SettingRow>
       </SettingGroup>
 
       {updater.info !== null && (
         <SettingGroup
-          title={`Доступна версия ${updater.info.version}`}
-          description="Приложение скачает её, проверит подпись и перезапустится."
+          title={t("updates.available", { version: updater.info.version })}
+          description={t("launcher.updates.availableDescription")}
         >
           {updater.info.notes !== "" && (
-            <SettingBlock label="Что нового">
+            <SettingBlock label={t("launcher.updates.whatsNew")}>
               <div className="prose-answer max-h-56 overflow-y-auto rounded-lg bg-surface px-3 py-2 text-body leading-relaxed text-muted-foreground ring-1 ring-border ring-inset">
                 <Markdown remarkPlugins={REMARK_PLUGINS} components={markdownComponents}>
                   {updater.info.notes}
@@ -98,13 +107,13 @@ export function UpdatesScreen({
           )}
 
           {busy && (
-            <SettingBlock label="Установка">
+            <SettingBlock label={t("launcher.updates.installing")}>
               <DownloadProgress updater={updater} />
             </SettingBlock>
           )}
 
           {updater.status === "error" && updater.error !== null && (
-            <SettingBlock label="Ошибка установки">
+            <SettingBlock label={t("launcher.updates.installError")}>
               <span className="text-body whitespace-pre-wrap text-destructive">
                 {updater.error}
               </span>
@@ -114,10 +123,10 @@ export function UpdatesScreen({
           {available && (
             <div className="flex items-center justify-end gap-2 px-3 py-2">
               <Button variant="ghost" size="sm" onClick={updater.dismiss}>
-                Позже
+                {t("common.later")}
               </Button>
               <Button size="sm" onClick={updater.install}>
-                {updater.status === "error" ? "Повторить" : "Обновить и перезапустить"}
+                {updater.status === "error" ? t("common.retry") : t("updates.install")}
               </Button>
             </div>
           )}

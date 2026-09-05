@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import Markdown from "react-markdown";
 import { markdownComponents, REMARK_PLUGINS } from "@/components/markdown-config";
 import { Button } from "@/components/ui/button";
@@ -9,6 +10,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import type { UpdaterStatus } from "@/hooks/useUpdater";
+import { t } from "@/i18n";
 import type { UpdateInfo, UpdateProgress } from "@/ipc/types";
 
 export interface UpdateDialogProps {
@@ -25,7 +27,6 @@ export interface UpdateDialogProps {
 
 const MIB = 1024 * 1024;
 const PERCENT_MAX = 100;
-const DOWNLOADING_LABEL = "Загрузка…";
 const DIALOG_WIDTH_PX = 440;
 
 function downloadPercent(progress: UpdateProgress | null): number | null {
@@ -44,9 +45,11 @@ function progressCaption(
   percent: number | null,
   progress: UpdateProgress | null,
 ): string {
-  if (status === "restarting") return "Установлено. Перезапуск…";
-  if (percent !== null) return `${DOWNLOADING_LABEL} ${percent}%`;
-  return `${DOWNLOADING_LABEL} ${formatMib(progress?.downloaded ?? 0)} МиБ`;
+  if (status === "restarting") return t("updates.restarting");
+  if (percent !== null) return t("updates.downloadingPercent", { percent });
+  return t("updates.downloadingMib", {
+    mib: t("units.mib", { value: formatMib(progress?.downloaded ?? 0) }),
+  });
 }
 
 export function UpdateDialog({
@@ -60,6 +63,7 @@ export function UpdateDialog({
   onInstall,
   onSkip,
 }: UpdateDialogProps) {
+  const { t } = useTranslation();
   const busy = status === "downloading" || status === "restarting";
 
   return (
@@ -71,7 +75,7 @@ export function UpdateDialog({
     >
       <DialogContent panelWidthPx={DIALOG_WIDTH_PX}>
         <DialogHeader>
-          <DialogTitle>Доступна версия {info.version}</DialogTitle>
+          <DialogTitle>{t("updates.available", { version: info.version })}</DialogTitle>
         </DialogHeader>
 
         <div className="grid gap-3 py-1">
@@ -122,6 +126,8 @@ function DownloadProgress({
   status: UpdaterStatus;
   progress: UpdateProgress | null;
 }) {
+  // Подписывает на смену языка: сам текст собирает `progressCaption` через общий `t`.
+  useTranslation();
   const percent = downloadPercent(progress);
   return (
     <div className="grid gap-1.5">
@@ -153,16 +159,17 @@ function UpdateActions({
   onClose: () => void;
   onInstall: () => void;
 }) {
+  const { t } = useTranslation();
   return (
     <>
       <Button variant="ghost" onClick={onSkip}>
-        Пропустить эту версию
+        {t("updates.skipVersion")}
       </Button>
       <Button variant="ghost" onClick={onClose}>
-        Позже
+        {t("common.later")}
       </Button>
       <Button onClick={onInstall}>
-        {status === "error" ? "Повторить" : "Обновить и перезапустить"}
+        {status === "error" ? t("common.retry") : t("updates.install")}
       </Button>
     </>
   );

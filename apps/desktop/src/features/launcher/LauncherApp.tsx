@@ -1,7 +1,9 @@
 import { useCallback, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { useContextLibrary } from "@/hooks/useContextLibrary";
 import { useSettingsStore } from "@/hooks/useSettingsStore";
 import { useUpdater } from "@/hooks/useUpdater";
+import { applyUiLanguage } from "@/i18n";
 import { clearAccessToken, launchMainWindow, redeemAccessCode } from "@/ipc/commands";
 import type { Settings } from "@/ipc/types";
 import { notify } from "@/lib/notify";
@@ -9,12 +11,14 @@ import { applyTheme } from "@/lib/window-controls";
 import { LauncherPanel } from "./LauncherPanel";
 import { useLauncherReadiness } from "./useLauncherReadiness";
 
-function applyLauncherTheme(settings: Settings): void {
+function applyLauncherVisuals(settings: Settings): void {
   applyTheme(document.documentElement, settings.theme);
+  applyUiLanguage(document.documentElement, settings.ui_language);
 }
 
 export function LauncherApp() {
-  const { settings, loading, save, reload } = useSettingsStore(applyLauncherTheme);
+  const { t } = useTranslation();
+  const { settings, loading, save, reload } = useSettingsStore(applyLauncherVisuals);
   const updater = useUpdater();
   const contextLibrary = useContextLibrary();
   const readiness = useLauncherReadiness(settings);
@@ -37,16 +41,16 @@ export function LauncherApp() {
       await clearAccessToken();
       await reload();
     } catch (e) {
-      notify({ variant: "error", title: "Ошибка", message: String(e) });
+      notify({ variant: "error", title: t("common.error"), message: String(e) });
     }
-  }, [reload]);
+  }, [reload, t]);
 
   const persist = async (next: Settings): Promise<boolean> => {
     setSaving(true);
     try {
       const failure = await save(next);
       if (failure !== null) {
-        notify({ variant: "error", title: "Ошибка", message: failure });
+        notify({ variant: "error", title: t("common.error"), message: failure });
         return false;
       }
       return true;
@@ -69,7 +73,7 @@ export function LauncherApp() {
           return;
         }
       } catch (e) {
-        notify({ variant: "error", title: "Ошибка", message: String(e) });
+        notify({ variant: "error", title: t("common.error"), message: String(e) });
       }
       setLaunching(false);
     })();
@@ -78,7 +82,7 @@ export function LauncherApp() {
   if (loading)
     return (
       <div className="grid h-screen place-items-center text-body text-muted-foreground">
-        Загрузка…
+        {t("common.loading")}
       </div>
     );
 

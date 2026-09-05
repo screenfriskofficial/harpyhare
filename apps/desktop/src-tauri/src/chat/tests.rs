@@ -46,3 +46,35 @@ fn a_finished_old_stream_does_not_unregister_the_new_one() {
     take_stream(&mut map, CHAT, OLD_STREAM);
     assert_eq!(map[CHAT].stream_id, NEW_STREAM);
 }
+
+#[test]
+fn a_cancel_that_arrives_before_registration_still_cancels_that_stream() {
+    // `cancel_stream` — синхронная команда, `send_to_claude` стартует на
+    // рабочем потоке: «Стоп» может приехать раньше, чем стрим зарегистрирован.
+    let mut map = StreamRegistry::new();
+    cancel_in(&mut map, CHAT, NEW_STREAM);
+    assert!(map[CHAT].cancel.is_cancelled(), "надгробие лежит уже отменённым");
+
+    let token = register_in(&mut map, CHAT, NEW_STREAM);
+    assert!(token.is_cancelled(), "запоздавшая регистрация видит надгробие");
+    assert!(take_stream(&mut map, CHAT, NEW_STREAM).is_some(), "и снимает его как свой стрим");
+    assert!(map.is_empty());
+}
+
+#[test]
+fn a_tombstone_does_not_cancel_a_later_unrelated_stream() {
+    let mut map = StreamRegistry::new();
+    cancel_in(&mut map, CHAT, OLD_STREAM);
+    let token = register_in(&mut map, CHAT, NEW_STREAM);
+    assert!(!token.is_cancelled(), "чужое надгробие вытесняется, а не гасит новый стрим");
+    assert_eq!(map[CHAT].stream_id, NEW_STREAM);
+}
+
+#[test]
+fn a_cancel_for_a_foreign_stream_leaves_the_active_one_alone() {
+    let mut map = StreamRegistry::new();
+    let token = register_in(&mut map, CHAT, NEW_STREAM);
+    cancel_in(&mut map, CHAT, OLD_STREAM);
+    assert!(!token.is_cancelled());
+    assert_eq!(map[CHAT].stream_id, NEW_STREAM, "надгробие не подменяет живой стрим");
+}

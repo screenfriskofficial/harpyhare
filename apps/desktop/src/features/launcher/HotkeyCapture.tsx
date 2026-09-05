@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { hotkeyFromEvent, isModifierOnlyCode } from "@/lib/hotkey-capture";
 import { formatCombo } from "@/lib/hotkeys";
@@ -13,6 +14,7 @@ const CANCEL_CAPTURE_CODE = "Escape";
 const LISTEN_IN_CAPTURE_PHASE = true;
 
 export function HotkeyCapture({ value, onChange }: HotkeyCaptureProps) {
+  const { t } = useTranslation();
   const [capturing, setCapturing] = useState(false);
 
   useEffect(() => {
@@ -53,7 +55,7 @@ export function HotkeyCapture({ value, onChange }: HotkeyCaptureProps) {
       )}
     >
       {capturing && <span className="size-1.5 shrink-0 rounded-full bg-ring" aria-hidden />}
-      {capturing ? "Жду сочетание · Esc отменит" : label || "Не назначен"}
+      {capturing ? t("hotkeys.waiting") : label || t("hotkeys.unassigned")}
     </Button>
   );
 }

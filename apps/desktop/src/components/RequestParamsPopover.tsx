@@ -1,5 +1,6 @@
 import { Lock, SlidersHorizontal } from "lucide-react";
 import type { ReactNode } from "react";
+import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -13,7 +14,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
-import { MISSING_KEY_HINT } from "@/lib/api-keys";
+import { missingKeyHint } from "@/lib/api-keys";
 import type { Chat, ChatPatch } from "@/lib/chats";
 import { modelGroups, modelLabel, type ModelInfo } from "@/lib/models";
 
@@ -29,11 +30,6 @@ export interface RequestParamsPopoverProps {
 const SELECT_TRIGGER_CLASS = "h-7 w-full text-caption";
 const SELECT_CONTENT_POSITION = "popper";
 const NO_PRESET_VALUE = "none";
-const POPOVER_LABEL = "Параметры запроса";
-const MODEL_PARAM_LABEL = "Модель";
-const PRESET_PARAM_LABEL = "Препромпт";
-const THINKING_PARAM_LABEL = "Thinking";
-const WEB_SEARCH_PARAM_LABEL = "Веб-поиск";
 
 interface ParamToggleProps {
   label: string;
@@ -62,11 +58,12 @@ interface ModelSelectProps {
 }
 
 function ModelSelect(props: ModelSelectProps) {
+  const { t } = useTranslation();
   const groups = modelGroups(props.models);
   const showHeadings = groups.length > 1;
   return (
     <Select value={props.value} onValueChange={props.onChange}>
-      <SelectTrigger className={SELECT_TRIGGER_CLASS} aria-label={MODEL_PARAM_LABEL}>
+      <SelectTrigger className={SELECT_TRIGGER_CLASS} aria-label={t("hud.params.model")}>
         <SelectValue />
       </SelectTrigger>
       <SelectContent position={SELECT_CONTENT_POSITION}>
@@ -79,7 +76,7 @@ function ModelSelect(props: ModelSelectProps) {
                   {group.label}
                   {locked && (
                     <span className="ml-1.5 text-hint font-normal text-muted-foreground">
-                      {MISSING_KEY_HINT}
+                      {missingKeyHint()}
                     </span>
                   )}
                 </SelectLabel>
@@ -107,6 +104,8 @@ interface PresetSelectProps {
 }
 
 function PresetSelect({ presets, presetId, onChange }: PresetSelectProps) {
+  const { t } = useTranslation();
+  const presetLabel = t("hud.params.preset");
   const selectedValue =
     presetId !== "" && presets.some((p) => p.id === presetId) ? presetId : NO_PRESET_VALUE;
   return (
@@ -116,14 +115,14 @@ function PresetSelect({ presets, presetId, onChange }: PresetSelectProps) {
         onChange(v === NO_PRESET_VALUE ? "" : v);
       }}
     >
-      <SelectTrigger className={SELECT_TRIGGER_CLASS} aria-label={PRESET_PARAM_LABEL}>
-        <SelectValue placeholder={PRESET_PARAM_LABEL} />
+      <SelectTrigger className={SELECT_TRIGGER_CLASS} aria-label={presetLabel}>
+        <SelectValue placeholder={presetLabel} />
       </SelectTrigger>
       <SelectContent position={SELECT_CONTENT_POSITION}>
-        <SelectItem value={NO_PRESET_VALUE}>Без препромпта</SelectItem>
+        <SelectItem value={NO_PRESET_VALUE}>{t("hud.params.noPreset")}</SelectItem>
         {presets.map((p) => (
           <SelectItem key={p.id} value={p.id}>
-            {p.name || "Без имени"}
+            {p.name || t("common.unnamed")}
           </SelectItem>
         ))}
       </SelectContent>
@@ -141,21 +140,25 @@ function ParamRow({ label, children }: { label: string; children: ReactNode }) {
 }
 
 export function RequestParamsPopover(props: RequestParamsPopoverProps) {
+  const { t } = useTranslation();
+  // Подпись строки и `aria-label` тумблера — одно значение: разъехаться они могут только молча.
+  const thinkingLabel = t("hud.params.thinking");
+  const webSearchLabel = t("hud.params.webSearch");
   return (
     <Popover>
       <PopoverTrigger asChild>
         <Button
           variant="ghost"
           size="icon-compact"
-          title={POPOVER_LABEL}
-          aria-label={POPOVER_LABEL}
+          title={t("hud.params.title")}
+          aria-label={t("hud.params.title")}
         >
           <SlidersHorizontal />
         </Button>
       </PopoverTrigger>
       <PopoverContent side="top" align="start" className="w-64 p-3">
         <div className="flex flex-col gap-1">
-          <ParamRow label={MODEL_PARAM_LABEL}>
+          <ParamRow label={t("hud.params.model")}>
             <ModelSelect
               models={props.modelOptions}
               providersMissingKey={props.modelProvidersMissingKey}
@@ -165,7 +168,7 @@ export function RequestParamsPopover(props: RequestParamsPopoverProps) {
               }}
             />
           </ParamRow>
-          <ParamRow label={PRESET_PARAM_LABEL}>
+          <ParamRow label={t("hud.params.preset")}>
             <PresetSelect
               presets={props.presets}
               presetId={props.chat.presetId}
@@ -174,9 +177,9 @@ export function RequestParamsPopover(props: RequestParamsPopoverProps) {
               }}
             />
           </ParamRow>
-          <ParamRow label={THINKING_PARAM_LABEL}>
+          <ParamRow label={thinkingLabel}>
             <ParamToggle
-              label={THINKING_PARAM_LABEL}
+              label={thinkingLabel}
               value={props.chat.thinkingEnabled}
               disabled={props.thinkingDisabled}
               onChange={(thinkingEnabled) => {
@@ -184,9 +187,9 @@ export function RequestParamsPopover(props: RequestParamsPopoverProps) {
               }}
             />
           </ParamRow>
-          <ParamRow label={WEB_SEARCH_PARAM_LABEL}>
+          <ParamRow label={webSearchLabel}>
             <ParamToggle
-              label={WEB_SEARCH_PARAM_LABEL}
+              label={webSearchLabel}
               value={props.chat.webSearch}
               onChange={(webSearch) => {
                 props.onPatch(props.chat.id, { webSearch });

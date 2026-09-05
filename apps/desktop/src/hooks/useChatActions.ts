@@ -1,13 +1,9 @@
 import { useCallback, type RefObject } from "react";
 import type { ChatsApi } from "@/hooks/useChats";
 import type { ClaudeStreams } from "@/hooks/useClaudeStream";
+import { t } from "@/i18n";
 import { CHAT_LIMIT } from "@/lib/chats";
-import { CHATS_TOAST_TITLE, notify } from "@/lib/notify";
-
-const CHAT_LIMIT_NOTICE = `Открыто предельное число чатов (${String(CHAT_LIMIT)}) — закройте лишний`;
-const UNDO_LABEL = "Вернуть";
-const CHAT_CLOSED_NOTICE = "Чат закрыт вместе с перепиской";
-const HISTORY_CLEARED_NOTICE = "История чата очищена";
+import { notify } from "@/lib/notify";
 const UNDO_CHAT_TOAST_PREFIX = "undo-chat|";
 const UNDO_HISTORY_TOAST_PREFIX = "undo-history|";
 
@@ -27,7 +23,11 @@ export function useChatActions(
 ): ChatActions {
   const atChatLimit = useCallback(() => {
     if (chatsRef.current.chats.length < CHAT_LIMIT) return false;
-    notify({ variant: "error", title: CHATS_TOAST_TITLE, message: CHAT_LIMIT_NOTICE });
+    notify({
+      variant: "error",
+      title: t("errors.chats"),
+      message: t("chats.limitReached", { limit: CHAT_LIMIT }),
+    });
     return true;
   }, [chatsRef]);
 
@@ -55,10 +55,10 @@ export function useChatActions(
       api.removeChat(id);
       if (!removed) return;
       notify({
-        message: CHAT_CLOSED_NOTICE,
+        message: t("chats.closed"),
         dedupeKey: `${UNDO_CHAT_TOAST_PREFIX}${id}`,
         action: {
-          label: UNDO_LABEL,
+          label: t("chats.undo"),
           run: () => {
             if (atChatLimit()) return;
             chatsRef.current.restoreChat(removed, index);
@@ -75,10 +75,10 @@ export function useChatActions(
     if (messages.length === 0) return;
     api.clearMessages(id);
     notify({
-      message: HISTORY_CLEARED_NOTICE,
+      message: t("chats.historyCleared"),
       dedupeKey: `${UNDO_HISTORY_TOAST_PREFIX}${id}`,
       action: {
-        label: UNDO_LABEL,
+        label: t("chats.undo"),
         run: () => {
           chatsRef.current.restoreMessages(id, messages, lastInputTokens);
         },

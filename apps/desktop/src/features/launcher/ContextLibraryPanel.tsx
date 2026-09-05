@@ -16,6 +16,7 @@ import {
   type MouseEvent as ReactMouseEvent,
   type ReactNode,
 } from "react";
+import { useTranslation } from "react-i18next";
 import { IconButton } from "@/components/IconButton";
 import { SectionLabel } from "@/components/SectionLabel";
 import { Button } from "@/components/ui/button";
@@ -31,6 +32,7 @@ import { Textarea } from "@/components/ui/textarea";
 import type { ContextLibraryApi } from "@/hooks/useContextLibrary";
 import { useLibraryFileDrop } from "@/hooks/useLibraryFileDrop";
 import { useLibraryImport } from "@/hooks/useLibraryImport";
+import { t } from "@/i18n";
 import {
   docsInFolder,
   IMPORT_ACCEPT,
@@ -39,7 +41,7 @@ import {
   type ContextDoc,
 } from "@/lib/context-library";
 import { dropFolderProps, dropTargetAt } from "@/lib/library-drop";
-import { FILE_MANAGER_LABEL, PLATFORM } from "@/lib/platform";
+import { fileManagerLabel } from "@/lib/platform";
 import { cn } from "@/lib/utils";
 
 const ROOT_SELECT_VALUE = "root";
@@ -52,10 +54,10 @@ interface DocDraft {
   folderId: string;
 }
 
+/** До тысячи — точное число, дальше «тыс.» с одним знаком; разряды форматирует язык интерфейса. */
 function formatChars(count: number): string {
-  if (count < THOUSAND) return `${String(count)} симв.`;
-  const thousands = (count / THOUSAND).toLocaleString("ru-RU", { maximumFractionDigits: 1 });
-  return `${thousands} тыс. симв.`;
+  if (count < THOUSAND) return t("units.chars", { count });
+  return t("units.thousandChars", { count: count / THOUSAND });
 }
 
 const DOC_DRAG_THRESHOLD_PX = 5;
@@ -147,6 +149,7 @@ function DocRow({
   onEdit: () => void;
   onRemove: () => void;
 }) {
+  const { t } = useTranslation();
   const onMouseDown = (e: ReactMouseEvent<HTMLDivElement>) => {
     if (e.button !== 0) return;
     if (e.target instanceof Element && e.target.closest("button")) return;
@@ -156,7 +159,7 @@ function DocRow({
   return (
     <div
       onMouseDown={onMouseDown}
-      title="Перетащи, чтобы переложить в папку"
+      title={t("launcher.contexts.dragHint")}
       className={cn(
         "group flex items-center gap-2 rounded-md px-1.5 py-1 transition-colors hover:bg-surface active:bg-surface-active",
         dragging && "opacity-40",
@@ -172,9 +175,9 @@ function DocRow({
       </span>
       <RowActions
         onEdit={onEdit}
-        editTitle="Редактировать"
+        editTitle={t("launcher.contexts.edit")}
         onRemove={onRemove}
-        removeTitle="Удалить материал"
+        removeTitle={t("launcher.contexts.removeDoc")}
       />
     </div>
   );
@@ -191,6 +194,7 @@ function FolderHeader({
   onRename: (name: string) => void;
   onRemove: () => void;
 }) {
+  const { t } = useTranslation();
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(name);
   return (
@@ -233,9 +237,9 @@ function FolderHeader({
             setDraft(name);
             setEditing(true);
           }}
-          editTitle="Переименовать папку"
+          editTitle={t("launcher.contexts.renameFolder")}
           onRemove={onRemove}
-          removeTitle="Удалить папку (материалы переедут в корень)"
+          removeTitle={t("launcher.contexts.removeFolder")}
         />
       )}
     </div>
@@ -255,13 +259,16 @@ function DocEditor({
   onSave: () => void;
   onCancel: () => void;
 }) {
+  const { t } = useTranslation();
   return (
     <div className="flex flex-col gap-2 rounded-lg bg-card p-3 shadow-raise ring-1 ring-border ring-inset">
-      <SectionLabel>{draft.id === null ? "Новый материал" : "Материал"}</SectionLabel>
+      <SectionLabel>
+        {draft.id === null ? t("launcher.contexts.newDoc") : t("launcher.contexts.doc")}
+      </SectionLabel>
       <div className="flex gap-2">
         <Input
           autoFocus
-          placeholder="Название материала"
+          placeholder={t("launcher.contexts.docNamePlaceholder")}
           value={draft.name}
           onChange={(e) => {
             onChange({ ...draft, name: e.target.value });
@@ -277,7 +284,7 @@ function DocEditor({
             <SelectValue />
           </SelectTrigger>
           <SelectContent position="popper">
-            <SelectItem value={ROOT_SELECT_VALUE}>Без папки</SelectItem>
+            <SelectItem value={ROOT_SELECT_VALUE}>{t("common.noFolder")}</SelectItem>
             {folders.map((f) => (
               <SelectItem key={f.id} value={f.id}>
                 {f.name}
@@ -288,7 +295,7 @@ function DocEditor({
       </div>
       <Textarea
         rows={8}
-        placeholder="Текст материала (markdown или обычный текст)"
+        placeholder={t("launcher.contexts.docTextPlaceholder")}
         value={draft.text}
         onChange={(e) => {
           onChange({ ...draft, text: e.target.value });
@@ -299,10 +306,10 @@ function DocEditor({
         <span className="text-hint text-muted-foreground">{formatChars(draft.text.length)}</span>
         <div className="flex gap-2">
           <Button variant="ghost" size="sm" onClick={onCancel}>
-            Отмена
+            {t("common.cancel")}
           </Button>
           <Button size="sm" onClick={onSave}>
-            Сохранить
+            {t("common.save")}
           </Button>
         </div>
       </div>
@@ -311,6 +318,7 @@ function DocEditor({
 }
 
 function EmptyDropZone({ onPick }: { onPick: () => void }) {
+  const { t } = useTranslation();
   return (
     <button
       type="button"
@@ -322,23 +330,28 @@ function EmptyDropZone({ onPick }: { onPick: () => void }) {
         <Upload className="size-4 text-muted-foreground" />
       </span>
       <span className="text-body text-foreground">
-        Перетащи .md, .txt или .pdf из {FILE_MANAGER_LABEL[PLATFORM]} — или нажми, чтобы выбрать
-        файлы
+        {t("launcher.contexts.dropHint", { fileManager: fileManagerLabel() })}
       </span>
       <span className="text-caption text-muted-foreground">
-        Материалы можно добавлять и текстом — кнопка «Материал»
+        {t("launcher.contexts.addAsTextHint")}
       </span>
     </button>
   );
 }
 
+const SUMMARY_SEPARATOR = " · ";
+
 function librarySummary(docCount: number, folderCount: number): string {
-  if (docCount === 0 && folderCount === 0) return "Библиотека пуста";
-  const docs = `матер.: ${String(docCount)}`;
-  return folderCount > 0 ? `${docs} · папок: ${String(folderCount)}` : docs;
+  if (docCount === 0 && folderCount === 0) return t("launcher.contexts.libraryEmpty");
+  const docs = t("launcher.contexts.summaryDocs", { count: docCount });
+  if (folderCount === 0) return docs;
+  return [docs, t("launcher.contexts.summaryFolders", { count: folderCount })].join(
+    SUMMARY_SEPARATOR,
+  );
 }
 
 export function ContextLibraryPanel({ api }: { api: ContextLibraryApi }) {
+  const { t } = useTranslation();
   const { library } = api;
   const [docDraft, setDocDraft] = useState<DocDraft | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -386,16 +399,18 @@ export function ContextLibraryPanel({ api }: { api: ContextLibraryApi }) {
               setDocDraft({ id: null, name: "", text: "", folderId: ROOT_FOLDER_ID });
             }}
           >
-            <Plus /> Материал
+            <Plus /> {t("launcher.contexts.addDoc")}
           </Button>
           <Button
             variant="ghost"
             size="compact"
             onClick={() => {
-              api.addFolder(`Папка ${String(library.folders.length + 1)}`);
+              api.addFolder(
+                t("launcher.contexts.folderName", { number: library.folders.length + 1 }),
+              );
             }}
           >
-            <FolderPlus /> Папка
+            <FolderPlus /> {t("launcher.contexts.addFolder")}
           </Button>
           <Button
             variant="ghost"
@@ -404,7 +419,7 @@ export function ContextLibraryPanel({ api }: { api: ContextLibraryApi }) {
               fileInputRef.current?.click();
             }}
           >
-            <Upload /> Импорт
+            <Upload /> {t("launcher.contexts.import")}
           </Button>
         </div>
         <input
@@ -447,11 +462,11 @@ export function ContextLibraryPanel({ api }: { api: ContextLibraryApi }) {
             )}
           >
             {library.folders.length > 0 && (
-              <SectionLabel className="px-1.5 pt-0.5 pb-1">Без папки</SectionLabel>
+              <SectionLabel className="px-1.5 pt-0.5 pb-1">{t("common.noFolder")}</SectionLabel>
             )}
             {roots.length === 0 && (
               <p className="px-1.5 pb-1 text-caption text-muted-foreground">
-                Перетащи файлы сюда, чтобы добавить без папки
+                {t("launcher.contexts.dropRootHint")}
               </p>
             )}
             {roots.map((doc) => (
@@ -499,7 +514,7 @@ export function ContextLibraryPanel({ api }: { api: ContextLibraryApi }) {
               <div className="ml-4 flex flex-col gap-0.5 border-l pl-2">
                 {docs.length === 0 && (
                   <p className="px-1.5 py-1 text-caption text-muted-foreground">
-                    Пусто — перетащи файлы сюда
+                    {t("launcher.contexts.dropFolderHint")}
                   </p>
                 )}
                 {docs.map((doc) => (

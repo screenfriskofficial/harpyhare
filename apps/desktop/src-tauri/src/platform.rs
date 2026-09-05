@@ -68,14 +68,12 @@ impl std::ops::BitOrAssign for ModifierMask {
     }
 }
 
+/// Разбор спеки модификаторов — через ту же таблицу алиасов, что и реестр
+/// хоткеев: `Control`/`Option`/`Command` значат то же, что `Ctrl`/`Alt`/`Cmd`.
 pub fn modifier_mask(spec: &str) -> ModifierMask {
     let mut mask = ModifierMask::EMPTY;
     for part in spec.split(hotkeys::COMBO_SEPARATOR) {
-        let token = part.trim();
-        if let Some(index) = hotkeys::MODIFIER_TOKENS
-            .iter()
-            .position(|m| m.eq_ignore_ascii_case(token))
-        {
+        if let Some(index) = hotkeys::modifier_index(part) {
             mask |= modifier_bit(index);
         }
     }

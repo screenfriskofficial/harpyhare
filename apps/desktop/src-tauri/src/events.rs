@@ -23,6 +23,7 @@ const EVENT_SCREENSHOT_READY: &str = "screenshot-ready";
 const EVENT_SCREENSHOT_ERROR: &str = "screenshot-error";
 const EVENT_FOCUS_PROMPT: &str = "focus-prompt";
 const EVENT_DUPLICATE_CHAT: &str = "duplicate-chat";
+const EVENT_HOTKEY_ERROR: &str = "hotkey-error";
 
 #[derive(Clone, serde::Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
@@ -147,6 +148,13 @@ pub fn screenshot_ready(app: &AppHandle, payload: ScreenshotReady) {
 
 pub fn screenshot_error(app: &AppHandle, error: AppError) {
     let _ = app.emit(EVENT_SCREENSHOT_ERROR, error);
+}
+
+/// Глобальный хоткей не зарегистрировался (сочетание занято другим
+/// приложением или не разобралось). Payload — тот же `AppError`, что у
+/// остальных ошибок: фронт показывает его тостом.
+pub fn hotkey_error(app: &AppHandle, error: AppError) {
+    let _ = app.emit(EVENT_HOTKEY_ERROR, error);
 }
 
 pub fn toggle_teleprompter(app: &AppHandle) {

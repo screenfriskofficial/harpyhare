@@ -1,14 +1,15 @@
 //! The LLM port and the Anthropic client.
 //!
 //! Adding a vendor touches three places and none of them is here: a row in
-//! `registry`, a module beside `openai`, and one arm in
+//! `registry`, a module beside `responses`, and one arm in
 //! `app_state::build_provider`. See «Как добавить нового LLM-вендора» in
 //! `apps/desktop/CLAUDE.md`.
 
+use crate::sync::LockUnpoisoned;
 use futures_util::StreamExt;
 use serde::Deserialize;
 use serde_json::{json, Value};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 use tokio_util::sync::CancellationToken;
 
@@ -18,6 +19,8 @@ use http::{Credential, LlmHttp};
 pub mod http;
 /// The OpenAI Responses dialect, shared by more than one vendor.
 pub mod responses;
+/// OpenAI-compatible Chat Completions as spoken by the Xclis aggregator.
+pub mod xclis;
 /// The one table a new vendor is declared in; exported to the frontend.
 pub mod registry;
 /// Dispatches each request to the vendor that owns the requested model.
@@ -42,7 +45,7 @@ const COUNT_TOKENS_PATH: &str = "/v1/messages/count_tokens";
 pub(crate) const MODELS_PATH: &str = "/v1/models";
 const MODELS_PAGE_LIMIT: u32 = 100;
 
-const API_KEY_HEADER: &str = "x-api-key";
+pub(crate) const API_KEY_HEADER: &str = "x-api-key";
 const VERSION_HEADER: &str = "anthropic-version";
 const ANTHROPIC_VERSION: &str = "2023-06-01";
 const ANTHROPIC_KEY_LABEL: &str = "Anthropic";
@@ -63,23 +66,41 @@ const HAIKU_PREFIX: &str = "claude-haiku";
 const ALWAYS_THINKING_PREFIXES: [&str; 2] = ["claude-fable", "claude-mythos"];
 
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
-const DEFAULT_READ_TIMEOUT: Duration = Duration::from_secs(60);
+/// Idle-таймаут чтения стрима — между двумя чанками, а не на весь ответ.
+/// Модели с длинным молчаливым рассуждением (gpt-5.5-pro, часть моделей
+/// Xclis) думают дольше минуты, не присылая ни байта; прежние 60 с роняли
+/// такой ответ в «Нет соединения». Мёртвое соединение ловит не он, а
+/// http2 keep-alive (интервал + таймаут ниже).
+pub(crate) const STREAM_IDLE_TIMEOUT: Duration = Duration::from_secs(5 * 60);
+/// Общий таймаут коротких JSON-вызовов (count_tokens, каталог): без него
+/// они наследовали бы пятиминутный idle стрима.
+pub(crate) const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 const HTTP2_KEEP_ALIVE_INTERVAL: Duration = Duration::from_secs(30);
 const HTTP2_KEEP_ALIVE_TIMEOUT: Duration = Duration::from_secs(5);
 const PROBE_CONNECT_TIMEOUT: Duration = Duration::from_secs(3);
 pub(crate) const WARM_UP_TIMEOUT: Duration = Duration::from_secs(5);
 pub(crate) const LIST_MODELS_TIMEOUT: Duration = Duration::from_secs(15);
 
-const SSE_EVENT_SEPARATOR: &str = "\n\n";
-const SSE_DATA_PREFIX: &str = "data: ";
+const SSE_DATA_FIELD: &str = "data:";
 
 const TRUNCATED_STREAM_ERROR: &str = "ответ оборван до завершения";
 pub(crate) const UNKNOWN_API_ERROR: &str = "неизвестная ошибка API";
+
+/// `error.type` Anthropic внутри 200-стрима, при которых повтор имеет смысл,
+/// и HTTP-эквивалент для `LlmError::Retryable`: перегрузка приходит именно
+/// так, событием, а не статусом, и без этой таблицы уезжала кодом `api`
+/// — без кнопки «Повторить» ровно там, где она нужна.
+const ANTHROPIC_RETRYABLE_ERROR_TYPES: [(&str, u16); 3] =
+    [("overloaded_error", 529), ("rate_limit_error", 429), ("api_error", 500)];
 
 #[derive(Debug, thiserror::Error)]
 pub enum LlmError {
     #[error("Неверный ключ {0} — проверь в настройках")]
     BadApiKey(&'static str),
+    /// 401/403 от relay: код доступа недействителен или исчерпан. Текст — от
+    /// самого relay, он знает причину. Симметрично `SttError::BadAccessCode`.
+    #[error("{0}")]
+    BadAccessCode(String),
     #[error("Сервис ответов перегружен, попробуй позже ({0})")]
     Retryable(u16),
     #[error("Нет соединения — проверь интернет/VPN: {0}")]
@@ -95,12 +116,38 @@ impl crate::error::CodedError for LlmError {
         use crate::error::ErrorCode;
         match self {
             LlmError::BadApiKey(_) => ErrorCode::BadApiKey,
+            LlmError::BadAccessCode(_) => ErrorCode::BadAccessCode,
             LlmError::Retryable(_) => ErrorCode::Retryable,
             LlmError::Network(_) => ErrorCode::Network,
             LlmError::Api(_) => ErrorCode::Api,
             LlmError::Cancelled => ErrorCode::Cancelled,
         }
     }
+}
+
+/// Сетевая ошибка с цепочкой причин: reqwest в `Display` прячет источник
+/// («error sending request»), а пользователю и логам нужен именно он —
+/// таймаут это, отказ TLS или DNS.
+pub(crate) fn network_error(err: reqwest::Error) -> LlmError {
+    let kind = if err.is_timeout() {
+        "таймаут"
+    } else if err.is_connect() {
+        "ошибка подключения"
+    } else if err.is_body() || err.is_decode() {
+        "ошибка чтения ответа"
+    } else {
+        "ошибка запроса"
+    };
+    let mut details = vec![err.to_string()];
+    let mut source = std::error::Error::source(&err);
+    while let Some(cause) = source {
+        let text = cause.to_string();
+        if !text.trim().is_empty() && !details.contains(&text) {
+            details.push(text);
+        }
+        source = cause.source();
+    }
+    LlmError::Network(format!("{kind}: {}", details.join(": ")))
 }
 
 pub type ModelCatalog = Arc<Mutex<Vec<ModelInfo>>>;
@@ -129,6 +176,13 @@ pub trait LlmStreamSink: Send {
 pub trait LlmProvider: Send + Sync {
     fn provider_id(&self) -> &'static str;
     fn known_models(&self) -> Vec<ModelInfo>;
+    /// Берётся ли вендор за модель, которой нет ни в живом каталоге, ни в его
+    /// офлайн-таблице. По умолчанию — только за известные; агрегатор со своим
+    /// неймспейсом (`xclis/…`) отвечает по префиксу, иначе после холодного
+    /// старта его модели уезжали бы к первому вендору роутера.
+    fn owns_model(&self, model_id: &str) -> bool {
+        self.known_models().iter().any(|m| m.id == model_id)
+    }
     async fn stream(
         &self,
         request: LlmRequest,
@@ -143,7 +197,7 @@ pub trait LlmProvider: Send + Sync {
 
 /// Sent on every Anthropic request; `warm_up` is the deliberate exception —
 /// it only opens the socket and throws the answer away.
-const ANTHROPIC_HEADERS: http::StaticHeaders = &[(VERSION_HEADER, ANTHROPIC_VERSION)];
+pub(crate) const ANTHROPIC_HEADERS: http::StaticHeaders = &[(VERSION_HEADER, ANTHROPIC_VERSION)];
 
 #[derive(Clone)]
 pub struct AnthropicClient {
@@ -232,28 +286,53 @@ pub fn web_search_value(info: Option<&ModelInfo>, model_id: &str, requested: boo
     Some(tool)
 }
 
-pub(crate) fn build_http_client(read_timeout: Duration) -> reqwest::Client {
-    reqwest::Client::builder()
+/// Что отличает пул одного вендора от пула другого.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct HttpClientOptions {
+    pub read_timeout: Duration,
+    /// Ходить ли через системный прокси. Xclis намеренно идёт мимо него.
+    pub system_proxy: bool,
+}
+
+impl Default for HttpClientOptions {
+    fn default() -> Self {
+        Self { read_timeout: STREAM_IDLE_TIMEOUT, system_proxy: true }
+    }
+}
+
+pub(crate) fn build_http_client(options: HttpClientOptions) -> reqwest::Client {
+    crate::tls::ensure_crypto_provider();
+    let mut builder = reqwest::Client::builder()
         .user_agent(APP_USER_AGENT)
         .connect_timeout(CONNECT_TIMEOUT)
-        .read_timeout(read_timeout)
+        .read_timeout(options.read_timeout)
         .pool_idle_timeout(None)
         .http2_keep_alive_interval(HTTP2_KEEP_ALIVE_INTERVAL)
         .http2_keep_alive_timeout(HTTP2_KEEP_ALIVE_TIMEOUT)
-        .http2_keep_alive_while_idle(true)
-        .build()
-        .expect("reqwest client")
+        .http2_keep_alive_while_idle(true);
+    if !options.system_proxy {
+        builder = builder.no_proxy();
+    }
+    builder.build().expect("reqwest client")
 }
 
-pub(crate) fn build_probe_http_client() -> reqwest::Client {
-    reqwest::Client::builder()
-        .user_agent(APP_USER_AGENT)
-        .connect_timeout(PROBE_CONNECT_TIMEOUT)
-        .timeout(WARM_UP_TIMEOUT)
-        .pool_max_idle_per_host(0)
-        .http1_only()
-        .build()
-        .expect("probe reqwest client")
+/// Клиент проб связи: короткие таймауты, без пула (`pool_max_idle_per_host(0)`),
+/// иначе проба паркуется за мёртвым keep-alive-соединением и висит куда дольше
+/// своего таймаута. Один на процесс: раньше он собирался заново на КАЖДУЮ
+/// пробу, то есть каждые несколько секунд в офлайне на каждого вендора.
+pub(crate) fn probe_http_client() -> &'static reqwest::Client {
+    static PROBE: OnceLock<reqwest::Client> = OnceLock::new();
+    PROBE.get_or_init(|| {
+        crate::tls::ensure_crypto_provider();
+        reqwest::Client::builder()
+            .user_agent(APP_USER_AGENT)
+            .connect_timeout(PROBE_CONNECT_TIMEOUT)
+            .timeout(WARM_UP_TIMEOUT)
+            .pool_max_idle_per_host(0)
+            .http1_only()
+            .build()
+            .expect("probe reqwest client")
+    })
 }
 
 pub(crate) async fn require_ok_status(
@@ -263,7 +342,9 @@ pub(crate) async fn require_ok_status(
 ) -> Result<reqwest::Response, LlmError> {
     match resp.status().as_u16() {
         200 => Ok(resp),
-        code @ (401 | 403) if proxy => Err(LlmError::Api(api_error_message(resp, code).await)),
+        code @ (401 | 403) if proxy => {
+            Err(LlmError::BadAccessCode(api_error_message(resp, code).await))
+        }
         401 | 403 => Err(LlmError::BadApiKey(key_label)),
         code @ (429 | 500..=599) => Err(LlmError::Retryable(code)),
         code => Err(LlmError::Api(api_error_message(resp, code).await)),
@@ -272,11 +353,23 @@ pub(crate) async fn require_ok_status(
 
 const ERROR_BODY_SNIPPET_CHARS: usize = 120;
 
+/// Текст ошибки из тела ответа любого вендора: `error.message` (Anthropic,
+/// OpenAI, relay), `err_msg` (Deepgram) или `message`; без JSON — сниппет тела.
+/// Один разбор на LLM и STT — раньше их было три, и у одного не-JSON тело
+/// выбрасывалось целиком.
 pub(crate) async fn api_error_message(resp: reqwest::Response, code: u16) -> String {
     let body = resp.text().await.unwrap_or_default();
     serde_json::from_str::<Value>(&body)
         .ok()
-        .and_then(|v| v["error"]["message"].as_str().map(str::to_string))
+        .and_then(|v| {
+            v["error"]["message"]
+                .as_str()
+                .or_else(|| v["err_msg"].as_str())
+                .or_else(|| v["message"].as_str())
+                .map(str::trim)
+                .filter(|m| !m.is_empty())
+                .map(str::to_string)
+        })
         .unwrap_or_else(|| {
             let snippet: String = body.trim().chars().take(ERROR_BODY_SNIPPET_CHARS).collect();
             if snippet.is_empty() {
@@ -287,6 +380,12 @@ pub(crate) async fn api_error_message(resp: reqwest::Response, code: u16) -> Str
         })
 }
 
+/// Качает SSE-ответ в `sink`. Конец потока без терминального события диалекта
+/// (`Done`) — обрыв, а не успех: usage у части вендоров приходит только в
+/// конце, и «тихий» EOF означал бы либо потерянные токены, либо `Ok` из
+/// реально оборванного ответа. Единственное исключение — диалект, у которого
+/// конец ответа объявляется раньше терминального события (`Finished`): после
+/// него EOF штатен.
 pub(crate) async fn pump_sse_stream(
     resp: reqwest::Response,
     mut parser: SseParser,
@@ -294,15 +393,20 @@ pub(crate) async fn pump_sse_stream(
     sink: &mut dyn LlmStreamSink,
 ) -> Result<(), LlmError> {
     let mut stream = resp.bytes_stream();
+    let mut finished = false;
     loop {
         let chunk = tokio::select! {
             c = stream.next() => c,
             _ = cancel.cancelled() => return Err(LlmError::Cancelled),
         };
         let Some(chunk) = chunk else {
-            return Err(LlmError::Network(TRUNCATED_STREAM_ERROR.into()));
+            return if finished {
+                Ok(())
+            } else {
+                Err(LlmError::Network(TRUNCATED_STREAM_ERROR.into()))
+            };
         };
-        let bytes = chunk.map_err(|e| LlmError::Network(e.to_string()))?;
+        let bytes = chunk.map_err(network_error)?;
         for out in parser.feed_bytes(&bytes) {
             match out {
                 SseOut::TextDelta(t) => sink.text_delta(&t),
@@ -313,7 +417,9 @@ pub(crate) async fn pump_sse_stream(
                     }
                     return Ok(());
                 }
+                SseOut::Finished => finished = true,
                 SseOut::ApiError(m) => return Err(LlmError::Api(m)),
+                SseOut::Retryable { code, .. } => return Err(LlmError::Retryable(code)),
             }
         }
     }
@@ -355,8 +461,7 @@ impl AnthropicClient {
 
     fn cached_model(&self, model_id: &str) -> Option<ModelInfo> {
         self.catalog
-            .lock()
-            .unwrap()
+            .lock_unpoisoned()
             .iter()
             .find(|m| m.id == model_id)
             .cloned()
@@ -438,12 +543,11 @@ impl LlmProvider for AnthropicClient {
         self.post_count_tokens(body).await
     }
 
+    /// Каталог только ЧИТАЕТСЯ отсюда (`capability_fields`); пишет его роутер,
+    /// сливая ответы всех вендоров. Запись отсюда затирала общий каталог
+    /// одними моделями Anthropic на время, пока роутер ждёт остальных.
     async fn list_models(&self) -> Result<Vec<ModelInfo>, LlmError> {
-        let models = self.fetch_models().await?;
-        if !models.is_empty() {
-            *self.catalog.lock().unwrap() = models.clone();
-        }
-        Ok(models)
+        self.fetch_models().await
     }
 
     async fn reachable(&self) -> bool {
@@ -561,21 +665,39 @@ pub fn build_request_body(
 pub enum SseOut {
     TextDelta(String),
     InputTokens(u32),
+    /// Терминальное событие диалекта. Usage внутри — для вендоров, которые
+    /// сообщают его только в конце (Responses: `response.completed`).
     Done(Option<u32>),
+    /// Диалект объявил конец ответа, но его терминальное событие ещё впереди
+    /// или его нет вовсе (Chat Completions: `finish_reason`, затем usage-чанк
+    /// и `[DONE]`). Поток читается дальше; EOF после этого — штатный конец.
+    Finished,
     ApiError(String),
+    /// Ошибка внутри 200-стрима, при которой стоит повторить (перегрузка,
+    /// лимит). `code` — HTTP-эквивалент для `LlmError::Retryable`.
+    Retryable { code: u16, message: String },
 }
 
-pub type SseBlockParser = fn(&str) -> Option<SseOut>;
+/// Разбор одного события: на вход — склеенная полезная нагрузка `data:`.
+pub type SseBlockParser = fn(&str) -> Vec<SseOut>;
 
+/// Фреймер SSE по спецификации, общий для всех диалектов.
+///
+/// Событие заканчивается пустой строкой (`\n\n`, `\r\n\r\n` или `\r\r`);
+/// полезная нагрузка — все строки `data:` события (пробел после двоеточия
+/// необязателен), склеенные через `\n`; `event:`, `id:`, `retry:` и
+/// комментарии пропускаются. Буфер байтовый: разделители — ASCII, поэтому
+/// многобайтовый символ, разрезанный сетевым чанком, дожидается своего
+/// хвоста внутри события сам, без отдельной UTF-8-склейки. Блок-парсер
+/// диалекта получает уже склеенную нагрузку, а не сырой блок.
 pub struct SseParser {
-    buf: String,
-    tail: Vec<u8>,
+    buffer: Vec<u8>,
+    search_from: usize,
     parse_block: SseBlockParser,
 }
 
-pub(crate) fn sse_data_json(block: &str) -> Option<Value> {
-    let data_line = block.lines().find(|l| l.starts_with(SSE_DATA_PREFIX))?;
-    serde_json::from_str(&data_line[SSE_DATA_PREFIX.len()..]).ok()
+pub(crate) fn sse_data_json(data: &str) -> Option<Value> {
+    serde_json::from_str(data).ok()
 }
 
 impl SseParser {
@@ -584,75 +706,105 @@ impl SseParser {
     }
 
     pub fn with_block_parser(parse_block: SseBlockParser) -> Self {
-        Self { buf: String::new(), tail: Vec::new(), parse_block }
+        Self { buffer: Vec::new(), search_from: 0, parse_block }
     }
 
     pub fn feed(&mut self, chunk: &str) -> Vec<SseOut> {
-        self.buf.push_str(chunk);
-        let mut out = Vec::new();
-        let mut start = 0;
-        while let Some(rel) = self.buf[start..].find(SSE_EVENT_SEPARATOR) {
-            let pos = start + rel;
-            if let Some(parsed) = (self.parse_block)(&self.buf[start..pos]) {
-                out.push(parsed);
-            }
-            start = pos + SSE_EVENT_SEPARATOR.len();
-        }
-        self.buf.drain(..start);
-        out
+        self.feed_bytes(chunk.as_bytes())
     }
 
     pub fn feed_bytes(&mut self, chunk: &[u8]) -> Vec<SseOut> {
-        if self.tail.is_empty() {
-            if let Ok(s) = std::str::from_utf8(chunk) {
-                return self.feed(s);
+        self.buffer.extend_from_slice(chunk);
+        let mut out = Vec::new();
+        let mut consumed = 0;
+        while let Some((offset, separator_len)) = find_sse_separator(&self.buffer[self.search_from..]) {
+            let end = self.search_from + offset;
+            let payload = sse_event_data(&self.buffer[consumed..end]);
+            consumed = end + separator_len;
+            self.search_from = consumed;
+            if !payload.is_empty() {
+                out.extend((self.parse_block)(&payload));
             }
         }
-        let data = if self.tail.is_empty() {
-            chunk.to_vec()
-        } else {
-            let mut v = std::mem::take(&mut self.tail);
-            v.extend_from_slice(chunk);
-            v
-        };
-        match std::str::from_utf8(&data) {
-            Ok(s) => self.feed(s),
-            Err(e) => {
-                let valid = e.valid_up_to();
-                let s = std::str::from_utf8(&data[..valid]).expect("проверено valid_up_to");
-                let out = self.feed(s);
-                // error_len() == None — символ разорван границей чанка, ждём хвост.
-                // Some(n) — байты битые: пропускаем их, иначе они остаются в tail
-                // навсегда, поток встаёт молча и выглядит как обрыв сети.
-                self.tail = match e.error_len() {
-                    None => data[valid..].to_vec(),
-                    Some(bad) => data[valid + bad..].to_vec(),
-                };
-                out
-            }
-        }
+        // Compact once per network chunk, rather than shifting the remaining
+        // bytes once per event. Only a split separator needs to be rescanned.
+        self.buffer.drain(..consumed);
+        const LONGEST_SEPARATOR: usize = 4;
+        self.search_from = self.buffer.len().saturating_sub(LONGEST_SEPARATOR - 1);
+        out
     }
 }
 
-fn parse_anthropic_block(block: &str) -> Option<SseOut> {
-    let v = sse_data_json(block)?;
-    match v["type"].as_str()? {
-        "content_block_delta" if v["delta"]["type"] == "text_delta" => {
-            Some(SseOut::TextDelta(v["delta"]["text"].as_str()?.to_string()))
+/// Позиция и длина первого разделителя событий в буфере.
+fn find_sse_separator(bytes: &[u8]) -> Option<(usize, usize)> {
+    for i in 0..bytes.len() {
+        match bytes[i] {
+            b'\n' if bytes.get(i + 1) == Some(&b'\n') => return Some((i, 2)),
+            b'\r' => {
+                if bytes.get(i + 1) == Some(&b'\n')
+                    && bytes.get(i + 2) == Some(&b'\r')
+                    && bytes.get(i + 3) == Some(&b'\n')
+                {
+                    return Some((i, 4));
+                }
+                if bytes.get(i + 1) == Some(&b'\r') {
+                    return Some((i, 2));
+                }
+            }
+            _ => {}
         }
-        "message_start" => {
+    }
+    None
+}
+
+/// Склеенная нагрузка `data:`-строк одного события.
+fn sse_event_data(event: &[u8]) -> String {
+    let text = String::from_utf8_lossy(event);
+    let mut data = String::new();
+    let mut has_data = false;
+    for line in text.split(['\n', '\r']) {
+        let Some(value) = line.strip_prefix(SSE_DATA_FIELD) else {
+            continue;
+        };
+        let value = value.strip_prefix(' ').unwrap_or(value);
+        if has_data {
+            data.push('\n');
+        }
+        has_data = true;
+        data.push_str(value);
+    }
+    data
+}
+
+fn anthropic_error_out(error: &Value) -> SseOut {
+    let message = error["message"].as_str().unwrap_or(UNKNOWN_API_ERROR).to_string();
+    let kind = error["type"].as_str().unwrap_or_default();
+    match ANTHROPIC_RETRYABLE_ERROR_TYPES.iter().find(|(t, _)| *t == kind) {
+        Some((_, code)) => SseOut::Retryable { code: *code, message },
+        None => SseOut::ApiError(message),
+    }
+}
+
+fn parse_anthropic_block(data: &str) -> Vec<SseOut> {
+    let Some(v) = sse_data_json(data) else {
+        return Vec::new();
+    };
+    let out = match v["type"].as_str() {
+        Some("content_block_delta") if v["delta"]["type"] == "text_delta" => {
+            v["delta"]["text"].as_str().map(|t| SseOut::TextDelta(t.to_string()))
+        }
+        Some("message_start") => {
             let usage = &v["message"]["usage"];
             let total = usage["input_tokens"].as_u64().unwrap_or(0)
                 + usage["cache_read_input_tokens"].as_u64().unwrap_or(0)
                 + usage["cache_creation_input_tokens"].as_u64().unwrap_or(0);
             (total > 0).then_some(SseOut::InputTokens(total as u32))
         }
-        "message_stop" => Some(SseOut::Done(None)),
-        "error" => Some(SseOut::ApiError(
-            v["error"]["message"].as_str().unwrap_or(UNKNOWN_API_ERROR).to_string(),
-        )),
+        Some("message_stop") => Some(SseOut::Done(None)),
+        Some("error") => Some(anthropic_error_out(&v["error"])),
         _ => None,
-    }
+    };
+    out.into_iter().collect()
 }
 
 #[cfg(test)]

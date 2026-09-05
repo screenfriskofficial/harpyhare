@@ -1,4 +1,3 @@
-use futures_util::StreamExt;
 use harpyhare_lib::stt::SttEngine;
 
 const DOTENV_RELATIVE_PATH: &str = "../.env";
@@ -39,17 +38,13 @@ fn spawn_realtime_tone_producer(tx: tokio::sync::mpsc::Sender<ChunkResult>) {
     });
 }
 
-fn streaming_wav_body(
+/// Сырой PCM: WAV-заголовок подшивает сам клиент (контейнер — забота транспорта).
+fn streaming_pcm_body(
     rx: tokio::sync::mpsc::Receiver<ChunkResult>,
 ) -> harpyhare_lib::stt::AudioChunkStream {
-    let header = harpyhare_lib::audio::wav_header_streaming().to_vec();
-    Box::pin(
-        futures_util::stream::iter([Ok::<Vec<u8>, std::io::Error>(header)]).chain(
-            futures_util::stream::unfold(rx, |mut rx| async move {
-                rx.recv().await.map(|item| (item, rx))
-            }),
-        ),
-    )
+    Box::pin(futures_util::stream::unfold(rx, |mut rx| async move {
+        rx.recv().await.map(|item| (item, rx))
+    }))
 }
 
 fn main() {
@@ -66,7 +61,7 @@ fn main() {
     rt.block_on(async move {
         let (tx, rx) = tokio::sync::mpsc::channel::<ChunkResult>(CHANNEL_CAPACITY);
         spawn_realtime_tone_producer(tx);
-        let body = streaming_wav_body(rx);
+        let body = streaming_pcm_body(rx);
 
         let t = std::time::Instant::now();
         let res = stt

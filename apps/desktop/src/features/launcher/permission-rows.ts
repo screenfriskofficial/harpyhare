@@ -1,27 +1,23 @@
 import { AudioLines, Monitor, type LucideIcon } from "lucide-react";
+import { t } from "@/i18n";
 import type { PermissionKind } from "@/ipc/bindings";
 
+/** Реестр без текста: название и назначение доступа переводятся по `kind`. */
 export interface PermissionRow {
   kind: PermissionKind;
-  title: string;
-  purpose: string;
   icon: LucideIcon;
   required: boolean;
 }
 
 export const PERMISSION_ROWS: PermissionRow[] = [
-  {
-    kind: "audio",
-    title: "Запись системного звука",
-    purpose: "Приложение слышит собеседника и расшифровывает речь. Без него запускать нечего.",
-    icon: AudioLines,
-    required: true,
-  },
-  {
-    kind: "screen",
-    title: "Запись экрана",
-    purpose: "Нужна снимку области экрана. Без неё работает всё остальное.",
-    icon: Monitor,
-    required: false,
-  },
+  { kind: "audio", icon: AudioLines, required: true },
+  { kind: "screen", icon: Monitor, required: false },
 ];
+
+export function permissionTitle(kind: PermissionKind): string {
+  return t(`launcher.permissions.rows.${kind}.title`);
+}
+
+export function permissionPurpose(kind: PermissionKind): string {
+  return t(`launcher.permissions.rows.${kind}.purpose`);
+}

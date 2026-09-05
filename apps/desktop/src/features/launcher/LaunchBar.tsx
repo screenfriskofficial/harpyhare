@@ -1,9 +1,11 @@
 import { ChevronRight, Play } from "lucide-react";
 import type { ReactNode } from "react";
+import { useTranslation } from "react-i18next";
 import { StatusOrb } from "@/components/StatusOrb";
 import { Button } from "@/components/ui/button";
 import { ORB_STATE_IDLE } from "@/components/ui/thinking-orbs";
 import { useWindowDrag } from "@/hooks/useWindowDrag";
+import { t } from "@/i18n";
 import { BRAND_NAME } from "@/lib/brand";
 import { PLATFORM } from "@/lib/platform";
 import { cn } from "@/lib/utils";
@@ -12,12 +14,12 @@ import type { LauncherBlocker, LauncherReadiness } from "./useLauncherReadiness"
 const MACOS_TRAFFIC_LIGHTS_CLASS = PLATFORM === "macos" ? "pl-16" : "";
 
 function statusText(readiness: LauncherReadiness, launching: boolean, saving: boolean): string {
-  if (launching) return "Запускаю основное окно…";
-  if (readiness.checking) return "Проверяю доступы…";
-  if (saving) return "Сохраняю…";
+  if (launching) return t("launcher.status.launching");
+  if (readiness.checking) return t("launcher.status.checking");
+  if (saving) return t("launcher.status.saving");
   const blocker = readiness.blockers[0];
   if (blocker) return blocker.label;
-  return "Всё готово к запуску";
+  return t("launcher.status.ready");
 }
 
 function StatusLine({
@@ -89,6 +91,7 @@ export function LaunchBar({
   onGoToBlocker: (blocker: LauncherBlocker) => void;
   onLaunch: () => void;
 }) {
+  const { t } = useTranslation();
   const onDragMouseDown = useWindowDrag();
   return (
     <header
@@ -120,7 +123,7 @@ export function LaunchBar({
           onClick={onLaunch}
         >
           <Play className="size-3" aria-hidden />
-          {launching ? "Запускаю…" : "Запустить"}
+          {launching ? t("launcher.launching") : t("launcher.launch")}
         </Button>
       </div>
     </header>

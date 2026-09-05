@@ -6,16 +6,16 @@ import {
   SlidersHorizontal,
   type LucideIcon,
 } from "lucide-react";
+import { t } from "@/i18n";
 import { PLATFORM, type Platform } from "@/lib/platform";
 
 export const SCREEN_GROUPS = ["content", "system"] as const;
 
 export type ScreenGroup = (typeof SCREEN_GROUPS)[number];
 
+/** Реестр без текста: подпись и описание экрана переводятся по `id` (`launcher.screens.*`). */
 interface ScreenMeta {
   id: string;
-  label: string;
-  description: string;
   icon: LucideIcon;
   group: ScreenGroup;
   platforms?: readonly Platform[];
@@ -24,45 +24,22 @@ interface ScreenMeta {
 const MACOS_ONLY: readonly Platform[] = ["macos"];
 
 export const LAUNCHER_SCREENS = [
-  {
-    id: "contexts",
-    label: "Контексты",
-    description: "Справочные материалы, которые можно подмешать в системный промпт чата.",
-    icon: Library,
-    group: "content",
-  },
-  {
-    id: "presets",
-    label: "Пресеты",
-    description: "Препромпты: текст, который встаёт в начало системного промпта.",
-    icon: MessageSquareText,
-    group: "content",
-  },
-  {
-    id: "settings",
-    label: "Настройки",
-    description: "Доступ к API, распознавание речи, клавиши, поведение и вид.",
-    icon: SlidersHorizontal,
-    group: "system",
-  },
-  {
-    id: "permissions",
-    label: "Доступы",
-    description: "Системные разрешения, без которых часть приложения не работает.",
-    icon: ShieldCheck,
-    group: "system",
-    platforms: MACOS_ONLY,
-  },
-  {
-    id: "updates",
-    label: "Обновления",
-    description: "Версия приложения и установка новой.",
-    icon: Download,
-    group: "system",
-  },
+  { id: "contexts", icon: Library, group: "content" },
+  { id: "presets", icon: MessageSquareText, group: "content" },
+  { id: "settings", icon: SlidersHorizontal, group: "system" },
+  { id: "permissions", icon: ShieldCheck, group: "system", platforms: MACOS_ONLY },
+  { id: "updates", icon: Download, group: "system" },
 ] as const satisfies readonly ScreenMeta[];
 
 export type ScreenId = (typeof LAUNCHER_SCREENS)[number]["id"];
+
+export function screenLabel(id: ScreenId): string {
+  return t(`launcher.screens.${id}.label`);
+}
+
+export function screenDescription(id: ScreenId): string {
+  return t(`launcher.screens.${id}.description`);
+}
 
 export const DEFAULT_SCREEN: ScreenId = "settings";
 
@@ -72,8 +49,4 @@ function availableOn(screen: ScreenMeta, platform: Platform): boolean {
 
 export function screenGroup(group: ScreenGroup, platform: Platform = PLATFORM) {
   return LAUNCHER_SCREENS.filter((s) => s.group === group && availableOn(s, platform));
-}
-
-export function screenMeta(id: ScreenId) {
-  return LAUNCHER_SCREENS.find((s) => s.id === id) ?? LAUNCHER_SCREENS[0];
 }

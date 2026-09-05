@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
+import { useTranslation } from "react-i18next";
 import { AnswerPanel } from "@/components/AnswerPanel";
 import { AppHeader, type UpdateBadge } from "@/components/AppHeader";
 import { Composer } from "@/components/Composer";
@@ -40,6 +41,7 @@ import { useUnreadChats } from "@/hooks/useUnreadChats";
 import { useUpdater, type UpdaterStatus } from "@/hooks/useUpdater";
 import { useWindowControls } from "@/hooks/useWindowControls";
 import { useWindowFrame } from "@/hooks/useWindowFrame";
+import { t } from "@/i18n";
 import { copyImageToClipboard, startWindowDrag, stopMainWindow } from "@/ipc/commands";
 import { onEvent } from "@/ipc/events";
 import type { QuickAction, UpdateInfo } from "@/ipc/types";
@@ -56,18 +58,12 @@ import { imagePngBase64, messageCopyImage, messageCopyText } from "@/lib/message
 import { isActivityStatus } from "@/lib/mini-status";
 import { defaultModelFor } from "@/lib/models";
 import { DEFAULT_MODE, nextMode, NOTES_MODE, type AppModeId } from "@/lib/modes";
-import { GENERIC_ERROR_TOAST_TITLE, notify } from "@/lib/notify";
+import { notify } from "@/lib/notify";
 import { keyboardLayerOpen } from "@/lib/portalled-layers";
 import { mergePresets } from "@/lib/presets";
 import { filledQuickActions } from "@/lib/quick-actions";
 import { chatColumnWidthPx, SHELL_COLUMN_GAP_PX, SHELL_PADDING_PX } from "@/lib/shell-layout";
 import { chatPromptSources, chatSystemPrompt } from "@/lib/system-prompt";
-
-const leaveSaveErrorText = (err: unknown) =>
-  `Не удалось сохранить перед выходом, окно оставлено открытым: ${String(err)}`;
-const COPY_IMAGE_ERROR_TEXT = "Не удалось скопировать картинку в буфер обмена";
-const RETRY_ANSWER_LABEL = "Повторить запрос — ответ не пришёл";
-const RETRY_TRANSCRIPTION_LABEL = "Повторить распознавание";
 
 function lastHtmlBlock(markdown: string): string | undefined {
   const blocks = extractHtmlBlocks(markdown);
@@ -93,13 +89,14 @@ function copyMessageToClipboard(message: ChatMessage): void {
     .catch(() => {
       notify({
         variant: "error",
-        title: GENERIC_ERROR_TOAST_TITLE,
-        message: COPY_IMAGE_ERROR_TEXT,
+        title: t("common.error"),
+        message: t("errors.copyImageFailed"),
       });
     });
 }
 
 export default function App() {
+  const { t: tr } = useTranslation();
   const {
     settings,
     loading: settingsLoading,
@@ -463,8 +460,8 @@ export default function App() {
       .catch((err: unknown) => {
         notify({
           variant: "error",
-          title: GENERIC_ERROR_TOAST_TITLE,
-          message: leaveSaveErrorText(err),
+          title: t("common.error"),
+          message: t("errors.leaveSaveFailed", { error: String(err) }),
         });
       });
   }, [flushChats, flushLibrary, flushSettings]);
@@ -578,7 +575,11 @@ export default function App() {
               onRestoreFocus={focusPromptSoon}
               streaming={activeStreaming}
               showRetry={answerRetry !== null || showRetry}
-              retryLabel={answerRetry !== null ? RETRY_ANSWER_LABEL : RETRY_TRANSCRIPTION_LABEL}
+              retryLabel={
+                answerRetry !== null
+                  ? tr("hud.composer.retryAnswer")
+                  : tr("hud.composer.retryTranscription")
+              }
               presets={presets}
               library={contextLibrary.library}
               models={models}

@@ -1,4 +1,5 @@
-import { vi } from "vitest";
+import i18next from "i18next";
+import { beforeEach, vi } from "vitest";
 
 const jestTimersShimForTestingLibrary = {
   advanceTimersByTime: (ms: number) => vi.advanceTimersByTime(ms),
@@ -33,3 +34,11 @@ if (typeof globalThis.localStorage === "undefined") {
     writable: true,
   });
 }
+
+// jsdom reports English system languages; tests assert the source-language
+// text, so every test starts in it regardless of the machine it runs on.
+// Load bindings after each test file has installed its Tauri mocks.
+beforeEach(async () => {
+  const { SOURCE_LANGUAGE } = await import("@/i18n");
+  await i18next.changeLanguage(SOURCE_LANGUAGE);
+});

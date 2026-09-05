@@ -1,5 +1,6 @@
 import { AlertCircle, AlertTriangle, CheckCircle, Info, X } from "lucide-react";
 import type { ComponentType, CSSProperties } from "react";
+import { useTranslation } from "react-i18next";
 import { Toaster as SonnerToaster } from "sonner";
 import { cn } from "@/lib/utils";
 import "sonner/dist/styles.css";
@@ -15,7 +16,6 @@ export type ToastVariant = "default" | "success" | "error" | "warning";
 const TOAST_OFFSET_PX = 12;
 const TOAST_GAP_PX = 8;
 const VISIBLE_TOASTS = 3;
-const DISMISS_LABEL = "Закрыть";
 
 const VARIANT_FRAME: Record<ToastVariant, string> = {
   default: "border-border",
@@ -63,6 +63,7 @@ export function ToastCard({
   action?: ToastAction;
   onDismiss: () => void;
 }) {
+  const { t } = useTranslation();
   const Icon = VARIANT_ICONS[variant];
   return (
     <div
@@ -95,7 +96,7 @@ export function ToastCard({
         type="button"
         onClick={onDismiss}
         className="rounded-sm p-1 text-muted-foreground transition-colors hover:bg-surface hover:text-foreground"
-        aria-label={DISMISS_LABEL}
+        aria-label={t("common.close")}
       >
         <X className="size-3" />
       </button>

@@ -136,3 +136,35 @@ fn normalize_collapses_blank_runs_and_trims() {
 fn normalize_yields_empty_for_whitespace_only() {
     assert_eq!(normalize_extracted_text("  \n\n\t\r\n \u{c}"), "");
 }
+
+#[test]
+fn text_files_outside_utf8_are_reported_not_mangled() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("cp1251.txt");
+    std::fs::write(&path, [0xcf_u8, 0xf0, 0xe8, 0xe2, 0xe5, 0xf2]).unwrap();
+    assert_eq!(read_import_file(&path).unwrap_err(), ERR_TEXT_NOT_UTF8);
+}
+
+#[test]
+fn oversized_base64_is_rejected_before_it_is_decoded() {
+    // 4 символа base64 на 3 байта: строка длиннее лимита в 4/3 раза заведомо
+    // не влезет, и декодировать её целиком незачем.
+    let too_long = "A".repeat((PDF_MAX_BYTES as usize / 3 + 1) * 4);
+    assert_eq!(read_pdf_base64(&too_long).unwrap_err(), too_large_message(PDF_MAX_BYTES));
+}
+
+#[test]
+fn bounded_reader_accepts_the_limit_but_stops_an_unbounded_source() {
+    const LIMIT: u64 = 16;
+    assert_eq!(read_limited(&[b'x'; LIMIT as usize][..], LIMIT).unwrap().len(), LIMIT as usize);
+    assert_eq!(read_limited(std::io::repeat(b'x'), LIMIT).unwrap_err(), too_large_message(LIMIT));
+}
+
+#[test]
+fn base64_pdf_at_the_exact_size_limit_is_not_rejected_for_padding() {
+    let mut pdf = text_pdf();
+    pdf.resize(PDF_MAX_BYTES as usize, b' ');
+    let encoded = STANDARD.encode(&pdf);
+    assert!(encoded.ends_with('='));
+    assert_eq!(decode_pdf_base64(&encoded).unwrap(), pdf);
+}

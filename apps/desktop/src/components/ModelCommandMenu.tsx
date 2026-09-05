@@ -1,4 +1,5 @@
 import { Check, Lock } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import {
   CommandDialog,
   CommandEmpty,
@@ -7,7 +8,7 @@ import {
   CommandItem,
   CommandList,
 } from "@/components/ui/command";
-import { MISSING_KEY_HINT } from "@/lib/api-keys";
+import { missingKeyHint } from "@/lib/api-keys";
 import {
   modelGroups,
   modelLabel,
@@ -18,18 +19,11 @@ import {
 import { STT_PROVIDERS } from "@/lib/stt-providers";
 import { cn } from "@/lib/utils";
 
-const MENU_TITLE = "Модели";
-const MENU_DESCRIPTION = "Выбор голосовой модели и модели ответа";
-const INPUT_PLACEHOLDER = "Найти модель…";
-const EMPTY_TEXT = "Ничего не найдено.";
-const PENDING_GROUP_HEADING = "Загружаем каталог";
-const VOICE_GROUP_HEADING = "Голосовая модель";
-const ANSWER_GROUP_HEADING = "Модель ответа";
 const PROVIDER_HEADING_SEPARATOR = " · ";
 
-function answerGroupHeading(group: ModelGroup, groupCount: number): string {
-  if (groupCount < 2) return ANSWER_GROUP_HEADING;
-  return `${ANSWER_GROUP_HEADING}${PROVIDER_HEADING_SEPARATOR}${group.label}`;
+function answerGroupHeading(heading: string, group: ModelGroup, groupCount: number): string {
+  if (groupCount < 2) return heading;
+  return `${heading}${PROVIDER_HEADING_SEPARATOR}${group.label}`;
 }
 
 interface ModelCommandMenuProps {
@@ -90,6 +84,9 @@ export function ModelCommandMenu({
   onSelectModel,
   onRestoreFocus,
 }: ModelCommandMenuProps) {
+  const { t } = useTranslation();
+  const voiceHeading = t("hud.modelMenu.voice");
+  const answerHeading = t("hud.modelMenu.answer");
   // Известные модели показываем сразу и обычными: они настоящие, из статических
   // реестров, и прятать их ради ещё не пришедшего динамического каталога значит
   // заблокировать заведомо рабочий выбор. Предварительность касается ТОЛЬКО
@@ -105,24 +102,24 @@ export function ModelCommandMenu({
     <CommandDialog
       open={open}
       onOpenChange={onOpenChange}
-      title={MENU_TITLE}
-      description={MENU_DESCRIPTION}
+      title={t("hud.modelMenu.title")}
+      description={t("hud.modelMenu.description")}
       onCloseAutoFocus={(event) => {
         event.preventDefault();
         onRestoreFocus();
       }}
     >
-      <CommandInput placeholder={INPUT_PLACEHOLDER} />
+      <CommandInput placeholder={t("hud.modelMenu.placeholder")} />
       <CommandList>
-        <CommandEmpty>{EMPTY_TEXT}</CommandEmpty>
-        <CommandGroup heading={VOICE_GROUP_HEADING}>
+        <CommandEmpty>{t("hud.modelMenu.empty")}</CommandEmpty>
+        <CommandGroup heading={voiceHeading}>
           {STT_PROVIDERS.map((p) => {
             const missingKey = providersMissingKey.includes(p.id);
             return (
               <CommandItem
                 key={p.id}
                 value={p.label}
-                keywords={[VOICE_GROUP_HEADING]}
+                keywords={[voiceHeading]}
                 disabled={missingKey}
                 onSelect={() => {
                   onSwitchSttProvider(p.id);
@@ -133,7 +130,7 @@ export function ModelCommandMenu({
                 {p.label}
                 {missingKey && (
                   <span className="ml-auto text-hint text-muted-foreground">
-                    {MISSING_KEY_HINT}
+                    {missingKeyHint()}
                   </span>
                 )}
                 <ActiveMark active={p.id === sttProvider} />
@@ -144,12 +141,15 @@ export function ModelCommandMenu({
         {answerGroups.map((group) => {
           const locked = modelProvidersMissingKey.includes(group.id);
           return (
-            <CommandGroup key={group.id} heading={answerGroupHeading(group, answerGroups.length)}>
+            <CommandGroup
+              key={group.id}
+              heading={answerGroupHeading(answerHeading, group, answerGroups.length)}
+            >
               {group.models.map((m) => (
                 <CommandItem
                   key={m.id}
                   value={modelLabel(m)}
-                  keywords={[ANSWER_GROUP_HEADING, group.label]}
+                  keywords={[answerHeading, group.label]}
                   disabled={locked}
                   onSelect={() => {
                     onSelectModel(m.id);
@@ -160,7 +160,7 @@ export function ModelCommandMenu({
                   {modelLabel(m)}
                   {locked && (
                     <span className="ml-auto text-hint text-muted-foreground">
-                      {MISSING_KEY_HINT}
+                      {missingKeyHint()}
                     </span>
                   )}
                   <ActiveMark active={m.id === activeModelId} />
@@ -170,7 +170,7 @@ export function ModelCommandMenu({
           );
         })}
         {modelsPending && (
-          <CommandGroup heading={PENDING_GROUP_HEADING}>
+          <CommandGroup heading={t("hud.modelMenu.pending")}>
             {!activeIsKnown && (
               <CommandItem value={activeModelId} disabled>
                 {activeModelId}

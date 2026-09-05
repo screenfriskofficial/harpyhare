@@ -10,6 +10,9 @@ const OS_STATUS_ILLEGAL_OPERATION: i32 = i32::from_be_bytes(*b"!hog");
 const SAMPLE_BYTES: usize = std::mem::size_of::<f32>();
 const F32_BITS_PER_CHANNEL: u32 = (SAMPLE_BYTES * 8) as u32;
 const AGGREGATE_DEVICE_NAME: &cf::String = cf::str!(c"audio-system-tap");
+/// Больше входных буферов у aggregate-устройства не бывает; защита от мусора
+/// в `number_buffers`, прочитанного из чужой C-структуры.
+const MAX_INPUT_BUFFERS: usize = 16;
 
 fn from_os(err: os::Error) -> CaptureError {
     if err.0.get() == OS_STATUS_ILLEGAL_OPERATION {
@@ -24,12 +27,20 @@ pub struct Source {
     device: ca::AggregateDevice,
 }
 
+/// Порядок полей — это порядок drop, и он обязателен: сначала останавливается
+/// устройство (`_started`), после чего IO-колбэк гарантированно не в полёте,
+/// потом уничтожается тап и только затем — `_ctx`, на который колбэк ссылался.
 pub struct Running {
     _started: ca::hardware::StartedDevice<ca::AggregateDevice>,
     _tap: ca::TapGuard,
     _ctx: Box<CallbackCtx>,
 }
 
+// SAFETY: внутри — идентификаторы объектов Core Audio (`u32`-хэндлы, потокобезопасны
+// по контракту HAL), guard тапа с таким же идентификатором и `Box<CallbackCtx>`,
+// к которому из Rust после `start` никто не обращается: его читает только
+// C-колбэк в IO-потоке, а он останавливается раньше, чем `_ctx` дропается.
+// Перемещение `Running` между потоками ничего из этого не нарушает.
 unsafe impl Send for Running {}
 
 fn device_has_output(device: &ca::Device) -> bool {
@@ -154,19 +165,55 @@ extern "C" fn io_proc(
         return os::Status::NO_ERR;
     }
 
-    let abuf = &input_data.buffers[0];
+    let Some(abuf) = tap_buffer(input_data, ctx.shared.channels) else {
+        return os::Status::NO_ERR;
+    };
     if abuf.data.is_null() || abuf.data_bytes_size == 0 {
         return os::Status::NO_ERR;
     }
-
-    debug_assert_eq!(abuf.data_bytes_size as usize % SAMPLE_BYTES, 0);
-    let n = abuf.data_bytes_size as usize / SAMPLE_BYTES;
+    let bytes = abuf.data_bytes_size as usize;
+    // Паника здесь недопустима (граница FFI в IO-потоке HAL) — неполный
+    // сэмпл в хвосте просто отбрасывается.
+    if !bytes.is_multiple_of(SAMPLE_BYTES)
+        || !(abuf.data as usize).is_multiple_of(std::mem::align_of::<f32>())
+    {
+        return os::Status::NO_ERR;
+    }
+    let n = bytes / SAMPLE_BYTES;
     let samples = unsafe { std::slice::from_raw_parts(abuf.data as *const f32, n) };
     ctx.push_samples(samples);
 
     os::Status::NO_ERR
 }
 
+/// Буфер тапа среди входных буферов aggregate-устройства.
+///
+/// Обычно он один. Но если у устройства вывода есть и вход (гарнитура,
+/// USB-интерфейс), aggregate отдаёт ещё и его микрофон, и слепое `buffers[0]`
+/// могло молча записывать микрофон вместо системного звука. Тап узнаётся по
+/// числу каналов (его формат известен из `open`); при нескольких кандидатах
+/// берётся последний — потоки тапов идут после потоков sub-устройств.
+fn tap_buffer(input_data: &cat::AudioBufList<1>, tap_channels: usize) -> Option<&cat::AudioBuf> {
+    let count = (input_data.number_buffers as usize).min(MAX_INPUT_BUFFERS);
+    if count == 0 {
+        return None;
+    }
+    if count == 1 {
+        return Some(&input_data.buffers[0]);
+    }
+    // SAFETY: у C-структуры AudioBufferList за `mNumberBuffers` лежат ровно
+    // `mNumberBuffers` смежных `AudioBuffer`; `count` ограничен сверху.
+    let buffers: &[cat::AudioBuf] =
+        unsafe { std::slice::from_raw_parts(input_data.buffers.as_ptr(), count) };
+    buffers
+        .iter()
+        .rev()
+        .find(|b| b.number_channels as usize == tap_channels)
+        .or_else(|| buffers.last())
+}
+
+/// Колбэк HAL: паника из `notify()` (например, при остановленном рантайме на
+/// выходе) не должна раскручиваться в кадры Core Audio — ловим её здесь.
 extern "C-unwind" fn on_default_output_device_changed(
     _obj: ca::Obj,
     _number_addresses: u32,
@@ -174,7 +221,7 @@ extern "C-unwind" fn on_default_output_device_changed(
     client_data: *mut DeviceChangeHandler,
 ) -> os::Status {
     let notify = unsafe { &*client_data };
-    notify();
+    let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(notify));
     os::Status::NO_ERR
 }
 

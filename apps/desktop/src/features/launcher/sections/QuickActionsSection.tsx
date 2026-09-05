@@ -1,4 +1,5 @@
 import { Plus, Trash2 } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import { IconButton } from "@/components/IconButton";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -6,7 +7,13 @@ import { SelectItem } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { MODIFIER_COMBOS, QUICK_ACTION_LIMIT } from "@/ipc/bindings";
 import type { QuickAction } from "@/ipc/types";
-import { effectiveCombo, formatCombo, hotkeyAction, type HotkeyActionId } from "@/lib/hotkeys";
+import {
+  actionHint,
+  actionLabel,
+  effectiveCombo,
+  formatCombo,
+  type HotkeyActionId,
+} from "@/lib/hotkeys";
 import { PLATFORM } from "@/lib/platform";
 import { filledQuickActions, newQuickAction, quickActionHint } from "@/lib/quick-actions";
 import type { SectionProps } from "../contract";
@@ -17,19 +24,6 @@ import { StolenNote } from "./HotkeysSection";
 const QUICK_ACTION: HotkeyActionId = "quick_action";
 const PLATFORM_MODIFIERS: readonly string[] = MODIFIER_COMBOS[PLATFORM];
 const PROMPT_ROWS = 2;
-
-const COMBO_LABEL = "Сочетание";
-const ATTACHMENTS_LABEL = "Прикреплять вложения";
-const ATTACHMENTS_HINT =
-  "Быстрое действие отправит картинки из поля ввода вместе с заготовленным промптом.";
-const TITLE_LABEL = "Название";
-const TITLE_PLACEHOLDER = "Название — его видно на кнопке, в чат оно не уходит";
-const PROMPT_LABEL = "Промпт";
-const PROMPT_PLACEHOLDER = "Промпт — именно он уходит в чат вместо названия";
-const REMOVE_TITLE = "Удалить быстрое действие";
-const ADD_LABEL = "Добавить";
-const EMPTY_NOTE = "Пока ни одного действия — кнопок над полем ввода не будет.";
-const GROUP_TITLE = "Быстрые действия";
 
 function comboByActionId(actions: QuickAction[], modifier: string): Map<string, string> {
   const combos = new Map<string, string>();
@@ -51,12 +45,13 @@ function QuickActionRow({
   onChange: (patch: Partial<QuickAction>) => void;
   onRemove: () => void;
 }) {
+  const { t } = useTranslation();
   return (
     <div className="flex flex-col gap-1.5 px-3 py-2.5">
       <div className="flex items-center gap-2">
         <Input
-          aria-label={TITLE_LABEL}
-          placeholder={TITLE_PLACEHOLDER}
+          aria-label={t("launcher.quickActions.name")}
+          placeholder={t("launcher.quickActions.namePlaceholder")}
           value={action.title}
           onChange={(e) => {
             onChange({ title: e.target.value });
@@ -65,14 +60,18 @@ function QuickActionRow({
         <span className="min-w-10 shrink-0 text-right font-mono text-caption text-muted-foreground tabular-nums">
           {combo}
         </span>
-        <IconButton title={REMOVE_TITLE} className="hover:text-destructive" onClick={onRemove}>
+        <IconButton
+          title={t("launcher.quickActions.remove")}
+          className="hover:text-destructive"
+          onClick={onRemove}
+        >
           <Trash2 />
         </IconButton>
       </div>
       <Textarea
         rows={PROMPT_ROWS}
-        aria-label={PROMPT_LABEL}
-        placeholder={PROMPT_PLACEHOLDER}
+        aria-label={t("launcher.quickActions.prompt")}
+        placeholder={t("launcher.quickActions.promptPlaceholder")}
         value={action.prompt}
         onChange={(e) => {
           onChange({ prompt: e.target.value });
@@ -84,8 +83,9 @@ function QuickActionRow({
 }
 
 export function QuickActionsSection({ draft, set }: SectionProps) {
+  const { t } = useTranslation();
   const editor = useHotkeyEditor(draft, set);
-  const action = hotkeyAction(QUICK_ACTION);
+  const attachmentsLabel = t("launcher.quickActions.attachments");
   const modifier = effectiveCombo(draft.hotkeys, QUICK_ACTION);
   const actions = draft.quick_actions;
   const combos = comboByActionId(actions, modifier);
@@ -109,12 +109,12 @@ export function QuickActionsSection({ draft, set }: SectionProps) {
 
   return (
     <SettingGroup
-      title={GROUP_TITLE}
-      description="Кнопки над полем ввода: каждая отправляет в чат свой заготовленный промпт."
+      title={t("launcher.quickActions.title")}
+      description={t("launcher.quickActions.description")}
     >
-      <SettingRow label={COMBO_LABEL} hint={action.hint}>
+      <SettingRow label={t("launcher.quickActions.combo")} hint={actionHint(QUICK_ACTION)}>
         <SettingSelect
-          ariaLabel={`${action.label}: ${COMBO_LABEL.toLowerCase()}`}
+          ariaLabel={t("launcher.quickActions.comboAria", { action: actionLabel(QUICK_ACTION) })}
           value={modifier}
           onValueChange={(v) => {
             editor.onAssign(QUICK_ACTION, v);
@@ -122,16 +122,16 @@ export function QuickActionsSection({ draft, set }: SectionProps) {
         >
           {PLATFORM_MODIFIERS.map((m) => (
             <SelectItem key={m} value={m}>
-              {formatCombo(m)} + цифра
+              {t("launcher.quickActions.modifierDigit", { combo: formatCombo(m) })}
             </SelectItem>
           ))}
         </SettingSelect>
       </SettingRow>
       <StolenNote editor={editor} />
 
-      <SettingRow label={ATTACHMENTS_LABEL} hint={ATTACHMENTS_HINT}>
+      <SettingRow label={attachmentsLabel} hint={t("launcher.quickActions.attachmentsHint")}>
         <SettingSwitch
-          ariaLabel={ATTACHMENTS_LABEL}
+          ariaLabel={attachmentsLabel}
           checked={draft.quick_action_attachments}
           onCheckedChange={(v) => {
             set("quick_action_attachments", v);
@@ -140,7 +140,9 @@ export function QuickActionsSection({ draft, set }: SectionProps) {
       </SettingRow>
 
       {actions.length === 0 && (
-        <p className="px-3 py-2.5 text-caption text-muted-foreground">{EMPTY_NOTE}</p>
+        <p className="px-3 py-2.5 text-caption text-muted-foreground">
+          {t("launcher.quickActions.empty")}
+        </p>
       )}
       {actions.map((quickAction, index) => (
         <QuickActionRow
@@ -158,11 +160,11 @@ export function QuickActionsSection({ draft, set }: SectionProps) {
       <div className="flex items-center gap-3 px-3 py-2">
         <Button variant="ghost" size="sm" disabled={atLimit} onClick={add}>
           <Plus />
-          {ADD_LABEL}
+          {t("common.add")}
         </Button>
         {atLimit && (
           <span className="text-caption text-muted-foreground">
-            Больше не поместится: цифр всего {QUICK_ACTION_LIMIT}.
+            {t("launcher.quickActions.limit", { limit: QUICK_ACTION_LIMIT })}
           </span>
         )}
       </div>

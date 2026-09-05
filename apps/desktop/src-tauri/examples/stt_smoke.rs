@@ -5,7 +5,7 @@
 //! Keys come from `.env` by the registry's own naming — `<KEY_ID>_API_KEY` — so
 //! a vendor added to the registry is picked up here without editing this file.
 
-use harpyhare_lib::stt::{registry, SttEngine, SttHttpClient};
+use harpyhare_lib::stt::{build_engine, registry, SttClientConfig};
 
 /// Declared the way a preset would: `[keywords]: [...]` parsed on the frontend.
 const DECLARED: &[&str] = &["Map", "Golang", "slice"];
@@ -52,7 +52,15 @@ fn main() {
                 println!("[skip] {}: пустой {}", spec.id, key_env_var(spec.key_id));
                 continue;
             }
-            let client = SttHttpClient::for_provider(spec.id, key).with_language(LANGUAGE.into());
+            let client = build_engine(
+                spec,
+                SttClientConfig {
+                    api_key: key,
+                    proxy_base_url: None,
+                    language: LANGUAGE.into(),
+                    translate: false,
+                },
+            );
             let declared: Vec<String> = DECLARED.iter().map(|s| (*s).to_string()).collect();
             for (label, terms) in [("без keyterms", Vec::new()), ("с keyterms ", declared)] {
                 let started = std::time::Instant::now();

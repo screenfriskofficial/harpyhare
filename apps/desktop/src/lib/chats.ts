@@ -1,3 +1,4 @@
+import { t } from "@/i18n";
 import type { Attachment, ImagePayload } from "@/lib/composer";
 import { DEFAULT_MODEL } from "@/lib/models";
 import { isRecord } from "@/lib/utils";
@@ -5,7 +6,6 @@ import { isRecord } from "@/lib/utils";
 export const CHAT_LIMIT = 6;
 const TITLE_MAX = 22;
 const TITLE_ELLIPSIS = "…";
-const UNTITLED_CHAT_TITLE = "Чат";
 const NO_PRESET_ID = "";
 
 export type Role = "user" | "assistant";
@@ -53,7 +53,7 @@ function uid(): string {
 }
 
 function indexedChatTitle(index: number): string {
-  return `${UNTITLED_CHAT_TITLE} ${index}`;
+  return t("chats.numbered", { number: index });
 }
 
 export function createChat(index: number, id: string = uid()): Chat {
@@ -146,7 +146,7 @@ function restoreChat(c: unknown): Chat | null {
   const o = c as Partial<Chat>;
   return {
     id: typeof o.id === "string" ? o.id : uid(),
-    title: typeof o.title === "string" ? o.title : UNTITLED_CHAT_TITLE,
+    title: typeof o.title === "string" ? o.title : t("chats.untitled"),
     titlePinned: typeof o.titlePinned === "boolean" ? o.titlePinned : NEW_CHAT_DEFAULTS.titlePinned,
     presetId: typeof o.presetId === "string" ? o.presetId : NO_PRESET_ID,
     thinkingEnabled:

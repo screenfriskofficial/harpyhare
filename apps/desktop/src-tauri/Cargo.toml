@@ -12,13 +12,16 @@ edition = "2021"
 # to make the lib name unique and wouldn't conflict with the bin name.
 # This seems to be only an issue on Windows, see https://github.com/rust-lang/cargo/issues/8519
 name = "harpyhare_lib"
-crate-type = ["staticlib", "cdylib", "rlib"]
+# Только rlib: `staticlib`/`cdylib` из шаблона Tauri нужны мобильным таргетам,
+# а десктопу лишь удорожали релизную линковку под LTO.
+crate-type = ["rlib"]
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 cc = "1.2"
 
 [dependencies]
+tempfile = "3.27.0"
 tauri = { version = "2", features = ["macos-private-api", "image-png"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
@@ -31,21 +34,28 @@ rubato = "3.0.0"
 futures-util = "0.3.32"
 tokio = { version = "1.52.3", features = ["full"] }
 tokio-util = "0.7.18"
-reqwest = { version = "0.13.4", features = ["json", "multipart", "stream", "query"] }
+# Дефолтная фича `rustls` у reqwest тянет ВТОРОЙ криптопровайдер (`aws-lc-rs`,
+# C-сборка в каждом холодном CI) поверх `ring`, который уже нужен апдейтеру и
+# tokio-tungstenite. `rustls-no-provider` оставляет один `ring` на весь граф.
+reqwest = { version = "0.13.4", default-features = false, features = ["rustls-no-provider", "charset", "http2", "system-proxy", "json", "multipart", "stream", "query"] }
 # Deepgram — единственный STT-вендор с реальным временем: аудио уходит по
 # WebSocket ещё во время удержания клавиши, а не батчем после отпускания.
 tokio-tungstenite = { version = "0.28", features = ["rustls-tls-native-roots"] }
 # Провайдер rustls выбирается явно: tokio-tungstenite сам его не инициализирует,
 # и без этого первое же соединение падает на «no process-level CryptoProvider».
 rustls = { version = "0.23.40", default-features = false, features = ["ring", "std"] }
+# Корни доверия для WebSocket-клиента Deepgram: `ClientConfig` собирается один раз
+# на клиент, а не на каждое нажатие PTT (см. stt/deepgram.rs).
+rustls-native-certs = "0.8"
 async-trait = "0.1.89"
 dotenvy = "0.15.7"
 ringbuf = "0.4.8"
 tauri-plugin-updater = "2.10.1"
 pdf-extract = "0.12"
 specta-typescript = "0.0.12"
-specta = "2.0.0-rc"
-tauri-specta = { version = "2.0.0-rc", features = ["typescript"] }
+# rc-выпуски ломают API между собой — версия запинена, `cargo update` её не сдвинет.
+specta = "=2.0.0-rc.25"
+tauri-specta = { version = "=2.0.0-rc.25", features = ["typescript"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 cidre = "0.15.2"
@@ -54,7 +64,7 @@ objc2-app-kit = { version = "0.3.2", features = ["NSEvent", "block2"] }
 block2 = "0.6"
 
 [target.'cfg(target_os = "windows")'.dependencies]
-png = "0.17"
+png = "0.18"
 windows = { version = "0.61", features = [
   "Win32_Devices_FunctionDiscovery",
   "Win32_Foundation",
@@ -77,7 +87,6 @@ windows = { version = "0.61", features = [
 ] }
 
 [dev-dependencies]
-tempfile = "3.27.0"
 wiremock = "0.6.5"
 
 [profile.release]

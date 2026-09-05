@@ -4,7 +4,7 @@ use std::time::Duration;
 use tauri::{AppHandle, Manager, WebviewWindow};
 
 use crate::app_state::{current_settings, App};
-use crate::{events, hotkey, hotkeys, platform, settings, window_geom};
+use crate::{events, global_shortcuts, hotkeys, platform, settings, window_geom};
 
 pub const MAIN_WINDOW_LABEL: &str = "main";
 pub const LAUNCHER_WINDOW_LABEL: &str = "launcher";
@@ -106,41 +106,49 @@ fn create_main_window(app: &AppHandle, settings: &settings::Settings) -> Result<
 }
 
 type GlobalRegistrar = fn(&AppHandle, &str) -> Result<(), String>;
-type GlobalUnregistrar = fn(&AppHandle, &str);
 
-const GLOBAL_HOTKEYS: &[(&str, GlobalRegistrar, GlobalUnregistrar)] = &[
-    (hotkeys::ACTION_RECORD, hotkey::register_ptt, hotkey::unregister_ptt),
-    (hotkeys::ACTION_TOGGLE_WINDOW, hotkey::register_toggle, hotkey::unregister_toggle),
-    (hotkeys::ACTION_TELEPROMPTER, hotkey::register_teleprompter, hotkey::unregister_teleprompter),
-    (hotkeys::ACTION_SCREENSHOT, hotkey::register_screenshot, hotkey::unregister_screenshot),
-    (hotkeys::ACTION_FOCUS_PROMPT, hotkey::register_focus_prompt, hotkey::unregister_focus_prompt),
-    (
-        hotkeys::ACTION_DUPLICATE_CHAT,
-        hotkey::register_duplicate_chat,
-        hotkey::unregister_duplicate_chat,
-    ),
+/// Глобальные действия и их регистраторы. Снятие у всех одно —
+/// `global_shortcuts::unregister` по сочетанию.
+const GLOBAL_HOTKEYS: &[(&str, GlobalRegistrar)] = &[
+    (hotkeys::ACTION_RECORD, global_shortcuts::register_ptt),
+    (hotkeys::ACTION_TOGGLE_WINDOW, global_shortcuts::register_toggle),
+    (hotkeys::ACTION_TELEPROMPTER, global_shortcuts::register_teleprompter),
+    (hotkeys::ACTION_SCREENSHOT, global_shortcuts::register_screenshot),
+    (hotkeys::ACTION_FOCUS_PROMPT, global_shortcuts::register_focus_prompt),
+    (hotkeys::ACTION_DUPLICATE_CHAT, global_shortcuts::register_duplicate_chat),
 ];
 
+/// Регистрирует глобальные хоткеи HUD. Каждый провал уходит пользователю
+/// событием `hotkey-error`: раньше он оседал в stderr, которого в релизе нет,
+/// и занятое другим приложением сочетание (PTT на `Ctrl+R` у Discord) просто
+/// молча не работало.
 pub fn register_main_window_hotkeys(app: &AppHandle, s: &settings::Settings) {
-    for (action, register, _) in GLOBAL_HOTKEYS {
+    for (action, register) in GLOBAL_HOTKEYS {
         let combo = hotkeys::effective(&s.hotkeys, action);
         if combo.is_empty() {
             continue;
         }
         if let Err(e) = register(app, &combo) {
-            eprintln!("не удалось зарегистрировать хоткей {action} ({combo:?}): {e}");
+            let label = hotkeys::action(action).map_or(*action, |a| a.label);
+            events::hotkey_error(
+                app,
+                crate::error::AppError::new(
+                    crate::error::ErrorCode::Internal,
+                    format!("Сочетание {combo} для «{label}» не зарегистрировано: {e}"),
+                ),
+            );
         }
     }
 }
 
 pub fn unregister_main_window_hotkeys_for(app: &AppHandle, s: &settings::Settings) {
-    for (action, _, unregister) in GLOBAL_HOTKEYS {
+    for (action, _) in GLOBAL_HOTKEYS {
         let combo = hotkeys::effective(&s.hotkeys, action);
         if !combo.is_empty() {
-            unregister(app, &combo);
+            global_shortcuts::unregister(app, &combo);
         }
     }
-    hotkey::unregister_cancel(app, &hotkeys::effective(&s.hotkeys, hotkeys::ACTION_CANCEL_RECORDING));
+    global_shortcuts::unregister_cancel(app, &hotkeys::effective(&s.hotkeys, hotkeys::ACTION_CANCEL_RECORDING));
 }
 
 pub fn hide_main_window_for_capture(app: &AppHandle) -> bool {
@@ -196,6 +204,11 @@ where
 }
 
 fn swap_to_main_window(app: &AppHandle) -> Result<(), String> {
+    if main_window(app).is_some() {
+        // Окно уже есть — хоткеи уже зарегистрированы; повтор регистрации
+        // здесь и в плагине не бесплатен.
+        return Ok(());
+    }
     let settings = current_settings(app);
     create_main_window(app, &settings)?;
     register_main_window_hotkeys(app, &settings);
@@ -210,6 +223,9 @@ fn swap_to_main_window(app: &AppHandle) -> Result<(), String> {
 }
 
 fn swap_to_launcher_window(app: &AppHandle) -> Result<(), String> {
+    // Окна больше нет — некому читать дельты; недочитанная генерация иначе
+    // шла бы до конца и оплачивалась (и на relay тоже).
+    crate::chat::cancel_all_streams(app);
     let settings = current_settings(app);
     unregister_main_window_hotkeys_for(app, &settings);
     create_launcher_window(app, &settings)?;
@@ -286,6 +302,19 @@ struct ResizeTween {
     to_x: i32,
     y: i32,
 }
+
+/// Кадр твина: (ширина, высота, x) для шага `step` из `RESIZE_TWEEN_STEPS`.
+fn tween_frame(tween: &ResizeTween, step: u32) -> (f64, f64, i32) {
+    let eased = ease_out_cubic(f64::from(step) / f64::from(RESIZE_TWEEN_STEPS));
+    let width = tween.from_width + (tween.to_width - tween.from_width) * eased;
+    let height = tween.from_height + (tween.to_height - tween.from_height) * eased;
+    let x = (f64::from(tween.from_x) + f64::from(tween.to_x - tween.from_x) * eased).round() as i32;
+    (width, height, x)
+}
+
+/// Сколько ждать главный поток за одним кадром твина: дольше — значит он
+/// занят чем-то тяжёлым, и анимацию честнее бросить, чем копить кадры.
+const RESIZE_FRAME_ACK_TIMEOUT: Duration = Duration::from_millis(500);
 
 #[tauri::command]
 #[specta::specta]
@@ -367,27 +396,25 @@ fn tween_superseded(
     applied.is_some_and(|(width, height)| !frame_still_ours(w, width, height))
 }
 
+/// Один переход на главный поток за кадр: и проверка «кадр ещё наш», и
+/// применение размера идут одним замыканием. Раньше `scale_factor()` и
+/// `inner_size()` из фонового потока были двумя блокирующими round-trip'ами
+/// сверх самого `run_on_main_thread` — три хода на каждые 13 мс.
 fn run_resize_tween(app: AppHandle, w: WebviewWindow, tween: ResizeTween, my_gen: u64) {
     let mut applied: Option<(f64, f64)> = None;
-    for i in 1..=RESIZE_TWEEN_STEPS {
-        if tween_superseded(&app, &w, my_gen, applied) {
+    for step in 1..=RESIZE_TWEEN_STEPS {
+        let (width, height, x) = tween_frame(&tween, step);
+        if !apply_frame_if_still_ours(&app, &w, my_gen, applied, x, tween.y, width, height) {
             return;
         }
-        let eased = ease_out_cubic(f64::from(i) / f64::from(RESIZE_TWEEN_STEPS));
-        let cur_w = tween.from_width + (tween.to_width - tween.from_width) * eased;
-        let cur_h = tween.from_height + (tween.to_height - tween.from_height) * eased;
-        let cur_x =
-            (f64::from(tween.from_x) + f64::from(tween.to_x - tween.from_x) * eased).round() as i32;
-        apply_window_frame(&app, &w, cur_x, tween.y, cur_w, cur_h);
-        applied = Some((cur_w, cur_h));
+        applied = Some((width, height));
         std::thread::sleep(RESIZE_TWEEN_FRAME_INTERVAL);
     }
-    if tween_superseded(&app, &w, my_gen, applied) {
-        return;
-    }
-    apply_window_frame(
+    apply_frame_if_still_ours(
         &app,
         &w,
+        my_gen,
+        applied,
         tween.to_x,
         tween.y,
         tween.to_width,
@@ -395,14 +422,40 @@ fn run_resize_tween(app: AppHandle, w: WebviewWindow, tween: ResizeTween, my_gen
     );
 }
 
-fn apply_window_frame(app: &AppHandle, w: &WebviewWindow, x: i32, y: i32, width: f64, height: f64) {
+#[allow(clippy::too_many_arguments)]
+fn apply_frame_if_still_ours(
+    app: &AppHandle,
+    w: &WebviewWindow,
+    my_gen: u64,
+    applied: Option<(f64, f64)>,
+    x: i32,
+    y: i32,
+    width: f64,
+    height: f64,
+) -> bool {
+    let (ack, wait) = std::sync::mpsc::channel();
     let win = w.clone();
-    let _ = app.run_on_main_thread(move || {
-        if win.outer_position().is_ok_and(|p| p.x != x || p.y != y) {
-            let _ = win.set_position(tauri::PhysicalPosition::new(x, y));
+    let handle = app.clone();
+    let queued = app.run_on_main_thread(move || {
+        let ours = !tween_superseded(&handle, &win, my_gen, applied);
+        if ours {
+            apply_window_frame_now(&win, x, y, width, height);
         }
-        let _ = win.set_size(tauri::LogicalSize::new(width, height));
+        let _ = ack.send(ours);
     });
+    if queued.is_err() {
+        return false;
+    }
+    wait.recv_timeout(RESIZE_FRAME_ACK_TIMEOUT).unwrap_or(false)
+}
+
+/// Только с главного потока: применяет позицию (если она реально отличается —
+/// лишний `SetWindowPos` дёргает начало координат при протяжке) и размер.
+fn apply_window_frame_now(win: &WebviewWindow, x: i32, y: i32, width: f64, height: f64) {
+    if win.outer_position().is_ok_and(|p| p.x != x || p.y != y) {
+        let _ = win.set_position(tauri::PhysicalPosition::new(x, y));
+    }
+    let _ = win.set_size(tauri::LogicalSize::new(width, height));
 }
 
 #[cfg(test)]

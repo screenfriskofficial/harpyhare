@@ -7,24 +7,26 @@ import {
   type ToastAction,
   type ToastVariant,
 } from "@/components/ui/toast";
+import { t, type TranslationKey } from "@/i18n";
 import type { AppError, ErrorCode } from "@/lib/errors";
 
 export { TOAST_DURATION_MS };
 
-/** Заголовки тостов HUD, которые не привязаны к коду ошибки. */
-export const GENERIC_ERROR_TOAST_TITLE = "Ошибка";
-export const CHATS_TOAST_TITLE = "Чаты";
-
-const ERROR_TOAST_TITLE: Record<ErrorCode, string | null> = {
+/**
+ * Заголовок тоста по коду ошибки; `null` — код без тоста (сеть уходит в
+ * оверлей, отмена молчит). Ключи словаря, а не текст: тост собирается в момент
+ * показа и берёт текущий язык интерфейса.
+ */
+const ERROR_TOAST_TITLE: Record<ErrorCode, TranslationKey | null> = {
   network: null,
   cancelled: null,
-  badApiKey: "Неверный ключ",
-  badAccessCode: "Код доступа",
-  retryable: "Сервис перегружен",
-  api: "Ошибка API",
-  permission: "Нет доступа",
-  silence: "Речь не распознана",
-  internal: "Ошибка",
+  badApiKey: "errors.titles.badApiKey",
+  badAccessCode: "errors.titles.badAccessCode",
+  retryable: "errors.titles.retryable",
+  api: "errors.titles.api",
+  permission: "errors.titles.permission",
+  silence: "errors.titles.silence",
+  internal: "errors.titles.internal",
 };
 
 interface NotifyInput {
@@ -37,9 +39,9 @@ interface NotifyInput {
 }
 
 export function errorToastContent(error: AppError): { title: string; message: string } | null {
-  const title = ERROR_TOAST_TITLE[error.code];
-  if (title === null) return null;
-  return { title, message: error.message };
+  const titleKey = ERROR_TOAST_TITLE[error.code];
+  if (titleKey === null) return null;
+  return { title: t(titleKey), message: error.message };
 }
 
 export function notify(input: NotifyInput): void {

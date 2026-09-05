@@ -1,4 +1,5 @@
 import { NotebookText } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import { SectionLabel } from "@/components/SectionLabel";
 import {
   docsInFolder,
@@ -6,11 +7,9 @@ import {
   type ContextDoc,
   type ContextLibrary,
 } from "@/lib/context-library";
-import { FILE_MANAGER_LABEL, PLATFORM } from "@/lib/platform";
+import { fileManagerLabel } from "@/lib/platform";
 import { NoteResultRow } from "./NoteResultRow";
 
-const EMPTY_LIBRARY_TEXT = "Заметок пока нет";
-const ROOT_GROUP_LABEL = "Без папки";
 const NO_TERMS: string[] = [];
 
 interface DocGroup {
@@ -19,7 +18,7 @@ interface DocGroup {
   docs: ContextDoc[];
 }
 
-function docGroups(library: ContextLibrary): DocGroup[] {
+function docGroups(library: ContextLibrary, rootLabel: string): DocGroup[] {
   const foldered = library.folders.map((folder) => ({
     id: folder.id,
     label: folder.name,
@@ -27,13 +26,14 @@ function docGroups(library: ContextLibrary): DocGroup[] {
   }));
   const rootGroup: DocGroup = {
     id: "",
-    label: foldered.length > 0 ? ROOT_GROUP_LABEL : null,
+    label: foldered.length > 0 ? rootLabel : null,
     docs: rootDocs(library),
   };
   return [rootGroup, ...foldered].filter((group) => group.docs.length > 0);
 }
 
 export function EmptyLibraryHint({ onPick }: { onPick: () => void }) {
+  const { t } = useTranslation();
   return (
     <button
       type="button"
@@ -43,10 +43,9 @@ export function EmptyLibraryHint({ onPick }: { onPick: () => void }) {
       <span className="grid size-9 place-items-center rounded-lg bg-surface ring-1 ring-border ring-inset">
         <NotebookText className="size-4 text-muted-foreground" aria-hidden />
       </span>
-      <span className="text-body text-foreground">{EMPTY_LIBRARY_TEXT}</span>
+      <span className="text-body text-foreground">{t("hud.notes.empty")}</span>
       <span className="text-caption text-muted-foreground">
-        Перетащи .md, .txt или .pdf из {FILE_MANAGER_LABEL[PLATFORM]} — или нажми, чтобы выбрать
-        файлы
+        {t("hud.notes.dropHint", { fileManager: fileManagerLabel() })}
       </span>
     </button>
   );
@@ -65,9 +64,10 @@ export function NoteBrowseList({
   onOpen,
   onToggleContext,
 }: NoteBrowseListProps) {
+  const { t } = useTranslation();
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-1.5 overflow-y-auto pr-1.5">
-      {docGroups(library).map((group) => (
+      {docGroups(library, t("common.noFolder")).map((group) => (
         <div key={group.id} className="flex flex-col gap-0.5">
           {group.label !== null && (
             <SectionLabel className="px-1.5 pt-1">{group.label}</SectionLabel>

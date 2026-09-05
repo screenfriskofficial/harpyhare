@@ -199,6 +199,8 @@ int harpy_capture_region(unsigned char **out_png, size_t *out_len, char *err, si
                                                    CGRectMake(0, 0, g_scr_w, g_scr_h));
     g_view = view;
     ((void (*)(id, SEL, id))objc_msgSend)(win, SL("setContentView:"), view);
+    /* Окно удерживает вью само; наша ссылка из alloc/init больше не нужна. */
+    call0(view, "release");
     ((void (*)(id, SEL, id))objc_msgSend)(win, SL("makeKeyAndOrderFront:"), (id)0);
     ((void (*)(id, SEL, BOOL))objc_msgSend)(app, SL("activateIgnoringOtherApps:"), YES);
 
@@ -234,7 +236,10 @@ int harpy_capture_region(unsigned char **out_png, size_t *out_len, char *err, si
         ((void (*)(id, SEL, id))objc_msgSend)(app, SL("sendEvent:"), ev);
         if (g_state != ST_ACTIVE) break;
     }
-    ((void (*)(id, SEL, id))objc_msgSend)(win, SL("orderOut:"), (id)0);
+    /* `close`, а не `orderOut:`: у NSWindow releasedWhenClosed = YES, и только
+       close освобождает окно. С orderOut: полноэкранное окно с backing store
+       оставалось в памяти навсегда — по одному на каждый снимок. */
+    call0(win, "close");
     g_view = NULL;
 
     int rc = HARPY_CAPTURE_CANCELLED;

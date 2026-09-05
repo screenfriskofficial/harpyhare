@@ -9,7 +9,7 @@ pub mod clipboard;
 pub mod context_import;
 pub mod error;
 pub mod events;
-pub mod hotkey;
+pub mod global_shortcuts;
 pub mod hotkeys;
 pub mod llm;
 pub mod platform;
@@ -23,11 +23,14 @@ pub mod settings;
 pub mod state;
 pub mod storage;
 pub mod stt;
+pub mod sync;
 pub mod system;
+pub mod tls;
 pub mod update;
 pub mod window;
 pub mod window_geom;
 
+use crate::sync::LockUnpoisoned;
 use std::sync::{Arc, Mutex};
 
 use tauri::{AppHandle, Manager};
@@ -49,8 +52,7 @@ pub fn run() {
                 .app_handle()
                 .state::<App>()
                 .preview_html
-                .lock()
-                .unwrap()
+                .lock_unpoisoned()
                 .clone();
             preview_protocol::preview_response(&html)
         })
@@ -64,10 +66,9 @@ pub fn run() {
 }
 
 fn setup_app(handle: &AppHandle) {
-    // tokio-tungstenite (WebSocket Deepgram) ходит через rustls, а тот с 0.23
-    // отказывается выбирать провайдера сам, если в сборке их несколько: первое
-    // же соединение падает с паникой про ambiguous provider. Ставим явно.
-    let _ = rustls::crypto::ring::default_provider().install_default();
+    // Провайдер rustls нужен до первого TLS-клиента, а их здесь строит и
+    // апдейтер (свой reqwest внутри плагина), который через `tls` не ходит.
+    tls::ensure_crypto_provider();
     preferences::load_dotenv_files();
     let settings = preferences::load_settings_with_env_key_fallback(handle);
     let official_presets = remote_presets::load_initial(handle);
@@ -86,6 +87,7 @@ fn setup_app(handle: &AppHandle) {
     if let Err(e) = window::create_launcher_window(handle, &app_state::current_settings(handle)) {
         eprintln!("не удалось создать окно лаунчера: {e}");
     }
+    recording::install_ptt_worker(handle);
     recording::install_default_output_device_listener(handle);
     platform::install_move_keys_monitor(handle.clone());
     platform::disable_cursor_autohide_on_typing();

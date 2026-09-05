@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { normalizeAccessCode } from "@/lib/access-code";
@@ -9,6 +10,7 @@ export interface AccessCodeFormProps {
 }
 
 export function AccessCodeForm({ onRedeem, autoFocus }: AccessCodeFormProps) {
+  const { t } = useTranslation();
   const [code, setCode] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -47,7 +49,7 @@ export function AccessCodeForm({ onRedeem, autoFocus }: AccessCodeFormProps) {
           }}
         />
         <Button onClick={activate} disabled={submitting || isEmpty}>
-          {submitting ? "Активация…" : "Активировать"}
+          {submitting ? t("launcher.access.activating") : t("launcher.access.activate")}
         </Button>
       </div>
       {error !== null && <span className="text-caption text-destructive">{error}</span>}

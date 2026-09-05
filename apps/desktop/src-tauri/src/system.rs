@@ -1,3 +1,4 @@
+use crate::sync::LockUnpoisoned;
 use tauri::{AppHandle, Manager};
 
 use crate::app_state::App;
@@ -12,7 +13,7 @@ pub fn open_external(url: String) {
 #[tauri::command]
 #[specta::specta]
 pub fn set_preview_html(app: AppHandle, html: String) {
-    *app.state::<App>().preview_html.lock().unwrap() = html;
+    *app.state::<App>().preview_html.lock_unpoisoned() = html;
 }
 
 #[tauri::command]

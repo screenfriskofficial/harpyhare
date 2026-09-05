@@ -1,3 +1,4 @@
+use crate::sync::LockUnpoisoned;
 use serde::Serialize;
 use std::sync::atomic::Ordering;
 use std::time::Duration;
@@ -29,7 +30,7 @@ pub async fn check(app: &AppHandle) -> Result<Option<UpdateInfo>, String> {
     if let Some(i) = &info {
         eprintln!("{LOG_TAG} найдена версия {}", i.version);
     }
-    *app.state::<crate::app_state::App>().pending_update.lock().unwrap() = update;
+    *app.state::<crate::app_state::App>().pending_update.lock_unpoisoned() = update;
     Ok(info)
 }
 
@@ -71,12 +72,15 @@ pub async fn install(app: AppHandle) -> Result<(), String> {
     }
 }
 
+/// Найденное обновление КЛОНИРУЕТСЯ, а не забирается: после неудачной
+/// установки повторная попытка раньше отвечала «сначала проверьте новую
+/// версию», хотя фронт всё ещё показывал найденную.
 fn claim_pending_update(app: &AppHandle) -> Result<tauri_plugin_updater::Update, String> {
     let st = app.state::<crate::app_state::App>();
     if st.update_installing.swap(true, Ordering::SeqCst) {
         return Err("Обновление уже устанавливается".into());
     }
-    let Some(update) = st.pending_update.lock().unwrap().take() else {
+    let Some(update) = st.pending_update.lock_unpoisoned().clone() else {
         st.update_installing.store(false, Ordering::SeqCst);
         return Err("Обновление не найдено — сначала проверьте новую версию".into());
     };
@@ -133,8 +137,7 @@ async fn notify_if_update_found(app: &AppHandle) {
 fn skipped_version(app: &AppHandle) -> String {
     app.state::<crate::app_state::App>()
         .settings
-        .lock()
-        .unwrap()
+        .lock_unpoisoned()
         .skipped_version
         .clone()
 }

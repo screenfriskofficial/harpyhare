@@ -1,12 +1,27 @@
 use serde::{Deserialize, Serialize};
-use std::path::Path;
+use std::fmt;
+use std::path::{Path, PathBuf};
 
 #[cfg(unix)]
 const OWNER_ONLY_FILE_MODE: u32 = 0o600;
-const TMP_FILE_EXTENSION: &str = "tmp";
+
+/// Суффикс, под которым нечитаемый файл настроек откладывается рядом с собой:
+/// `settings.json.broken-<unix-время>`. Файл не удаляется никогда — в нём могут
+/// быть ключи и пресеты пользователя, которые он восстановит руками.
+pub const QUARANTINE_SUFFIX: &str = "broken";
 
 pub const THEME_GRAY: &str = "gray";
 pub const THEME_BLACK: &str = "black";
+
+/// UI languages the frontend ships dictionaries for. The list lives here, not
+/// in TypeScript, so `clamp` and the launcher's select agree on the vocabulary:
+/// the constant is exported through `bindings.ts`, and the frontend's
+/// `Record<UiLanguage, Dictionary>` fails to compile when a language listed
+/// here has no dictionary. The empty string means "follow the system locale";
+/// the resolution itself happens in the frontend, which is the only side that
+/// renders text — Rust never needs to know which language won.
+pub const UI_LANGUAGE_SYSTEM: &str = "";
+pub const UI_LANGUAGES: &[&str] = &["ru", "en"];
 
 /// Ids of the API-key fields below, as the LLM registry and the frontend name
 /// them. `api_key_for` is the only place the two vocabularies meet.
@@ -29,6 +44,38 @@ pub fn api_key_for<'a>(s: &'a Settings, key_id: &str) -> &'a str {
         API_KEY_XCLIS => &s.xclis_api_key,
         _ => "",
     }
+}
+
+/// Изменяемая половина `api_key_for` — единственный второй список полей-ключей.
+/// Новое поле добавляется в оба `match`, и тест
+/// `every_registry_key_id_resolves_to_a_real_settings_field` ловит забытую ветку.
+fn api_key_mut<'a>(s: &'a mut Settings, key_id: &str) -> Option<&'a mut String> {
+    match key_id {
+        API_KEY_ANTHROPIC => Some(&mut s.anthropic_api_key),
+        API_KEY_GROQ => Some(&mut s.groq_api_key),
+        API_KEY_OPENAI => Some(&mut s.openai_api_key),
+        API_KEY_XAI => Some(&mut s.xai_api_key),
+        API_KEY_DEEPGRAM => Some(&mut s.deepgram_api_key),
+        API_KEY_XCLIS => Some(&mut s.xclis_api_key),
+        _ => None,
+    }
+}
+
+/// Все `key_id`, которые просят реестры вендоров (ответы и речь), без дублей,
+/// и признак «relay проксирует КАЖДОГО вендора с этим ключом». Только такой
+/// ключ код доступа глушит целиком; если хоть один вендор с этим ключом идёт
+/// мимо relay, личный ключ ему нужен и под кодом.
+pub fn registry_key_ids() -> Vec<(&'static str, bool)> {
+    let llm_rows = crate::llm::registry::PROVIDERS.iter().map(|p| (p.key_id, p.proxied));
+    let stt_rows = crate::stt::registry::PROVIDERS.iter().map(|p| (p.key_id, p.proxied));
+    let mut ids: Vec<(&'static str, bool)> = Vec::new();
+    for (key_id, proxied) in llm_rows.chain(stt_rows) {
+        match ids.iter_mut().find(|(id, _)| *id == key_id) {
+            Some((_, proxied_everywhere)) => *proxied_everywhere &= proxied,
+            None => ids.push((key_id, proxied)),
+        }
+    }
+    ids
 }
 
 /// Re-exported from the STT registry, which owns the list. Kept as names so
@@ -96,6 +143,8 @@ pub mod defaults {
     pub const STT_LANGUAGE: &str = "ru";
 
     pub const THEME: &str = super::THEME_GRAY;
+
+    pub const UI_LANGUAGE: &str = super::UI_LANGUAGE_SYSTEM;
 }
 
 pub mod limits {
@@ -165,7 +214,7 @@ fn seeded_quick_actions() -> Vec<QuickAction> {
         .collect()
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
+#[derive(Clone, Serialize, Deserialize, specta::Type)]
 #[serde(default)]
 pub struct Settings {
     pub anthropic_api_key: String,
@@ -197,6 +246,7 @@ pub struct Settings {
     pub resize_step: u32,
     pub capture_device_uid: String,
     pub theme: String,
+    pub ui_language: String,
     pub scroll_step: u32,
     pub buffer_enabled: bool,
     pub buffer_seconds: u32,
@@ -236,12 +286,42 @@ impl Default for Settings {
             resize_step: limits::window::RESIZE_STEP.default,
             capture_device_uid: String::new(),
             theme: defaults::THEME.into(),
+            ui_language: defaults::UI_LANGUAGE.into(),
             scroll_step: limits::chat::SCROLL_STEP.default,
             buffer_enabled: true,
             buffer_seconds: limits::capture::BUFFER_SECONDS.default,
             quick_actions: seeded_quick_actions(),
             quick_action_attachments: false,
         }
+    }
+}
+
+fn is_secret_field(name: &str) -> bool {
+    name.ends_with("_api_key") || name == "access_token"
+}
+
+fn redacted(field: &serde_json::Value) -> serde_json::Value {
+    match field.as_str() {
+        Some("") => serde_json::Value::String(String::new()),
+        Some(secret) => serde_json::Value::String(format!("<{} симв.>", secret.chars().count())),
+        None => serde_json::Value::String("<скрыто>".into()),
+    }
+}
+
+/// `{:?}` настроек не должен выводить ключи и токен: структура попадает в
+/// логи и тексты паник, а новое поле-ключ подпадает под правило по суффиксу
+/// `_api_key` само, без правки этого места.
+impl fmt::Debug for Settings {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let mut value = serde_json::to_value(self).map_err(|_| fmt::Error)?;
+        if let Some(object) = value.as_object_mut() {
+            for (name, field) in object.iter_mut() {
+                if is_secret_field(name) {
+                    *field = redacted(field);
+                }
+            }
+        }
+        write!(f, "Settings {value}")
     }
 }
 
@@ -261,6 +341,11 @@ impl Settings {
         if self.theme != THEME_GRAY && self.theme != THEME_BLACK {
             self.theme = defaults::THEME.into();
         }
+        if self.ui_language != UI_LANGUAGE_SYSTEM
+            && !UI_LANGUAGES.contains(&self.ui_language.as_str())
+        {
+            self.ui_language = defaults::UI_LANGUAGE.into();
+        }
         // The registry owns "unknown resolves to the default"; clamping here by
         // hand would be a second, silently divergent copy of that rule.
         self.stt_provider = crate::stt::registry::resolve(&self.stt_provider).id.into();
@@ -268,12 +353,17 @@ impl Settings {
         crate::hotkeys::normalize(&mut self.hotkeys);
     }
 
+    /// Читает файл как есть. Отсутствующий файл — дефолты, нечитаемый —
+    /// `InvalidData` (JSON не разбирается или поле не того типа), остальные
+    /// ошибки ввода-вывода — как есть. Что делать с нечитаемым файлом, решает
+    /// `load_or_quarantine`; этот метод его не трогает.
     pub fn load(path: &Path) -> std::io::Result<Self> {
         let mut settings = match std::fs::read_to_string(path) {
             Ok(raw) => {
                 let mut value: serde_json::Value = serde_json::from_str(&raw)
                     .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
                 crate::hotkeys::migrate_legacy_fields(&mut value);
+                crate::hotkeys::drop_malformed_bindings(&mut value);
                 serde_json::from_value::<Settings>(value)
                     .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?
             }
@@ -284,39 +374,65 @@ impl Settings {
         Ok(settings)
     }
 
-    pub fn apply_key_fallback(
-        &mut self,
-        anthropic: Option<String>,
-        groq: Option<String>,
-        openai: Option<String>,
-        xai: Option<String>,
-        deepgram: Option<String>,
-        xclis: Option<String>,
-    ) {
-        fn fill_if_empty(target: &mut String, candidate: Option<String>) {
-            if !target.is_empty() {
-                return;
-            }
-            if let Some(v) = candidate {
-                let v = v.trim();
-                if !v.is_empty() {
-                    *target = v.to_string();
+    /// Загрузка на старте приложения: нечитаемый файл уходит в карантин
+    /// (`settings.json.broken-<время>`), а приложение стартует с дефолтами.
+    ///
+    /// Раньше любая ошибка чтения молча превращалась в `Settings::default()`,
+    /// и первый же автосейв лаунчера записывал дефолты ПОВЕРХ файла с ключами,
+    /// пресетами и хоткеями пользователя. Карантин оставляет файл на месте под
+    /// другим именем: восстановить его можно руками, а затереть — нельзя.
+    pub fn load_or_quarantine(path: &Path) -> Self {
+        match Self::load(path) {
+            Ok(settings) => settings,
+            Err(e) if e.kind() == std::io::ErrorKind::InvalidData => {
+                let quarantined = quarantine_path(path);
+                match std::fs::rename(path, &quarantined) {
+                    Ok(()) => eprintln!(
+                        "{} не читается ({e}); файл отложен в {}, старт с дефолтами",
+                        path.display(),
+                        quarantined.display()
+                    ),
+                    Err(rename_err) => eprintln!(
+                        "{} не читается ({e}) и не откладывается ({rename_err}); старт с дефолтами",
+                        path.display()
+                    ),
                 }
+                Settings::default()
+            }
+            Err(e) => {
+                eprintln!("{} не прочитан ({e}); старт с дефолтами", path.display());
+                Settings::default()
             }
         }
-        // Вендоры, до которых код доступа не дотягивается (`proxied: false`),
-        // берут ключ из окружения ВСЕГДА: relay их не проксирует, поэтому без
-        // своего ключа они просто заперты, и подавлять фолбэк наличием кода
-        // означало бы запереть их у того, кто ключ как раз положил.
-        fill_if_empty(&mut self.xai_api_key, xai);
-        fill_if_empty(&mut self.deepgram_api_key, deepgram);
-        fill_if_empty(&mut self.xclis_api_key, xclis);
-        if !self.access_token.is_empty() {
-            return;
+    }
+
+    /// Заполняет ПУСТЫЕ поля ключей значениями из окружения (`.env`-фолбэк).
+    ///
+    /// Какие ключи бывают — знают реестры вендоров, а не этот метод: он идёт
+    /// по `key_id` каждой строки обоих реестров и спрашивает у `lookup`
+    /// значение (соглашение `<KEY_ID>_API_KEY` — то же, что у смоуков в
+    /// `examples/`). Правило про код доступа тоже берётся из реестра: у
+    /// вендора, которого relay проксирует, код и так глушит личный ключ,
+    /// поэтому при непустом `access_token` его ключ из окружения не
+    /// подставляется; вендор без роута на relay (`proxied: false`) берёт ключ
+    /// всегда — иначе код доступа запирал бы его у того, кто ключ как раз
+    /// положил.
+    pub fn apply_key_fallback(&mut self, lookup: impl Fn(&str) -> Option<String>) {
+        let has_access_token = !self.access_token.is_empty();
+        for (key_id, proxied_everywhere) in registry_key_ids() {
+            if proxied_everywhere && has_access_token {
+                continue;
+            }
+            let Some(target) = api_key_mut(self, key_id) else { continue };
+            if !target.is_empty() {
+                continue;
+            }
+            let Some(candidate) = lookup(key_id) else { continue };
+            let candidate = candidate.trim();
+            if !candidate.is_empty() {
+                *target = candidate.to_string();
+            }
         }
-        fill_if_empty(&mut self.anthropic_api_key, anthropic);
-        fill_if_empty(&mut self.groq_api_key, groq);
-        fill_if_empty(&mut self.openai_api_key, openai);
     }
 
     pub fn save(&self, path: &Path) -> std::io::Result<()> {
@@ -326,28 +442,32 @@ impl Settings {
     }
 }
 
-fn create_owner_only(path: &Path) -> std::io::Result<std::fs::File> {
-    let mut options = std::fs::OpenOptions::new();
-    options.write(true).create(true).truncate(true);
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt;
-        options.mode(OWNER_ONLY_FILE_MODE);
-    }
-    options.open(path)
+fn quarantine_path(path: &Path) -> PathBuf {
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    path.with_file_name(format!("{name}.{QUARANTINE_SUFFIX}-{stamp}"))
 }
 
+/// Each writer owns its temporary file. A shared `settings.tmp` lets another
+/// save truncate it or keep writing after it has become the destination.
+/// `NamedTempFile` also removes an unpublished file on every error path.
 pub(crate) fn write_atomic_owner_only(path: &Path, contents: &str) -> std::io::Result<()> {
     use std::io::Write;
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)?;
-    }
-    let tmp = path.with_extension(TMP_FILE_EXTENSION);
+    let parent = path.parent().filter(|p| !p.as_os_str().is_empty()).unwrap_or(Path::new("."));
+    std::fs::create_dir_all(parent)?;
+    let mut tmp = tempfile::NamedTempFile::new_in(parent)?;
+    #[cfg(unix)]
     {
-        let mut f = create_owner_only(&tmp)?;
-        f.write_all(contents.as_bytes())?;
+        use std::os::unix::fs::PermissionsExt;
+        tmp.as_file().set_permissions(std::fs::Permissions::from_mode(OWNER_ONLY_FILE_MODE))?;
     }
-    std::fs::rename(&tmp, path)
+    tmp.write_all(contents.as_bytes())?;
+    tmp.as_file().sync_all()?;
+    tmp.persist(path).map_err(|e| e.error)?;
+    Ok(())
 }
 
 #[cfg(test)]

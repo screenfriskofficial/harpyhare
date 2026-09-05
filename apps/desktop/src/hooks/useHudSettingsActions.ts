@@ -1,8 +1,7 @@
 import { useCallback, type RefObject } from "react";
+import { t } from "@/i18n";
 import type { Settings } from "@/ipc/types";
-import { GENERIC_ERROR_TOAST_TITLE, notify } from "@/lib/notify";
-
-const settingsSaveErrorText = (err: string) => `Ошибка сохранения настроек: ${err}`;
+import { notify } from "@/lib/notify";
 
 export interface HudSettingsActions {
   toggleScreenShareVisible: () => void;
@@ -27,8 +26,8 @@ export function useHudSettingsActions(
         if (err) {
           notify({
             variant: "error",
-            title: GENERIC_ERROR_TOAST_TITLE,
-            message: settingsSaveErrorText(err),
+            title: t("common.error"),
+            message: t("errors.settingsSaveFailed", { error: err }),
           });
         }
       });

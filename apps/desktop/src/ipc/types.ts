@@ -46,6 +46,7 @@ export interface Settings {
   resize_step: number;
   capture_device_uid: string;
   theme: string;
+  ui_language: string;
   scroll_step: number;
   buffer_enabled: boolean;
   buffer_seconds: number;
@@ -103,4 +104,5 @@ export interface EventMap {
   "screenshot-error": AppError;
   "focus-prompt": null;
   "duplicate-chat": null;
+  "hotkey-error": AppError;
 }

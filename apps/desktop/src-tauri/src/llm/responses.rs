@@ -18,8 +18,12 @@ use super::{
 
 const RESPONSES_PATH: &str = "/v1/responses";
 
-const READ_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
 const MAX_OUTPUT_TOKENS: u32 = 64000;
+
+/// `response.failed` с этими кодами — повод повторить, а не ошибка запроса;
+/// HTTP-эквивалент уходит в `LlmError::Retryable`.
+const RETRYABLE_FAILURE_CODES: [(&str, u16); 2] =
+    [("rate_limit_exceeded", 429), ("server_error", 500)];
 
 const WEB_SEARCH_TOOL_TYPE: &str = "web_search";
 
@@ -107,20 +111,34 @@ pub fn build_request_body(
     body
 }
 
-pub fn parse_block(block: &str) -> Option<SseOut> {
-    let v = sse_data_json(block)?;
-    match v["type"].as_str()? {
-        "response.output_text.delta" => {
-            Some(SseOut::TextDelta(v["delta"].as_str()?.to_string()))
+/// Разбор одного события диалекта; на вход — склеенная нагрузка `data:`.
+pub fn parse_block(data: &str) -> Vec<SseOut> {
+    let Some(v) = sse_data_json(data) else {
+        return Vec::new();
+    };
+    let out = match v["type"].as_str() {
+        Some("response.output_text.delta") => {
+            v["delta"].as_str().map(|d| SseOut::TextDelta(d.to_string()))
         }
-        "response.completed" => {
+        Some("response.completed") => {
             let total = v["response"]["usage"]["input_tokens"].as_u64().unwrap_or(0);
             Some(SseOut::Done((total > 0).then_some(total as u32)))
         }
-        "response.incomplete" | "response.failed" | "error" => Some(SseOut::ApiError(
+        Some("response.failed") => Some(failure_out(&v)),
+        Some("response.incomplete" | "error") => Some(SseOut::ApiError(
             error_message(&v).unwrap_or(UNKNOWN_API_ERROR).to_string(),
         )),
         _ => None,
+    };
+    out.into_iter().collect()
+}
+
+fn failure_out(v: &Value) -> SseOut {
+    let message = error_message(v).unwrap_or(UNKNOWN_API_ERROR).to_string();
+    let code = v["response"]["error"]["code"].as_str().unwrap_or_default();
+    match RETRYABLE_FAILURE_CODES.iter().find(|(c, _)| *c == code) {
+        Some((_, status)) => SseOut::Retryable { code: *status, message },
+        None => SseOut::ApiError(message),
     }
 }
 
@@ -148,17 +166,12 @@ impl ResponsesClient {
                 spec.wire.base_url(),
                 Credential::Bearer(api_key),
                 spec.wire.key_label(),
-            )
-            .with_read_timeout(READ_TIMEOUT),
+            ),
         }
     }
 
     pub fn proxied(spec: &'static LlmProviderSpec, access_token: String, base_url: String) -> Self {
-        Self {
-            spec,
-            http: LlmHttp::proxied(base_url, access_token, spec.wire.key_label())
-                .with_read_timeout(READ_TIMEOUT),
-        }
+        Self { spec, http: LlmHttp::proxied(base_url, access_token, spec.wire.key_label()) }
     }
 
     pub fn with_base_url(mut self, url: String) -> Self {

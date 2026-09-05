@@ -8,6 +8,7 @@ import {
 } from "react";
 import { useLatestRef } from "@/hooks/useLatestRef";
 import { useSettingsStore, type LatePatch } from "@/hooks/useSettingsStore";
+import { applyUiLanguage } from "@/i18n";
 import type { Settings } from "@/ipc/types";
 import { onSaveError, SETTINGS_SUBJECT } from "@/lib/persist-errors";
 import {
@@ -39,6 +40,7 @@ function applyVisualSettings(settings: Settings): void {
   applyOpacity(document.documentElement, settings.window_opacity);
   applyChatFontSize(document.documentElement, settings.chat_font_size);
   applyTheme(document.documentElement, settings.theme);
+  applyUiLanguage(document.documentElement, settings.ui_language);
 }
 
 type SettingsPatch = Partial<Settings>;

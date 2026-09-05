@@ -1,3 +1,4 @@
+import { t } from "@/i18n";
 import { MODEL_PROVIDERS } from "./models";
 import { STT_PROVIDERS, sttProviderKeyId } from "./stt-providers";
 
@@ -6,53 +7,26 @@ export type ApiKeyId = "anthropic" | "groq" | "openai" | "xai" | "deepgram" | "x
 export interface ApiKeyInfo {
   id: ApiKeyId;
   name: string;
+  /** Чем занят ключ, в родительном падеже: «Нужен для …». Из словаря по `id`. */
   purpose: string;
   consoleUrl: string;
 }
 
+/** Реестр без текста: имя — бренд, назначение переводится по `id`. */
 const API_KEYS = [
-  {
-    id: "anthropic",
-    name: "Anthropic",
-    purpose: "ответов Claude",
-    consoleUrl: "https://console.anthropic.com/settings/keys",
-  },
-  {
-    id: "groq",
-    name: "Groq",
-    purpose: "распознавания речи через Whisper",
-    consoleUrl: "https://console.groq.com/keys",
-  },
-  {
-    id: "openai",
-    name: "OpenAI",
-    purpose: "ответов GPT и распознавания речи через OpenAI",
-    consoleUrl: "https://platform.openai.com/api-keys",
-  },
-  {
-    id: "xai",
-    name: "xAI",
-    purpose: "ответов Grok",
-    consoleUrl: "https://console.x.ai/team/default/api-keys",
-  },
-  {
-    id: "deepgram",
-    name: "Deepgram",
-    purpose: "распознавания речи в реальном времени",
-    consoleUrl: "https://console.deepgram.com/",
-  },
-  {
-    id: "xclis",
-    name: "Xclis",
-    purpose: "ответов через агрегатор Xclis",
-    consoleUrl: "https://jp.xclis.ai/",
-  },
-] as const satisfies readonly ApiKeyInfo[];
+  { id: "anthropic", name: "Anthropic", consoleUrl: "https://console.anthropic.com/settings/keys" },
+  { id: "groq", name: "Groq", consoleUrl: "https://console.groq.com/keys" },
+  { id: "openai", name: "OpenAI", consoleUrl: "https://platform.openai.com/api-keys" },
+  { id: "xai", name: "xAI", consoleUrl: "https://console.x.ai/team/default/api-keys" },
+  { id: "deepgram", name: "Deepgram", consoleUrl: "https://console.deepgram.com/" },
+  { id: "xclis", name: "Xclis", consoleUrl: "https://jp.xclis.ai/" },
+] as const satisfies readonly Omit<ApiKeyInfo, "purpose">[];
 
 export const API_KEY_IDS: readonly ApiKeyId[] = API_KEYS.map((k) => k.id);
 
 export function apiKeyInfo(id: ApiKeyId): ApiKeyInfo {
-  return API_KEYS.find((k) => k.id === id) ?? API_KEYS[0];
+  const key = API_KEYS.find((k) => k.id === id) ?? API_KEYS[0];
+  return { ...key, purpose: t(`apiKeys.purposes.${key.id}`) };
 }
 
 export interface ApiKeySettings {
@@ -67,7 +41,9 @@ export interface ApiKeySettings {
 }
 
 /** Подпись запертого вендора — одна на оба пикера. */
-export const MISSING_KEY_HINT = "нет ключа";
+export function missingKeyHint(): string {
+  return t("apiKeys.missingKey");
+}
 
 const RELAY_VENDORS = [...MODEL_PROVIDERS, ...STT_PROVIDERS];
 
@@ -139,14 +115,14 @@ export function accessGaps(settings: ApiKeySettings): AccessGap[] {
     const names = MODEL_PROVIDERS.map((p) => p.label).join(", ");
     gaps.push({
       kind: "answers",
-      label: `Добавьте ключ любого провайдера ответов (${names}) или введите код доступа`,
+      label: t("apiKeys.gaps.answers", { names }),
     });
   }
   const speech = sttProviderKeyId(settings.stt_provider);
   if (sttProvidersMissingKey(settings).includes(settings.stt_provider)) {
     gaps.push({
       kind: "speech",
-      label: `Добавьте ключ ${apiKeyInfo(speech).name} для распознавания речи или выберите другого провайдера`,
+      label: t("apiKeys.gaps.speech", { name: apiKeyInfo(speech).name }),
     });
   }
   return gaps;

@@ -1,5 +1,6 @@
+import { useTranslation } from "react-i18next";
 import { cn } from "@/lib/utils";
-import { SETTINGS_TABS, type SettingsTabId } from "./settings-tabs";
+import { SETTINGS_TABS, settingsTabLabel, type SettingsTabId } from "./settings-tabs";
 
 interface SettingsTabsRailProps {
   active: SettingsTabId;
@@ -48,6 +49,7 @@ function SettingsTabButton({
 }
 
 export function SettingsTabsRail({ active, onSelect }: SettingsTabsRailProps) {
+  useTranslation();
   return (
     <div
       role="tablist"
@@ -58,7 +60,7 @@ export function SettingsTabsRail({ active, onSelect }: SettingsTabsRailProps) {
         <SettingsTabButton
           key={tab.id}
           id={tab.id}
-          label={tab.label}
+          label={settingsTabLabel(tab.id)}
           icon={tab.icon}
           active={active === tab.id}
           onSelect={onSelect}

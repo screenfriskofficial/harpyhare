@@ -1,12 +1,10 @@
 import { Check, FileText, Plus } from "lucide-react";
 import { useEffect, useMemo, useRef } from "react";
+import { useTranslation } from "react-i18next";
 import { IconButton } from "@/components/IconButton";
 import type { ContextDoc } from "@/lib/context-library";
 import { noteExcerpt, type ExcerptPart } from "@/lib/notes-excerpt";
 import { cn } from "@/lib/utils";
-
-export const ADD_TO_CONTEXT_TITLE = "Добавить в контекст чата";
-export const REMOVE_FROM_CONTEXT_TITLE = "Убрать из контекста чата";
 
 const HIDDEN_UNTIL_HOVER_CLASS =
   "pointer-events-none opacity-0 group-hover:pointer-events-auto group-hover:opacity-100 focus-within:pointer-events-auto focus-within:opacity-100";
@@ -48,6 +46,7 @@ export function NoteResultRow({
   onToggleContext,
   option = false,
 }: NoteResultRowProps) {
+  const { t } = useTranslation();
   const rowRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -81,7 +80,7 @@ export function NoteResultRow({
       </button>
       {onToggleContext && (
         <IconButton
-          title={inContext ? REMOVE_FROM_CONTEXT_TITLE : ADD_TO_CONTEXT_TITLE}
+          title={inContext ? t("hud.notes.removeFromContext") : t("hud.notes.addToContext")}
           className={cn(
             "size-6 shrink-0",
             inContext ? "text-foreground" : HIDDEN_UNTIL_HOVER_CLASS,

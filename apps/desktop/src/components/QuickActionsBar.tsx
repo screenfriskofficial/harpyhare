@@ -1,4 +1,5 @@
 import type { MouseEvent } from "react";
+import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import type { QuickAction } from "@/ipc/types";
 import { quickActionHint } from "@/lib/quick-actions";
@@ -9,8 +10,6 @@ export interface QuickActionsBarProps {
   disabled: boolean;
   onRun: (action: QuickAction) => void;
 }
-
-const BAR_LABEL = "Быстрые действия";
 
 function keepPromptFocus(event: MouseEvent<HTMLElement>): void {
   event.preventDefault();
@@ -43,11 +42,12 @@ function QuickActionButton({ action, hint, disabled, onRun }: QuickActionButtonP
 }
 
 export function QuickActionsBar({ actions, combo, disabled, onRun }: QuickActionsBarProps) {
+  const { t } = useTranslation();
   if (actions.length === 0) return null;
   return (
     <div
       role="group"
-      aria-label={BAR_LABEL}
+      aria-label={t("hud.quickActions")}
       onMouseDown={keepPromptFocus}
       className="no-scrollbar mb-1.5 flex min-w-0 items-center gap-1 overflow-x-auto"
     >

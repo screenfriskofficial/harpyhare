@@ -1,5 +1,6 @@
 import { Keyboard } from "lucide-react";
 import { Fragment } from "react";
+import { useTranslation } from "react-i18next";
 import { ComboChip } from "@/components/ComboChip";
 import { IconButton } from "@/components/IconButton";
 import { SectionLabel } from "@/components/SectionLabel";
@@ -16,11 +17,13 @@ export interface HotkeysPopoverProps {
 const POPOVER_COLLISION_PADDING_PX = 8;
 
 export function HotkeysPopover({ hotkeys, triggerClass }: HotkeysPopoverProps) {
+  // `hotkeyGroups` берёт подписи через общий `t`; подписка нужна, чтобы попап перерисовался на смену языка.
+  const { t } = useTranslation();
   const groups = hotkeyGroups(hotkeys);
   return (
     <Popover>
       <PopoverTrigger asChild>
-        <IconButton title="" aria-label="Горячие клавиши" className={triggerClass}>
+        <IconButton title="" aria-label={t("hud.header.hotkeys")} className={triggerClass}>
           <Keyboard />
         </IconButton>
       </PopoverTrigger>

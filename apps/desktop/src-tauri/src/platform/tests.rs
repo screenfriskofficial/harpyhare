@@ -62,3 +62,10 @@ fn mask_prints_its_tokens() {
     assert_eq!(modifier_mask("Ctrl+Shift").to_string(), "Ctrl+Shift");
     assert_eq!(ModifierMask::EMPTY.to_string(), "нет");
 }
+
+#[test]
+fn aliases_from_the_plugin_and_the_frontend_yield_the_same_mask() {
+    assert_eq!(modifier_mask("Control+Option"), modifier_mask("Ctrl+Alt"));
+    assert_eq!(modifier_mask("Command+Shift"), modifier_mask("Cmd+Shift"));
+    assert_eq!(modifier_mask("Super"), ModifierMask::CMD);
+}

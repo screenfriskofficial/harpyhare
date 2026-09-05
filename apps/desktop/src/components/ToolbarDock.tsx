@@ -1,5 +1,6 @@
 import { Menu } from "lucide-react";
 import { memo, useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { useTranslation } from "react-i18next";
 import { IconButton } from "@/components/IconButton";
 import { ICON_CLUSTER_CLASS } from "@/components/IconCluster";
 import { ShortcutTooltip } from "@/components/ShortcutTooltip";
@@ -24,8 +25,6 @@ export interface ToolbarDockProps {
 
 export const DOCK_BUTTON_CLASS = "rounded-full hover:bg-transparent";
 
-const OPEN_LABEL = "Панель действий";
-const CLOSE_LABEL = "Закрыть панель";
 const ESCAPE_KEY = "Escape";
 
 const DOCK_TOOLTIP_SIDE = "left";
@@ -48,9 +47,11 @@ function DockTooltip({
 
 /** `memo`: `items` собирается в `useMemo` у родителя, иначе мемоизация не даёт ничего. */
 export const ToolbarDock = memo(function ToolbarDock({ items, leading }: ToolbarDockProps) {
+  const { t } = useTranslation();
   const wrapperRef = useRef<HTMLDivElement>(null);
   const toggleRef = useRef<HTMLButtonElement>(null);
   const [open, setOpen] = useState(false);
+  const toggleLabel = open ? t("hud.header.dockClose") : t("hud.header.dockOpen");
 
   const closeAndRestoreFocus = useCallback(() => {
     setOpen(false);
@@ -87,11 +88,11 @@ export const ToolbarDock = memo(function ToolbarDock({ items, leading }: Toolbar
         {leading !== undefined && (
           <span className="mx-0.5 h-4 w-px shrink-0 bg-border" aria-hidden />
         )}
-        <DockTooltip label={open ? CLOSE_LABEL : OPEN_LABEL}>
+        <DockTooltip label={toggleLabel}>
           <IconButton
             ref={toggleRef}
             title=""
-            aria-label={open ? CLOSE_LABEL : OPEN_LABEL}
+            aria-label={toggleLabel}
             aria-expanded={open}
             className={DOCK_BUTTON_CLASS}
             onClick={() => {

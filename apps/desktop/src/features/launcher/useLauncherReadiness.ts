@@ -1,4 +1,5 @@
 import { useMemo } from "react";
+import { useTranslation } from "react-i18next";
 import { usePermissions, type PermissionsApi } from "@/hooks/usePermissions";
 import type { Settings } from "@/ipc/types";
 import { accessGaps, type AccessGap } from "@/lib/api-keys";
@@ -14,10 +15,7 @@ export interface LauncherBlocker {
 /** Ключи и выбор провайдера речи живут на одной вкладке, поэтому пробел любого рода ведёт сюда. */
 const ACCESS_TAB: SettingsTabId = "access";
 
-const AUDIO_BLOCKER: LauncherBlocker = {
-  label: "Нет доступа к записи системного звука",
-  screen: "permissions",
-};
+const AUDIO_BLOCKER_SCREEN: ScreenId = "permissions";
 
 export interface LauncherReadiness {
   gaps: AccessGap[];
@@ -28,7 +26,12 @@ export interface LauncherReadiness {
 }
 
 export function useLauncherReadiness(settings: Settings): LauncherReadiness {
-  const gaps = useMemo(() => accessGaps(settings), [settings]);
+  // `t` в зависимостях: подписи блокеров собираются из словаря и обязаны
+  // пересчитаться при смене языка, а не только при смене настроек.
+  const { t } = useTranslation();
+  // Translation helpers read the active language; changing it invalidates this memo.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const gaps = useMemo(() => accessGaps(settings), [settings, t]);
   const permissions = usePermissions();
   const checking = !permissions.loaded;
 
@@ -38,9 +41,11 @@ export function useLauncherReadiness(settings: Settings): LauncherReadiness {
       screen: "settings",
       tab: ACCESS_TAB,
     }));
-    if (!checking && !permissions.audioOk) list.push(AUDIO_BLOCKER);
+    if (!checking && !permissions.audioOk) {
+      list.push({ label: t("launcher.audioBlocker"), screen: AUDIO_BLOCKER_SCREEN });
+    }
     return list;
-  }, [gaps, checking, permissions.audioOk]);
+  }, [gaps, checking, permissions.audioOk, t]);
 
   return {
     gaps,

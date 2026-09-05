@@ -1,9 +1,28 @@
+import { t } from "@/i18n";
 import { HOTKEY_ACTIONS, QUICK_ACTION_LIMIT } from "@/ipc/bindings";
 import type { HotkeyBinding } from "@/ipc/types";
 import { PLATFORM, type Platform } from "./platform";
 
 export type HotkeyAction = (typeof HOTKEY_ACTIONS)[number];
 export type HotkeyActionId = HotkeyAction["id"];
+export type HotkeyGroupId = HotkeyAction["group"];
+
+/**
+ * Подписи действий живут в словаре по `id`, а не в реестре Rust: реестр несёт
+ * русский `label`/`hint` только для собственных сообщений бэкенда, и тест
+ * `i18n.test.ts` держит русский словарь дословно равным ему.
+ */
+export function actionLabel(id: HotkeyActionId): string {
+  return t(`hotkeys.actions.${id}.label`);
+}
+
+export function actionHint(id: HotkeyActionId): string {
+  return t(`hotkeys.actions.${id}.hint`);
+}
+
+export function groupTitle(group: HotkeyGroupId): string {
+  return t(`hotkeys.groups.${group}`);
+}
 
 /**
  * Строковый формат сочетания общий с Rust (`parse_hotkey`/`split_combo`):
@@ -208,20 +227,20 @@ const ARROW_DOWN_KEY = "ArrowDown";
 const FIELD_HINTS_GROUP = hotkeyAction("send").group;
 const NOTES_HINTS_GROUP = hotkeyAction("toggle_mode").group;
 
-function fieldHints(platform: Platform): Record<string, HotkeyHint[]> {
+function fieldHints(platform: Platform): Partial<Record<HotkeyGroupId, HotkeyHint[]>> {
   const paste = [PASTE_MODIFIER[platform], PASTE_KEY].join(COMBO_SEPARATOR);
   const newline = [SHIFT_MODIFIER, SEND_KEY].join(COMBO_SEPARATOR);
   const upDown = [ARROW_UP_KEY, ARROW_DOWN_KEY].map((key) => formatCombo(key, platform)).join("");
   return {
     [FIELD_HINTS_GROUP]: [
-      { combo: formatCombo(SEND_KEY, platform), label: "отправить из поля ввода" },
-      { combo: formatCombo(newline, platform), label: "перенос строки" },
-      { combo: formatCombo(paste, platform), label: "вставить скриншот" },
+      { combo: formatCombo(SEND_KEY, platform), label: t("hotkeys.fieldHints.sendFromField") },
+      { combo: formatCombo(newline, platform), label: t("hotkeys.fieldHints.newline") },
+      { combo: formatCombo(paste, platform), label: t("hotkeys.fieldHints.pasteScreenshot") },
     ],
     [NOTES_HINTS_GROUP]: [
-      { combo: upDown, label: "по подсказкам поиска" },
-      { combo: formatCombo(SEND_KEY, platform), label: "открыть заметку" },
-      { combo: formatCombo(ESCAPE_KEY, platform), label: "шаг назад, до выхода в чат" },
+      { combo: upDown, label: t("hotkeys.fieldHints.browseSuggestions") },
+      { combo: formatCombo(SEND_KEY, platform), label: t("hotkeys.fieldHints.openNote") },
+      { combo: formatCombo(ESCAPE_KEY, platform), label: t("hotkeys.fieldHints.stepBack") },
     ],
   };
 }
@@ -230,20 +249,20 @@ export function hotkeyGroups(
   bindings: HotkeyBinding[],
   platform: Platform = PLATFORM,
 ): HotkeyGroup[] {
-  const groups: HotkeyGroup[] = [];
+  const byGroup = new Map<HotkeyGroupId, HotkeyGroup>();
   for (const action of HOTKEY_ACTIONS) {
     const combo = comboLabel(action, effectiveCombo(bindings, action.id, platform), platform);
     if (combo === "") continue;
-    const hint = { combo, label: action.label.toLowerCase() };
-    const existing = groups.find((g) => g.title === action.group);
+    const hint = { combo, label: actionLabel(action.id).toLocaleLowerCase() };
+    const existing = byGroup.get(action.group);
     if (existing) existing.hints.push(hint);
-    else groups.push({ title: action.group, hints: [hint] });
+    else byGroup.set(action.group, { title: groupTitle(action.group), hints: [hint] });
   }
   const hints = fieldHints(platform);
-  for (const group of groups) {
-    group.hints.push(...(hints[group.title] ?? []));
+  for (const [group, entry] of byGroup) {
+    entry.hints.push(...(hints[group] ?? []));
   }
-  return groups;
+  return [...byGroup.values()];
 }
 
 export type ComboIconName =

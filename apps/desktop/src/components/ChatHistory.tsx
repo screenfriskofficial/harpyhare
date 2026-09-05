@@ -1,5 +1,6 @@
 import { Copy, RotateCw, Trash2 } from "lucide-react";
 import { memo, type ReactNode } from "react";
+import { useTranslation } from "react-i18next";
 import { type Components } from "react-markdown";
 import { IconButton } from "@/components/IconButton";
 import {
@@ -15,8 +16,6 @@ import { isMessageCopyable } from "@/lib/message-clipboard";
 import { messageKey } from "@/lib/message-keys";
 import { cn } from "@/lib/utils";
 
-const MESSAGE_IMAGE_ALT = "Картинка в сообщении";
-const COPY_MESSAGE_TITLE = "Копировать сообщение";
 /**
  * Показ/скрытие мгновенные, без `transition-opacity`: в прозрачном фреймлесс-окне
  * анимация прозрачности выносит элемент в отдельный композитный слой WKWebView,
@@ -58,23 +57,21 @@ function MessageActions({
   onResend: (() => void) | null;
   className?: string;
 }) {
+  const { t } = useTranslation();
   return (
     <div className={cn(MESSAGE_ACTIONS_REVEAL_CLASS, "shrink-0", className)}>
       {onCopy && (
-        <MessageActionButton title={COPY_MESSAGE_TITLE} onClick={onCopy}>
+        <MessageActionButton title={t("hud.history.copy")} onClick={onCopy}>
           <Copy className="size-3.5" />
         </MessageActionButton>
       )}
       {onResend && (
-        <MessageActionButton
-          title="Переотправить (всё, что ниже, будет заменено новым ответом)"
-          onClick={onResend}
-        >
+        <MessageActionButton title={t("hud.history.resend")} onClick={onResend}>
           <RotateCw className="size-3.5" />
         </MessageActionButton>
       )}
       <MessageActionButton
-        title="Удалить сообщение"
+        title={t("hud.history.remove")}
         onClick={onRemove}
         className="hover:text-destructive"
       >
@@ -128,6 +125,7 @@ function MessageShell({
 }
 
 function MessageImages({ images }: { images: ImagePayload[] }) {
+  const { t } = useTranslation();
   if (images.length === 0) return null;
   return (
     <div className="flex flex-wrap gap-1.5">
@@ -135,7 +133,7 @@ function MessageImages({ images }: { images: ImagePayload[] }) {
         <img
           key={i}
           src={imageDataUrl(image)}
-          alt={MESSAGE_IMAGE_ALT}
+          alt={t("hud.history.imageAlt")}
           className="max-h-48 max-w-full rounded-md object-contain ring-1 ring-border ring-inset"
         />
       ))}

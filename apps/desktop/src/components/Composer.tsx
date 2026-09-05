@@ -1,5 +1,6 @@
 import { ArrowUp, Crop, Eraser, NotebookText, RotateCcw, Square } from "lucide-react";
 import { memo, useCallback, useState, type RefObject } from "react";
+import { useTranslation } from "react-i18next";
 import { ChatContextDialog } from "@/components/ChatContextDialog";
 import { PROMPT_SEND_KEY, PromptTextarea } from "@/components/PromptTextarea";
 import {
@@ -40,8 +41,6 @@ export interface ComposerProps {
   quickActionCombo: string;
   onQuickAction: (action: QuickAction) => void;
 }
-
-const SEND_LABEL = "Отправить";
 
 interface AttachmentListProps {
   attachments: Attachment[];
@@ -84,6 +83,8 @@ type ComposerToolbarProps = RequestParamsPopoverProps &
   };
 
 function ComposerToolbar(props: ComposerToolbarProps) {
+  const { t } = useTranslation();
+  const sendLabel = t("hud.composer.send");
   return (
     <div className="flex items-center gap-1 px-1.5 pb-1.5">
       <Button
@@ -91,8 +92,8 @@ function ComposerToolbar(props: ComposerToolbarProps) {
         size="icon-compact"
         disabled={props.streaming}
         onClick={props.onClearHistory}
-        title="Очистить историю чата"
-        aria-label="Очистить историю чата"
+        title={t("hud.composer.clearHistory")}
+        aria-label={t("hud.composer.clearHistory")}
       >
         <Eraser />
       </Button>
@@ -101,8 +102,8 @@ function ComposerToolbar(props: ComposerToolbarProps) {
         size="icon-compact"
         className="relative"
         onClick={props.onOpenContext}
-        title="Контекст чата"
-        aria-label="Контекст чата"
+        title={t("hud.composer.context")}
+        aria-label={t("hud.composer.context")}
       >
         <NotebookText />
         {props.hasContext && (
@@ -116,8 +117,8 @@ function ComposerToolbar(props: ComposerToolbarProps) {
         variant="ghost"
         size="icon-compact"
         onClick={props.onCaptureRegion}
-        title="Снимок области экрана"
-        aria-label="Снимок области экрана"
+        title={t("hud.composer.screenshot")}
+        aria-label={t("hud.composer.screenshot")}
       >
         <Crop />
       </Button>
@@ -146,14 +147,14 @@ function ComposerToolbar(props: ComposerToolbarProps) {
           variant="destructive"
           size="icon-compact"
           onClick={props.onStop}
-          title="Остановить ответ"
-          aria-label="Остановить ответ"
+          title={t("hud.composer.stop")}
+          aria-label={t("hud.composer.stop")}
         >
           <Square className="size-3.5 fill-current" />
         </Button>
       ) : (
-        <ShortcutTooltip label={SEND_LABEL} shortcut={formatCombo(PROMPT_SEND_KEY)}>
-          <Button size="icon-compact" onClick={props.onSend} aria-label={SEND_LABEL}>
+        <ShortcutTooltip label={sendLabel} shortcut={formatCombo(PROMPT_SEND_KEY)}>
+          <Button size="icon-compact" onClick={props.onSend} aria-label={sendLabel}>
             <ArrowUp />
           </Button>
         </ShortcutTooltip>

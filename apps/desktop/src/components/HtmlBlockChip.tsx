@@ -1,4 +1,5 @@
 import { ExternalLink } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import { codeLineCount, linesLabel } from "@/lib/code-block";
 
 export interface HtmlBlockChipProps {
@@ -7,6 +8,7 @@ export interface HtmlBlockChipProps {
 }
 
 export function HtmlBlockChip({ code, onToggle }: HtmlBlockChipProps) {
+  const { t } = useTranslation();
   const lines = codeLineCount(code);
   return (
     <button
@@ -17,7 +19,7 @@ export function HtmlBlockChip({ code, onToggle }: HtmlBlockChipProps) {
       <span className="font-medium text-foreground/85">html</span>
       <span className="tabular-nums">{linesLabel(lines)}</span>
       <span className="flex items-center gap-1">
-        Открыть превью <ExternalLink className="size-3" />
+        {t("hud.codeBlock.openPreview")} <ExternalLink className="size-3" />
       </span>
     </button>
   );

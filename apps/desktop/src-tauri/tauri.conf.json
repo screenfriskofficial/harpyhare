@@ -11,7 +11,7 @@
     "frontendDist": "../dist"
   },
   "app": {
-    "withGlobalTauri": true,
+    "withGlobalTauri": false,
     "macOSPrivateApi": true,
     "windows": [],
     "security": {

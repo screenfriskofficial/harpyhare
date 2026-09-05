@@ -1,5 +1,6 @@
 import { Minus, Pause, Play, Plus, RotateCcw, X } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { IconButton } from "@/components/IconButton";
 import { ShortcutTooltip } from "@/components/ShortcutTooltip";
 import { useLatestRef } from "@/hooks/useLatestRef";
@@ -26,10 +27,6 @@ export interface TeleprompterProps {
 
 const EDGE_FADE =
   "linear-gradient(to bottom, transparent 0%, black 26%, black 74%, transparent 100%)";
-const EMPTY_HINT = "Нет ответа для суфлёра";
-const PAUSE_LABEL = "Пауза";
-const PLAY_LABEL = "Воспроизвести";
-const CLOSE_LABEL = "Закрыть";
 
 /**
  * Прокрутка крутится только пока `playing`: цикл на паузе будил бы главный
@@ -75,9 +72,12 @@ export function Teleprompter({
   onPersist,
   onClose,
 }: TeleprompterProps) {
+  const { t } = useTranslation();
   const [speed, setSpeed] = useState(() => clampSpeed(initialSpeed));
   const [fontSize, setFontSize] = useState(() => clampFont(initialFontSize));
   const [playing, setPlaying] = useState(true);
+  const playPauseLabel = playing ? t("hud.teleprompter.pause") : t("hud.teleprompter.play");
+  const closeLabel = t("common.close");
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const offsetRef = useRef(initialOffset);
@@ -148,7 +148,7 @@ export function Teleprompter({
             className="mx-auto max-w-[26ch] px-8 text-center leading-[1.7] font-medium tracking-wide whitespace-pre-wrap text-foreground/90"
             style={{ fontSize, paddingTop: "46vh", paddingBottom: "54vh" }}
           >
-            {text || EMPTY_HINT}
+            {text || t("hud.teleprompter.empty")}
           </div>
         </div>
         <div
@@ -158,16 +158,13 @@ export function Teleprompter({
       </div>
 
       <div className="flex items-center justify-center gap-1.5 pb-3">
-        <IconButton title="Сначала" onClick={restart}>
+        <IconButton title={t("hud.teleprompter.restart")} onClick={restart}>
           <RotateCcw />
         </IconButton>
-        <ShortcutTooltip
-          label={playing ? PAUSE_LABEL : PLAY_LABEL}
-          shortcut={formatCombo(pauseCombo)}
-        >
+        <ShortcutTooltip label={playPauseLabel} shortcut={formatCombo(pauseCombo)}>
           <IconButton
             title=""
-            aria-label={playing ? PAUSE_LABEL : PLAY_LABEL}
+            aria-label={playPauseLabel}
             onClick={() => {
               setPlaying((p) => !p);
             }}
@@ -177,7 +174,7 @@ export function Teleprompter({
         </ShortcutTooltip>
 
         <Stepper
-          label="Скорость"
+          label={t("hud.teleprompter.speed")}
           value={String(Math.round(speed))}
           onDec={() => {
             setSpeed((s) => clampSpeed(s - TELEPROMPTER_SPEED_STEP));
@@ -187,7 +184,7 @@ export function Teleprompter({
           }}
         />
         <Stepper
-          label="Шрифт"
+          label={t("hud.teleprompter.font")}
           value={String(Math.round(fontSize))}
           onDec={() => {
             setFontSize((f) => clampFont(f - TELEPROMPTER_FONT_STEP));
@@ -197,8 +194,8 @@ export function Teleprompter({
           }}
         />
 
-        <ShortcutTooltip label={CLOSE_LABEL} shortcut={formatCombo(closeCombo)}>
-          <IconButton title="" aria-label={CLOSE_LABEL} onClick={onClose}>
+        <ShortcutTooltip label={closeLabel} shortcut={formatCombo(closeCombo)}>
+          <IconButton title="" aria-label={closeLabel} onClick={onClose}>
             <X />
           </IconButton>
         </ShortcutTooltip>

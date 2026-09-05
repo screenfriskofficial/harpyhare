@@ -95,6 +95,7 @@ fn main() {
     let cases = build_cases();
     let rt = tokio::runtime::Runtime::new().unwrap();
     rt.block_on(async move {
+        harpyhare_lib::tls::ensure_crypto_provider();
         let client = reqwest::Client::new();
         for (name, body) in cases {
             run_case(&client, &key, name, body).await;

@@ -1,5 +1,6 @@
 import { Check, Copy, WrapText } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { useTranslation } from "react-i18next";
 import { IconButton } from "@/components/IconButton";
 import { ICON_CLUSTER_BUTTON_SIZE_CLASS } from "@/components/IconCluster";
 import { copyTextReportingError } from "@/lib/clipboard-text";
@@ -19,11 +20,6 @@ export interface CodeBlockProps {
 }
 
 const COPIED_FEEDBACK_MS = 1500;
-const UNKNOWN_LANGUAGE_LABEL = "код";
-const COPY_LABEL = "Копировать блок";
-const COPIED_LABEL = "Скопировано";
-const WRAP_ON_LABEL = "Переносить длинные строки";
-const WRAP_OFF_LABEL = "Не переносить строки";
 const ACTION_CLASS = ICON_CLUSTER_BUTTON_SIZE_CLASS;
 const MIN_GUTTER_DIGITS = 2;
 /**
@@ -60,6 +56,7 @@ function useCopiedFlag(): [copied: boolean, markCopied: () => void] {
 }
 
 export function CodeBlock({ language, code, codeClassName, children }: CodeBlockProps) {
+  const { t } = useTranslation();
   const [wrapped, setWrapped] = useState(WRAP_BY_DEFAULT);
   const [copied, markCopied] = useCopiedFlag();
   const lines = useMemo(() => trimTrailingEmptyLine(splitRenderedLines(children)), [children]);
@@ -78,14 +75,14 @@ export function CodeBlock({ language, code, codeClassName, children }: CodeBlock
     >
       <div className="flex items-center gap-2 border-b border-border py-0.5 pr-0.5 pl-2.5 font-mono text-caption">
         <span className="truncate font-medium text-foreground/85">
-          {language ?? UNKNOWN_LANGUAGE_LABEL}
+          {language ?? t("hud.codeBlock.unknownLanguage")}
         </span>
         <span className="shrink-0 text-muted-foreground tabular-nums">
           {linesLabel(lines.length)}
         </span>
         <span className="min-w-0 flex-1" />
         <IconButton
-          title={wrapped ? WRAP_OFF_LABEL : WRAP_ON_LABEL}
+          title={wrapped ? t("hud.codeBlock.wrapOff") : t("hud.codeBlock.wrapOn")}
           className={cn(ACTION_CLASS, wrapped && "text-foreground")}
           onClick={() => {
             setWrapped((on) => !on);
@@ -94,7 +91,7 @@ export function CodeBlock({ language, code, codeClassName, children }: CodeBlock
           <WrapText className="size-3.5" />
         </IconButton>
         <IconButton
-          title={copied ? COPIED_LABEL : COPY_LABEL}
+          title={copied ? t("hud.codeBlock.copied") : t("hud.codeBlock.copy")}
           className={ACTION_CLASS}
           onClick={copy}
         >

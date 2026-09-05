@@ -1,8 +1,9 @@
+use crate::sync::LockUnpoisoned;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::Duration;
 
-use ringbuf::traits::{Consumer, Producer, Split};
+use ringbuf::traits::{Consumer, Observer, Producer, Split};
 use ringbuf::{HeapCons, HeapProd, HeapRb};
 
 use crate::audio;
@@ -23,8 +24,14 @@ const RAW_SCRATCH_CAPACITY: usize = 32 * 1024;
 const MONO_SCRATCH_CAPACITY: usize = 16 * 1024;
 const READ_BUF_SAMPLES: usize = 16 * 1024;
 const OUT_PREALLOC_SECONDS: usize = 30;
+/// Пауза консьюмера, когда идёт сессия: от неё зависит, как быстро чанк
+/// доедет до стримингового sink'а.
 const CONSUMER_IDLE_SLEEP: Duration = Duration::from_millis(5);
+/// Пауза консьюмера в чистой буферизации (без сессии): латентность там не
+/// нужна, а пятимиллисекундный опрос давал сотни пробуждений в секунду в простое.
+const BUFFERING_IDLE_SLEEP: Duration = Duration::from_millis(20);
 const STOP_WAIT_TIMEOUT: Duration = Duration::from_secs(5);
+const SHUTDOWN_RESULT: &str = "захват остановлен";
 
 #[derive(Debug, thiserror::Error)]
 pub enum CaptureError {
@@ -65,6 +72,15 @@ struct Shared {
     recording: AtomicBool,
     buffering: AtomicBool,
     stop_requested: AtomicBool,
+    /// Консьюмер обязан выйти: капчер дропается. Единственный сигнал, по
+    /// которому его тред завершается, — без него каждая пересборка капчера
+    /// (смена устройства, «Выдать», смена `capture_device_uid`) оставляла
+    /// тред крутиться навечно вместе с кольцом на мегабайты.
+    shutdown: AtomicBool,
+    /// Бэкенд больше не подаёт сэмплы и сам это не починит (сменился формат
+    /// устройства, консьюмер завис): фасад цел, но записывать им нельзя,
+    /// `recording.rs` пересоздаёт капчер на следующем PTT.
+    dead: AtomicBool,
     produced: AtomicU64,
     dropped: AtomicU64,
     sample_rate: u32,
@@ -74,7 +90,18 @@ struct Shared {
     cv: Condvar,
 }
 
-struct CallbackCtx {
+impl Shared {
+    fn shutting_down(&self) -> bool {
+        self.shutdown.load(Ordering::Acquire)
+    }
+
+    /// Этим капчером больше нельзя записывать — лечится только пересозданием.
+    fn mark_dead(&self) {
+        self.dead.store(true, Ordering::Release);
+    }
+}
+
+pub struct CallbackCtx {
     shared: Arc<Shared>,
     prod: HeapProd<f32>,
 }
@@ -85,8 +112,15 @@ impl CallbackCtx {
             || self.shared.buffering.load(Ordering::Acquire)
     }
 
+    /// Единственный вход в кольцо. Кладёт только ЦЕЛЫЕ кадры: частичная
+    /// запись при переполнении сдвигала бы раскладку каналов до конца сессии
+    /// (левый канал следующего кадра вставал на место правого), а `dropped`
+    /// считается в сэмплах, как и `produced`.
     fn push_samples(&mut self, samples: &[f32]) {
-        let pushed = self.prod.push_slice(samples);
+        let channels = self.shared.channels.max(1);
+        let room = self.prod.vacant_len();
+        let whole = samples.len().min(room) / channels * channels;
+        let pushed = self.prod.push_slice(&samples[..whole]);
         self.shared.produced.fetch_add(pushed as u64, Ordering::Relaxed);
         if pushed < samples.len() {
             self.shared
@@ -94,11 +128,20 @@ impl CallbackCtx {
                 .fetch_add((samples.len() - pushed) as u64, Ordering::Relaxed);
         }
     }
+
+    /// Бэкенд рапортует, что источник умер окончательно.
+    #[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+    fn mark_dead(&self) {
+        self.shared.mark_dead();
+    }
 }
 
 pub struct SystemAudioCapture {
     shared: Arc<Shared>,
-    _running: backend::Running,
+    consumer: Option<std::thread::JoinHandle<()>>,
+    /// `Option` только ради порядка в `Drop`: продюсер глушится ПЕРВЫМ, до
+    /// остановки консьюмера, чтобы в кольцо не писали в пустоту.
+    running: Option<backend::Running>,
 }
 
 #[derive(Debug, Clone, serde::Serialize, specta::Type)]
@@ -118,13 +161,35 @@ pub fn watch_default_output_device(on_change: DeviceChangeHandler) {
 impl SystemAudioCapture {
     pub fn new(output_device_uid: Option<&str>, buffer_secs: u64) -> Result<Self, CaptureError> {
         let (source, spec) = backend::open(output_device_uid)?;
+        let (mut capture, ctx) = Self::assemble(spec, buffer_secs)?;
+        match backend::start(source, ctx) {
+            Ok(running) => {
+                capture.running = Some(running);
+                Ok(capture)
+            }
+            Err(e) => {
+                // Иначе консьюмер, запущенный до бэкенда, пережил бы ошибку старта.
+                capture.shutdown_consumer();
+                Err(e)
+            }
+        }
+    }
 
+    /// Переносимая половина конструктора: кольцо, общее состояние и консьюмер
+    /// без единого вызова в бэкенд. Отдельно от `new`, чтобы протокол сессии
+    /// тестировался фейковым продюсером, без Core Audio и WASAPI.
+    fn assemble(spec: StreamSpec, buffer_secs: u64) -> Result<(Self, Box<CallbackCtx>), CaptureError> {
+        if spec.channels == 0 || spec.sample_rate == 0 {
+            return Err(CaptureError::Backend("устройство вывода без каналов или частоты".into()));
+        }
         let ring = HeapRb::<f32>::new(spec.sample_rate as usize * spec.channels * RING_SECONDS);
         let (prod, cons) = ring.split();
         let shared = Arc::new(Shared {
             recording: AtomicBool::new(false),
             buffering: AtomicBool::new(false),
             stop_requested: AtomicBool::new(false),
+            shutdown: AtomicBool::new(false),
+            dead: AtomicBool::new(false),
             produced: AtomicU64::new(0),
             dropped: AtomicU64::new(0),
             sample_rate: spec.sample_rate,
@@ -137,26 +202,42 @@ impl SystemAudioCapture {
             shared: Arc::clone(&shared),
             prod,
         });
-
-        {
+        let consumer = {
             let shared = Arc::clone(&shared);
             std::thread::Builder::new()
                 .name(CONSUMER_THREAD_NAME.into())
                 .spawn(move || consumer_main(&shared, cons))
-                .map_err(|e| CaptureError::Audio(e.to_string()))?;
-        }
-
-        let running = backend::start(source, ctx)?;
-
-        Ok(Self {
-            shared,
-            _running: running,
-        })
+                .map_err(|e| CaptureError::Audio(e.to_string()))?
+        };
+        Ok((Self { shared, consumer: Some(consumer), running: None }, ctx))
     }
 
+    fn shutdown_consumer(&mut self) {
+        self.shared.shutdown.store(true, Ordering::Release);
+        {
+            let _wake = self.shared.session.lock_unpoisoned();
+            self.shared.cv.notify_all();
+        }
+        if let Some(consumer) = self.consumer.take() {
+            let _ = consumer.join();
+        }
+    }
+
+    /// Запись можно начать только из покоя: `Start` поверх незавершённой
+    /// сессии перезаписал бы её sink, а `Done` предыдущей записи потом
+    /// вернулся бы в новую — звуком прошлого раза.
     pub fn start(&mut self, sink: Option<ChunkSink>) -> Result<(), CaptureError> {
+        if self.is_dead() {
+            return Err(CaptureError::Backend("захват мёртв — пересоздаётся".into()));
+        }
+        let mut s = self.shared.session.lock_unpoisoned();
+        match &*s {
+            Session::Idle | Session::Done(_) => {}
+            Session::Start(_) | Session::Running => {
+                return Err(CaptureError::Audio("предыдущая запись ещё не остановлена".into()));
+            }
+        }
         self.shared.stop_requested.store(false, Ordering::Release);
-        let mut s = self.shared.session.lock().unwrap();
         *s = Session::Start(sink);
         self.shared.cv.notify_all();
         Ok(())
@@ -164,7 +245,7 @@ impl SystemAudioCapture {
 
     pub fn stop(&mut self) -> Result<Vec<f32>, CaptureError> {
         self.shared.stop_requested.store(true, Ordering::Release);
-        let mut s = self.shared.session.lock().unwrap();
+        let mut s = self.shared.session.lock_unpoisoned();
         loop {
             match &mut *s {
                 Session::Done(res) => {
@@ -181,6 +262,9 @@ impl SystemAudioCapture {
                         .unwrap();
                     s = guard;
                     if timeout.timed_out() {
+                        // Консьюмер не отвечает — этим капчером больше не
+                        // записать, и следующий PTT обязан его пересоздать.
+                        self.shared.mark_dead();
                         return Err(CaptureError::Audio(format!(
                             "консьюмер не завершил запись за {}с",
                             STOP_WAIT_TIMEOUT.as_secs()
@@ -189,6 +273,12 @@ impl SystemAudioCapture {
                 }
             }
         }
+    }
+
+    /// Капчером больше нельзя записывать: бэкенд отказал окончательно или
+    /// консьюмер перестал отвечать. Лечится только пересозданием.
+    pub fn is_dead(&self) -> bool {
+        self.shared.dead.load(Ordering::Acquire)
     }
 
     pub fn recording_secs(&self) -> f32 {
@@ -200,15 +290,26 @@ impl SystemAudioCapture {
     pub fn set_buffering(&self, enabled: bool) {
         self.shared.buffering.store(enabled, Ordering::Release);
         if enabled {
-            let _wake = self.shared.session.lock().unwrap();
+            let _wake = self.shared.session.lock_unpoisoned();
             self.shared.cv.notify_all();
         } else {
-            self.shared.rolling.lock().unwrap().clear();
+            self.shared.rolling.lock_unpoisoned().clear();
         }
     }
 
     pub fn set_buffer_capacity_secs(&self, secs: u64) {
-        self.shared.rolling.lock().unwrap().set_capacity_secs(secs);
+        self.shared.rolling.lock_unpoisoned().set_capacity_secs(secs);
+    }
+}
+
+/// Порядок обязателен: сначала глушится продюсер (`Running`), потом
+/// консьюмеру велят выйти и его ДЖОЙНЯТ — тред, кольцо и rolling-буфер
+/// освобождаются здесь, а не «когда-нибудь». Join безопасен: консьюмер не
+/// берёт ни одного лока за пределами фасада.
+impl Drop for SystemAudioCapture {
+    fn drop(&mut self) {
+        self.running = None;
+        self.shutdown_consumer();
     }
 }
 
@@ -231,11 +332,15 @@ impl Scratch {
 enum ConsumerWork {
     Session(Option<ChunkSink>),
     Buffering,
+    Shutdown,
 }
 
 fn wait_for_work(shared: &Shared) -> ConsumerWork {
-    let mut s = shared.session.lock().unwrap();
+    let mut s = shared.session.lock_unpoisoned();
     loop {
+        if shared.shutting_down() {
+            return ConsumerWork::Shutdown;
+        }
         if let Session::Start(sink) = &mut *s {
             let sink = sink.take();
             *s = Session::Running;
@@ -254,6 +359,7 @@ fn consumer_main(shared: &Shared, mut ring: HeapCons<f32>) {
         match wait_for_work(shared) {
             ConsumerWork::Session(sink) => run_ptt_session(shared, &mut ring, &mut scratch, sink),
             ConsumerWork::Buffering => run_buffering(shared, &mut ring, &mut scratch),
+            ConsumerWork::Shutdown => return,
         }
     }
 }
@@ -275,6 +381,22 @@ fn drain_ring_chunk(
     n
 }
 
+/// Завершение сессии по единому протоколу: sink дропается (EOF стрима),
+/// переполнение кольца попадает в stderr, результат кладётся в `Done` и
+/// ожидающий `stop()` будится. Один код-путь на обе сессии (обычную и
+/// буферную), чтобы протокол `recording` нельзя было сломать в одной из копий.
+fn publish_session_result(shared: &Shared, sink: Option<ChunkSink>, result: Result<Vec<f32>, String>) {
+    shared.recording.store(false, Ordering::Release);
+    drop(sink);
+    let dropped = shared.dropped.load(Ordering::Relaxed);
+    if dropped > 0 {
+        eprintln!("[perf] капчер: кольцо переполнялось, потеряно {dropped} сэмплов");
+    }
+    let mut s = shared.session.lock_unpoisoned();
+    *s = Session::Done(result);
+    shared.cv.notify_all();
+}
+
 fn run_ptt_session(
     shared: &Shared,
     ring: &mut HeapCons<f32>,
@@ -294,6 +416,9 @@ fn run_ptt_session(
     shared.recording.store(true, Ordering::Release);
 
     loop {
+        if shared.shutting_down() {
+            return publish_session_result(shared, sink, Err(SHUTDOWN_RESULT.into()));
+        }
         let stopping = shared.stop_requested.load(Ordering::Acquire);
         if stopping {
             shared.recording.store(false, Ordering::Release);
@@ -329,19 +454,15 @@ fn run_ptt_session(
         }
         forward_session_chunk(shared, &out[before..], &mut sink);
     }
-    drop(sink);
 
-    let dropped = shared.dropped.load(Ordering::Relaxed);
-    if dropped > 0 {
-        eprintln!("[perf] капчер: кольцо переполнялось, потеряно {dropped} сэмплов");
-    }
-
-    let mut s = shared.session.lock().unwrap();
-    *s = Session::Done(match failure {
-        None => Ok(out),
-        Some(e) => Err(e),
-    });
-    shared.cv.notify_all();
+    publish_session_result(
+        shared,
+        sink,
+        match failure {
+            None => Ok(out),
+            Some(e) => Err(e),
+        },
+    );
 }
 
 fn forward_session_chunk(shared: &Shared, chunk: &[f32], sink: &mut Option<ChunkSink>) {
@@ -352,7 +473,7 @@ fn forward_session_chunk(shared: &Shared, chunk: &[f32], sink: &mut Option<Chunk
         sink(chunk);
     }
     if shared.buffering.load(Ordering::Acquire) {
-        shared.rolling.lock().unwrap().push_chunk(chunk);
+        shared.rolling.lock_unpoisoned().push_chunk(chunk);
     }
 }
 
@@ -361,8 +482,10 @@ struct BufferedSession {
     sink: Option<ChunkSink>,
 }
 
+/// Session- и rolling-локи никогда не держатся одновременно: снимок буфера
+/// берётся уже после `drop(s)`.
 fn take_pending_session(shared: &Shared) -> Option<BufferedSession> {
-    let mut s = shared.session.lock().unwrap();
+    let mut s = shared.session.lock_unpoisoned();
     let Session::Start(sink) = &mut *s else {
         return None;
     };
@@ -372,7 +495,7 @@ fn take_pending_session(shared: &Shared) -> Option<BufferedSession> {
     shared.produced.store(0, Ordering::Relaxed);
     shared.dropped.store(0, Ordering::Relaxed);
     shared.recording.store(true, Ordering::Release);
-    let preroll = shared.rolling.lock().unwrap().snapshot();
+    let preroll = shared.rolling.lock_unpoisoned().snapshot();
     let mut out = Vec::with_capacity(
         preroll.len() + audio::TARGET_SAMPLE_RATE as usize * OUT_PREALLOC_SECONDS,
     );
@@ -392,14 +515,7 @@ fn finish_buffered_session(
 ) {
     shared.recording.store(false, Ordering::Release);
     let Some(sess) = session.take() else { return };
-    drop(sess.sink);
-    let dropped = shared.dropped.load(Ordering::Relaxed);
-    if dropped > 0 {
-        eprintln!("[perf] капчер: кольцо переполнялось, потеряно {dropped} сэмплов");
-    }
-    let mut s = shared.session.lock().unwrap();
-    *s = Session::Done(result.map(|()| sess.out));
-    shared.cv.notify_all();
+    publish_session_result(shared, sess.sink, result.map(|()| sess.out));
 }
 
 fn run_buffering(shared: &Shared, ring: &mut HeapCons<f32>, scratch: &mut Scratch) {
@@ -415,9 +531,14 @@ fn run_buffering(shared: &Shared, ring: &mut HeapCons<f32>, scratch: &mut Scratc
     let mut session: Option<BufferedSession> = None;
 
     loop {
+        if shared.shutting_down() {
+            finish_buffered_session(shared, &mut session, Err(SHUTDOWN_RESULT.into()));
+            shared.rolling.lock_unpoisoned().clear();
+            return;
+        }
         if session.is_none() {
             if !shared.buffering.load(Ordering::Acquire) {
-                shared.rolling.lock().unwrap().clear();
+                shared.rolling.lock_unpoisoned().clear();
                 return;
             }
             session = take_pending_session(shared);
@@ -433,12 +554,12 @@ fn run_buffering(shared: &Shared, ring: &mut HeapCons<f32>, scratch: &mut Scratc
                 eprintln!("фоновый буфер: ресемплинг упал: {e}");
                 finish_buffered_session(shared, &mut session, Err(e.to_string()));
                 shared.buffering.store(false, Ordering::Release);
-                shared.rolling.lock().unwrap().clear();
+                shared.rolling.lock_unpoisoned().clear();
                 return;
             }
             if !chunk.is_empty() {
                 if shared.buffering.load(Ordering::Acquire) {
-                    shared.rolling.lock().unwrap().push_chunk(&chunk);
+                    shared.rolling.lock_unpoisoned().push_chunk(&chunk);
                 }
                 if let Some(sess) = session.as_mut() {
                     sess.out.extend_from_slice(&chunk);
@@ -453,6 +574,9 @@ fn run_buffering(shared: &Shared, ring: &mut HeapCons<f32>, scratch: &mut Scratc
             finish_buffered_session(shared, &mut session, Ok(()));
             continue;
         }
-        std::thread::sleep(CONSUMER_IDLE_SLEEP);
+        std::thread::sleep(if session.is_some() { CONSUMER_IDLE_SLEEP } else { BUFFERING_IDLE_SLEEP });
     }
 }
+
+#[cfg(test)]
+mod tests;

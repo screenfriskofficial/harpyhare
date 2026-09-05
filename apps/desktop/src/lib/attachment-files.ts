@@ -1,10 +1,9 @@
+import { t } from "@/i18n";
 import { downscaleFactor, NO_DOWNSCALE, toImagePayload, type Attachment } from "@/lib/composer";
 
 const DOWNSCALE_JPEG_QUALITY = 0.85;
 const DOWNSCALE_MEDIA_TYPE = "image/jpeg";
 const MIN_CANVAS_SIDE_PX = 1;
-const FILE_READ_ERROR = "Ошибка чтения файла";
-const NO_CANVAS_CONTEXT_ERROR = "2D-контекст канваса недоступен";
 const DATA_URL_BASE64_MARKER = ";base64,";
 const SCREENSHOT_FILE_NAME = "screenshot";
 
@@ -15,7 +14,7 @@ function readAsDataUrl(file: File): Promise<string> {
       resolve(fr.result as string);
     };
     fr.onerror = () => {
-      reject(new Error(fr.error?.message ?? FILE_READ_ERROR));
+      reject(new Error(fr.error?.message ?? t("errors.fileReadFailed")));
     };
     fr.readAsDataURL(file);
   });
@@ -31,7 +30,7 @@ async function downscaleToJpegDataUrl(file: File, factor: number): Promise<strin
   canvas.width = scaledSidePx(bitmap.width, factor);
   canvas.height = scaledSidePx(bitmap.height, factor);
   const ctx = canvas.getContext("2d");
-  if (!ctx) throw new Error(NO_CANVAS_CONTEXT_ERROR);
+  if (!ctx) throw new Error(t("errors.canvasContextUnavailable"));
   ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
   bitmap.close();
   return canvas.toDataURL(DOWNSCALE_MEDIA_TYPE, DOWNSCALE_JPEG_QUALITY);

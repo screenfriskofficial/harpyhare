@@ -1,39 +1,50 @@
-use std::sync::Arc;
+use crate::sync::LockUnpoisoned;
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
 use futures_util::stream::{FuturesUnordered, StreamExt};
 use tokio_util::sync::CancellationToken;
 
 use super::{LlmError, LlmProvider, LlmRequest, LlmStreamSink, ModelCatalog, ModelInfo};
 
+/// `warm_up` зовётся на каждое нажатие PTT, а пул и так держится тёплым
+/// keep-alive'ом: чаще, чем раз в минуту, греть всех вендоров незачем.
+const WARM_UP_MIN_INTERVAL: Duration = Duration::from_secs(60);
+
 pub struct ProviderRouter {
     providers: Vec<Arc<dyn LlmProvider>>,
+    /// Общий каталог приложения. **Пишет его только роутер** — слиянием ответов
+    /// всех вендоров; клиенты каталог лишь читают. Иначе первый ответивший
+    /// вендор затирал бы каталог одними своими моделями, пока роутер ждёт
+    /// остальных, и модели остальных на это время уезжали бы к дефолту.
     catalog: ModelCatalog,
+    last_warm_up: Mutex<Option<Instant>>,
 }
 
 impl ProviderRouter {
     pub fn new(providers: Vec<Arc<dyn LlmProvider>>, catalog: ModelCatalog) -> Self {
         assert!(!providers.is_empty(), "маршрутизатор без провайдеров");
-        Self { providers, catalog }
+        Self { providers, catalog, last_warm_up: Mutex::new(None) }
     }
 
     fn default_provider(&self) -> &Arc<dyn LlmProvider> {
         &self.providers[0]
     }
 
+    /// Владелец модели: сначала живой каталог, затем сами вендоры
+    /// (`owns_model` — офлайн-таблица или неймспейс), и лишь потом дефолт.
     fn provider_of_model(&self, model_id: &str) -> Option<String> {
         let from_catalog = self
             .catalog
-            .lock()
-            .unwrap()
+            .lock_unpoisoned()
             .iter()
             .find(|m| m.id == model_id)
             .map(|m| m.provider.clone());
         from_catalog.or_else(|| {
             self.providers
                 .iter()
-                .flat_map(|p| p.known_models())
-                .find(|m| m.id == model_id)
-                .map(|m| m.provider)
+                .find(|p| p.owns_model(model_id))
+                .map(|p| p.provider_id().to_string())
         })
     }
 
@@ -46,6 +57,37 @@ impl ProviderRouter {
             .find(|p| p.provider_id() == provider)
             .unwrap_or_else(|| self.default_provider())
     }
+
+    /// Слияние каталогов: вендор, чей `list_models` упал, сохраняет свои
+    /// прежние записи, а не выпадает из каталога на всю сессию — иначе один
+    /// таймаут при старте отправлял бы все его модели к дефолтному вендору.
+    fn merge_catalogs(
+        &self,
+        fetched: Vec<Result<Vec<ModelInfo>, LlmError>>,
+    ) -> Vec<ModelInfo> {
+        let previous = self.catalog.lock_unpoisoned().clone();
+        let mut merged = Vec::new();
+        for (provider, result) in self.providers.iter().zip(fetched) {
+            match result {
+                Ok(models) => merged.extend(models),
+                Err(e) => {
+                    let id = provider.provider_id();
+                    eprintln!("каталог {id} не обновился ({e}) — прежние записи сохранены");
+                    merged.extend(previous.iter().filter(|m| m.provider == id).cloned());
+                }
+            }
+        }
+        merged
+    }
+
+    fn warm_up_due(&self) -> bool {
+        let mut last = self.last_warm_up.lock_unpoisoned();
+        let due = last.is_none_or(|at| at.elapsed() >= WARM_UP_MIN_INTERVAL);
+        if due {
+            *last = Some(Instant::now());
+        }
+        due
+    }
 }
 
 #[async_trait::async_trait]
@@ -56,6 +98,10 @@ impl LlmProvider for ProviderRouter {
 
     fn known_models(&self) -> Vec<ModelInfo> {
         self.providers.iter().flat_map(|p| p.known_models()).collect()
+    }
+
+    fn owns_model(&self, model_id: &str) -> bool {
+        self.providers.iter().any(|p| p.owns_model(model_id))
     }
 
     async fn stream(
@@ -76,9 +122,9 @@ impl LlmProvider for ProviderRouter {
     async fn list_models(&self) -> Result<Vec<ModelInfo>, LlmError> {
         let fetched =
             futures_util::future::join_all(self.providers.iter().map(|p| p.list_models())).await;
-        let models: Vec<ModelInfo> = fetched.into_iter().flat_map(Result::unwrap_or_default).collect();
+        let models = self.merge_catalogs(fetched);
         if !models.is_empty() {
-            *self.catalog.lock().unwrap() = models.clone();
+            *self.catalog.lock_unpoisoned() = models.clone();
         }
         Ok(models)
     }
@@ -95,6 +141,9 @@ impl LlmProvider for ProviderRouter {
     }
 
     async fn warm_up(&self) {
+        if !self.warm_up_due() {
+            return;
+        }
         futures_util::future::join_all(self.providers.iter().map(|p| p.warm_up())).await;
     }
 }

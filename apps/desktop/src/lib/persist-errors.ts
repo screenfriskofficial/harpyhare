@@ -1,17 +1,22 @@
+import { t } from "@/i18n";
 import { notify } from "@/lib/notify";
 
-const SAVE_ERROR_TITLE = "Не удалось сохранить";
+/** Что не удалось записать — подставляется в текст тоста в нужном падеже из словаря. */
+export type PersistSubject = "chats" | "library" | "settings";
 
-export const CHATS_SUBJECT = "чаты";
-export const LIBRARY_SUBJECT = "библиотеку контекстов";
-export const SETTINGS_SUBJECT = "настройки";
+export const CHATS_SUBJECT: PersistSubject = "chats";
+export const LIBRARY_SUBJECT: PersistSubject = "library";
+export const SETTINGS_SUBJECT: PersistSubject = "settings";
 
-export function onSaveError(subject: string): (err: unknown) => void {
+export function onSaveError(subject: PersistSubject): (err: unknown) => void {
   return (err) => {
     notify({
       variant: "error",
-      title: SAVE_ERROR_TITLE,
-      message: `Не удалось записать ${subject} на диск: ${String(err)}`,
+      title: t("errors.saveFailedTitle"),
+      message: t("errors.saveFailed", {
+        subject: t(`errors.subjects.${subject}`),
+        error: String(err),
+      }),
     });
   };
 }

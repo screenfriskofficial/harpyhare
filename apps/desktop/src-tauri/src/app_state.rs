@@ -1,7 +1,8 @@
+use crate::sync::LockUnpoisoned;
 use std::collections::HashMap;
 use std::sync::{
     atomic::{AtomicBool, AtomicU64, Ordering},
-    Arc, Mutex,
+    Arc, Mutex, OnceLock,
 };
 
 use tauri::{AppHandle, Manager};
@@ -15,12 +16,19 @@ const CONTEXT_LIBRARY_FILE_NAME: &str = "context-library.json";
 
 pub struct App {
     pub settings: Mutex<settings::Settings>,
+    /// Замок на read-modify-write настроек (`set_settings` с главного потока,
+    /// `redeem_access_code`/`clear_access_token` с рабочего): пара
+    /// «клон → запись на диск → store» обязана быть атомарной, иначе устаревший
+    /// снимок одного пути стирает то, что только что записал другой.
+    pub settings_edit: Mutex<()>,
     pub official_presets: Mutex<Vec<settings::PromptPreset>>,
     /// Version of the pool above — the refresh loop refuses to go below it.
     pub official_presets_version: Mutex<u32>,
     pub recorder: Mutex<state::RecorderState>,
     pub capture: Mutex<Option<capture::SystemAudioCapture>>,
-    pub last_recording: Mutex<Option<Vec<f32>>>,
+    // Batch upload and retry share immutable audio; cloning a ten-minute
+    // recording here would copy about 38 MB while holding the mutex.
+    pub last_recording: Mutex<Option<Arc<[f32]>>>,
     pub llm_cancel: Mutex<HashMap<String, ActiveLlmStream>>,
     pub stt: Mutex<Arc<dyn stt::SttEngine>>,
     pub llm: Mutex<Arc<dyn llm::LlmProvider>>,
@@ -41,6 +49,9 @@ pub struct App {
     pub preview_html: Mutex<String>,
     pub pending_update: Mutex<Option<tauri_plugin_updater::Update>>,
     pub update_installing: AtomicBool,
+    /// Очередь PTT-событий — см. `recording::PttEvent`. Заводится один раз в
+    /// `setup_app` (`install_ptt_worker`).
+    pub ptt_events: OnceLock<tokio::sync::mpsc::UnboundedSender<crate::recording::PttEvent>>,
 }
 
 #[derive(Clone)]
@@ -72,23 +83,23 @@ pub fn context_library_path(app: &AppHandle) -> std::path::PathBuf {
 }
 
 pub fn current_settings(app: &AppHandle) -> settings::Settings {
-    app.state::<App>().settings.lock().unwrap().clone()
+    app.state::<App>().settings.lock_unpoisoned().clone()
 }
 
 pub fn llm_provider(app: &AppHandle) -> Arc<dyn llm::LlmProvider> {
-    Arc::clone(&*app.state::<App>().llm.lock().unwrap())
+    Arc::clone(&*app.state::<App>().llm.lock_unpoisoned())
 }
 
 pub fn stt_keyterms(app: &AppHandle) -> Vec<String> {
-    app.state::<App>().stt_keyterms.lock().unwrap().clone()
+    app.state::<App>().stt_keyterms.lock_unpoisoned().clone()
 }
 
 pub fn stt_engine(app: &AppHandle) -> Arc<dyn stt::SttEngine> {
-    Arc::clone(&*app.state::<App>().stt.lock().unwrap())
+    Arc::clone(&*app.state::<App>().stt.lock_unpoisoned())
 }
 
 pub fn cancel_stt_stream(app: &AppHandle) {
-    if let Some(s) = app.state::<App>().stt_stream.lock().unwrap().take() {
+    if let Some(s) = app.state::<App>().stt_stream.lock_unpoisoned().take() {
         s.cancel.cancel();
     }
 }
@@ -112,13 +123,23 @@ pub fn build_capture(settings: &settings::Settings) -> Option<capture::SystemAud
 }
 
 /// What reaching the chosen STT vendor takes right now.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, PartialEq)]
 pub struct SttClientPlan {
     /// The vendor `Settings.stt_provider` names, already resolved — an unknown
     /// value has become the default here, not somewhere downstream.
     pub provider_id: &'static str,
     pub api_key: String,
     pub proxy_base_url: Option<String>,
+}
+
+impl std::fmt::Debug for SttClientPlan {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SttClientPlan")
+            .field("provider_id", &self.provider_id)
+            .field("api_key", &format_args!("<{} симв.>", self.api_key.chars().count()))
+            .field("proxy_base_url", &self.proxy_base_url)
+            .finish()
+    }
 }
 
 /// Same rule as the answer vendors: an access code reaches the relay, a
@@ -140,25 +161,18 @@ pub fn stt_client_plan(s: &settings::Settings) -> SttClientPlan {
     }
 }
 
+/// Транспорт выбирает фабрика `stt::build_engine` по диалекту строки реестра;
+/// здесь решается только доступ (ключ или relay) — см. `stt_client_plan`.
 pub fn build_stt_client(s: &settings::Settings) -> Arc<dyn stt::SttEngine> {
     let plan = stt_client_plan(s);
-    // Deepgram не обслуживается общим multipart-клиентом: у него свой
-    // транспорт. Прокси-ветки здесь нет намеренно — строка реестра несёт
-    // `proxied: false`, поэтому план всегда приходит с личным ключом.
-    if matches!(stt::registry::resolve(plan.provider_id).wire, stt::registry::SttWire::Deepgram { .. }) {
-        return Arc::new(
-            stt::deepgram::DeepgramStt::new(plan.api_key).with_language(s.stt_language.clone()),
-        );
-    }
-    let client = stt::SttHttpClient::for_provider(plan.provider_id, plan.api_key);
-    let client = match plan.proxy_base_url {
-        Some(url) => client.with_base_url(url).with_proxy(true),
-        None => client,
-    };
-    Arc::new(
-        client
-            .with_language(s.stt_language.clone())
-            .with_translate(s.stt_translate),
+    stt::build_engine(
+        stt::registry::resolve(plan.provider_id),
+        stt::SttClientConfig {
+            api_key: plan.api_key,
+            proxy_base_url: plan.proxy_base_url,
+            language: s.stt_language.clone(),
+            translate: s.stt_translate,
+        },
     )
 }
 
@@ -190,7 +204,8 @@ pub fn provider_access(
     Some(ProviderAccess::Direct { api_key: api_key.to_string() })
 }
 
-/// Builds the client for a registry row.
+/// Builds the client for a registry row, or `None` for a row whose access mode
+/// the dialect cannot serve.
 ///
 /// Dispatch is on the **dialect**, not on the vendor: a vendor that speaks a
 /// protocol the app already knows needs no arm here and no module — only its
@@ -200,8 +215,8 @@ fn build_provider(
     spec: &'static llm::registry::LlmProviderSpec,
     access: ProviderAccess,
     catalog: &llm::ModelCatalog,
-) -> Arc<dyn llm::LlmProvider> {
-    match spec.wire {
+) -> Option<Arc<dyn llm::LlmProvider>> {
+    Some(match spec.wire {
         llm::registry::LlmWire::Anthropic { .. } => {
             let client = match access {
                 ProviderAccess::Proxied { access_token, base_url } => {
@@ -219,17 +234,20 @@ fn build_provider(
                 Arc::new(llm::responses::ResponsesClient::direct(spec, api_key))
             }
         },
-        // Строка Xclis несёт `proxied: false`, поэтому прокси-ветки здесь нет:
-        // `provider_access` до неё просто не доходит.
+        // У диалекта Xclis прокси-режима нет (строка несёт `proxied: false`,
+        // и тест реестра это держит). Строка с перевёрнутым флагом раньше
+        // роняла `setup_app` паникой у каждого держателя кода — теперь вендор
+        // просто пропускается с записью в stderr.
         llm::registry::LlmWire::Xclis { .. } => match access {
-            ProviderAccess::Direct { api_key } => {
-                Arc::new(llm::registry::xclis::XclisClient::new(spec, api_key))
-            }
+            ProviderAccess::Direct { api_key } => Arc::new(
+                llm::xclis::XclisClient::new(spec, api_key).with_catalog(Arc::clone(catalog)),
+            ),
             ProviderAccess::Proxied { .. } => {
-                unreachable!("Xclis не проксируется: у relay нет его роута")
+                eprintln!("{}: диалект Xclis не ходит через relay — вендор пропущен", spec.id);
+                return None;
             }
         },
-    }
+    })
 }
 
 /// **The default provider is always present, reachable or not.** It carries the
@@ -244,7 +262,7 @@ pub fn build_llm_client(
         .iter()
         .filter_map(|spec| {
             let access = provider_access(spec, s)?;
-            Some(build_provider(spec, access, &catalog))
+            build_provider(spec, access, &catalog)
         })
         .collect();
     if providers.is_empty() {
@@ -269,11 +287,14 @@ pub fn note_connectivity_probe(app: &AppHandle, reachable: bool) {
 
 fn recycle_pooled_http_clients(app: &AppHandle) {
     let st = app.state::<App>();
+    // Serialize the snapshot AND publication with settings/token edits; otherwise
+    // a reconnect can publish clients carrying keys that were just replaced.
+    let _edit = st.settings_edit.lock_unpoisoned();
     let settings = current_settings(app);
     let rebuilt_stt = build_stt_client(&settings);
-    *st.stt.lock().unwrap() = Arc::clone(&rebuilt_stt);
+    *st.stt.lock_unpoisoned() = Arc::clone(&rebuilt_stt);
     let rebuilt_llm = build_llm_client(&settings, Arc::clone(&st.models));
-    *st.llm.lock().unwrap() = Arc::clone(&rebuilt_llm);
+    *st.llm.lock_unpoisoned() = Arc::clone(&rebuilt_llm);
     tauri::async_runtime::spawn(async move {
         tokio::join!(rebuilt_stt.warm_up(), rebuilt_llm.warm_up());
     });
@@ -289,6 +310,7 @@ pub fn build_app_state(
 ) -> App {
     App {
         settings: Mutex::new(settings),
+        settings_edit: Mutex::new(()),
         official_presets_version: Mutex::new(official_presets.version),
         official_presets: Mutex::new(official_presets.presets),
         recorder: Mutex::new(state::RecorderState::Idle),
@@ -308,6 +330,7 @@ pub fn build_app_state(
         preview_html: Mutex::new(String::new()),
         pending_update: Mutex::new(None),
         update_installing: AtomicBool::new(false),
+        ptt_events: OnceLock::new(),
     }
 }
 
