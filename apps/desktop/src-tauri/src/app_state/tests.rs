@@ -139,6 +139,7 @@ fn all_keys_filled() -> settings::Settings {
         openai_api_key: OPENAI_KEY.into(),
         xai_api_key: XAI_KEY.into(),
         deepgram_api_key: DEEPGRAM_KEY.into(),
+        openrouter_api_key: "openrouter-key".into(),
         xclis_api_key: XCLIS_KEY.into(),
         ..settings::Settings::default()
     }
@@ -184,14 +185,15 @@ fn a_vendor_the_relay_does_not_proxy_stays_locked_under_an_access_code() {
 /// личный ключ и ходит к вендору напрямую — зеркало правила про ответы.
 #[test]
 fn a_speech_vendor_the_relay_does_not_proxy_keeps_its_own_key_under_a_code() {
-    let s = settings::Settings {
-        stt_provider: stt::registry::PROVIDER_DEEPGRAM.into(),
-        access_token: ACCESS_TOKEN.into(),
-        deepgram_api_key: DEEPGRAM_KEY.into(),
-        ..settings::Settings::default()
-    };
-    let plan = stt_client_plan(&s);
-    assert_eq!(plan.provider_id, stt::registry::PROVIDER_DEEPGRAM);
-    assert_eq!(plan.api_key, DEEPGRAM_KEY);
-    assert_eq!(plan.proxy_base_url, None);
+    for spec in stt::registry::PROVIDERS.iter().filter(|p| !p.proxied) {
+        let s = settings::Settings {
+            stt_provider: spec.id.into(),
+            access_token: ACCESS_TOKEN.into(),
+            ..all_keys_filled()
+        };
+        let plan = stt_client_plan(&s);
+        assert_eq!(plan.provider_id, spec.id);
+        assert_eq!(plan.api_key, settings::api_key_for(&s, spec.key_id));
+        assert_eq!(plan.proxy_base_url, None);
+    }
 }

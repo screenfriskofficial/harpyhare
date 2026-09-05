@@ -30,6 +30,7 @@ const KEY_PLACEHOLDERS: Record<ApiKeyId, string> = {
   openai: "sk-…",
   xai: "xai-…",
   deepgram: "…",
+  openrouter: "sk-or-v1-…",
   xclis: "sk-…",
 };
 

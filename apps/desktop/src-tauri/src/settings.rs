@@ -30,6 +30,7 @@ pub const API_KEY_GROQ: &str = "groq";
 pub const API_KEY_OPENAI: &str = "openai";
 pub const API_KEY_XAI: &str = "xai";
 pub const API_KEY_DEEPGRAM: &str = "deepgram";
+pub const API_KEY_OPENROUTER: &str = "openrouter";
 pub const API_KEY_XCLIS: &str = "xclis";
 
 /// The key a registry row asks for, or `""` when it names one that does not
@@ -41,6 +42,7 @@ pub fn api_key_for<'a>(s: &'a Settings, key_id: &str) -> &'a str {
         API_KEY_OPENAI => &s.openai_api_key,
         API_KEY_XAI => &s.xai_api_key,
         API_KEY_DEEPGRAM => &s.deepgram_api_key,
+        API_KEY_OPENROUTER => &s.openrouter_api_key,
         API_KEY_XCLIS => &s.xclis_api_key,
         _ => "",
     }
@@ -56,6 +58,7 @@ fn api_key_mut<'a>(s: &'a mut Settings, key_id: &str) -> Option<&'a mut String> 
         API_KEY_OPENAI => Some(&mut s.openai_api_key),
         API_KEY_XAI => Some(&mut s.xai_api_key),
         API_KEY_DEEPGRAM => Some(&mut s.deepgram_api_key),
+        API_KEY_OPENROUTER => Some(&mut s.openrouter_api_key),
         API_KEY_XCLIS => Some(&mut s.xclis_api_key),
         _ => None,
     }
@@ -280,6 +283,7 @@ pub struct Settings {
     pub openai_api_key: String,
     pub xai_api_key: String,
     pub deepgram_api_key: String,
+    pub openrouter_api_key: String,
     pub xclis_api_key: String,
     pub access_token: String,
     pub prompt_presets: Vec<PromptPreset>,
@@ -323,6 +327,7 @@ impl Default for Settings {
             openai_api_key: String::new(),
             xai_api_key: String::new(),
             deepgram_api_key: String::new(),
+            openrouter_api_key: String::new(),
             xclis_api_key: String::new(),
             access_token: String::new(),
             prompt_presets: Vec::new(),

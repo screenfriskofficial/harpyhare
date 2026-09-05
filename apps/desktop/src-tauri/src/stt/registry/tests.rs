@@ -27,25 +27,26 @@ fn every_wire_profile_is_absolute_and_rooted() {
 }
 
 #[test]
-fn every_openai_dialect_row_names_both_models_and_two_endpoints() {
+fn every_openai_dialect_row_names_a_model_and_valid_optional_translation() {
     for p in PROVIDERS {
         let SttWire::OpenAiMultipart {
             transcribe_path,
-            translate_path,
             transcribe_model,
-            translate_model,
+            translation,
             ..
         } = p.wire
         else {
             continue;
         };
         assert!(!transcribe_model.is_empty(), "у {} пустая модель распознавания", p.id);
-        assert!(!translate_model.is_empty(), "у {} пустая модель перевода", p.id);
-        assert_ne!(
-            transcribe_path, translate_path,
-            "у {} распознавание и перевод не могут делить эндпоинт",
-            p.id
-        );
+        if let Some(translation) = translation {
+            assert!(!translation.model.is_empty(), "у {} пустая модель перевода", p.id);
+            assert_ne!(
+                transcribe_path, translation.path,
+                "у {} распознавание и перевод не могут делить эндпоинт",
+                p.id
+            );
+        }
     }
 }
 
@@ -123,7 +124,7 @@ fn a_known_id_resolves_to_itself() {
 
 #[test]
 fn lookup_finds_declared_vendors_and_nothing_else() {
-    for id in [PROVIDER_GROQ, PROVIDER_OPENAI, PROVIDER_XAI, PROVIDER_DEEPGRAM] {
+    for id in [PROVIDER_GROQ, PROVIDER_OPENAI, PROVIDER_XAI, PROVIDER_DEEPGRAM, PROVIDER_OPENROUTER] {
         assert_eq!(spec(id).map(|p| p.id), Some(id));
     }
     assert!(spec("нет такого").is_none());
@@ -144,10 +145,12 @@ fn a_row_needs_nothing_but_data_to_be_well_formed() {
         wire: SttWire::OpenAiMultipart {
             base_url: "https://api.elevenlabs.io",
             transcribe_path: "/v1/speech-to-text",
-            translate_path: "/v1/speech-to-text/translate",
             warm_up_path: "/v1/models",
             transcribe_model: "scribe-v2",
-            translate_model: "scribe-v2",
+            translation: Some(SttTranslation {
+                path: "/v1/speech-to-text/translate",
+                model: "scribe-v2",
+            }),
             temperature: None,
         },
     };

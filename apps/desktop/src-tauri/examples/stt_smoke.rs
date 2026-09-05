@@ -1,6 +1,6 @@
 //! Live diagnosis of every STT vendor in the registry against real audio.
 //!
-//!   cargo run --example stt_smoke -- путь/к/audio.wav
+//!   cargo run --example stt_smoke -- путь/к/audio.wav [provider] [--stream]
 //!
 //! Keys come from `.env` by the registry's own naming — `<KEY_ID>_API_KEY` — so
 //! a vendor added to the registry is picked up here without editing this file.
@@ -22,11 +22,23 @@ fn key_env_var(key_id: &str) -> String {
 /// sample form `transcribe` expects.
 fn samples_from_wav(path: &str) -> Vec<f32> {
     let mut reader = hound::WavReader::open(path).expect("не открылся WAV");
-    reader
+    let spec = reader.spec();
+    assert!(
+        spec.channels == 1
+            && spec.sample_rate == harpyhare_lib::audio::TARGET_SAMPLE_RATE
+            && spec.bits_per_sample == 16
+            && spec.sample_format == hound::SampleFormat::Int,
+        "нужен PCM WAV: 16 кГц, моно, 16 бит"
+    );
+    let samples: Vec<f32> = reader
         .samples::<i16>()
-        .filter_map(Result::ok)
+        .collect::<Result<Vec<_>, _>>()
+        .expect("повреждённый WAV")
+        .into_iter()
         .map(|s| f32::from(s) / f32::from(i16::MAX))
-        .collect()
+        .collect();
+    assert!(!samples.is_empty(), "пустой WAV — нечего распознавать");
+    samples
 }
 
 fn main() {
@@ -34,18 +46,42 @@ fn main() {
     let _ = dotenvy::from_path(manifest.join(DESKTOP_ENV_PATH));
     let _ = dotenvy::from_path(manifest.join(WORKSPACE_ENV_PATH));
 
-    let Some(wav) = std::env::args().nth(1) else {
-        println!("укажи путь к 16кГц-моно WAV: cargo run --example stt_smoke -- audio.wav");
+    let mut args = std::env::args().skip(1);
+    let Some(wav) = args.next() else {
+        println!("укажи путь к 16кГц-моно WAV: cargo run --example stt_smoke -- audio.wav [provider] [--stream]");
         return;
     };
+    let mut provider = None;
+    let mut stream = false;
+    for arg in args {
+        if arg == "--stream" {
+            stream = true;
+        } else if provider.is_none() && registry::spec(&arg).is_some() {
+            provider = Some(arg);
+        } else {
+            eprintln!("неизвестный провайдер или аргумент: {arg}");
+            std::process::exit(1);
+        }
+    }
     let samples = samples_from_wav(&wav);
-    println!("{} сэмплов ({:.1} с)", samples.len(), samples.len() as f32 / 16_000.0);
+    println!(
+        "{} сэмплов ({:.1} с)",
+        samples.len(),
+        samples.len() as f32 / 16_000.0
+    );
 
     let rt = tokio::runtime::Runtime::new().unwrap();
     rt.block_on(async move {
         for spec in registry::PROVIDERS {
+            if provider.as_deref().is_some_and(|id| id != spec.id) {
+                continue;
+            }
             let Ok(key) = std::env::var(key_env_var(spec.key_id)) else {
-                println!("[skip] {}: нет {} в .env", spec.id, key_env_var(spec.key_id));
+                println!(
+                    "[skip] {}: нет {} в .env",
+                    spec.id,
+                    key_env_var(spec.key_id)
+                );
                 continue;
             };
             if key.is_empty() {
@@ -64,9 +100,26 @@ fn main() {
             let declared: Vec<String> = DECLARED.iter().map(|s| (*s).to_string()).collect();
             for (label, terms) in [("без keyterms", Vec::new()), ("с keyterms ", declared)] {
                 let started = std::time::Instant::now();
-                match client.transcribe(&samples, &terms).await {
+                let result = if stream {
+                    let pcm = harpyhare_lib::audio::f32_to_i16le_bytes(&samples);
+                    let chunks = futures_util::stream::iter([Ok(pcm)]);
+                    client
+                        .transcribe_stream(
+                            Box::pin(chunks),
+                            &terms,
+                            tokio_util::sync::CancellationToken::new(),
+                        )
+                        .await
+                } else {
+                    client.transcribe(&samples, &terms).await
+                };
+                match result {
                     Ok(text) => {
-                        println!("[OK ] {:<8} {label} {:>8?}  «{text}»", spec.id, started.elapsed())
+                        println!(
+                            "[OK ] {:<8} {label} {:>8?}  «{text}»",
+                            spec.id,
+                            started.elapsed()
+                        )
                     }
                     Err(e) => println!("[ERR] {:<8} {label} {e}", spec.id),
                 }

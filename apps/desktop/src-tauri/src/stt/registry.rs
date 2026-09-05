@@ -67,13 +67,12 @@ pub enum SttWire {
     OpenAiMultipart {
         base_url: &'static str,
         transcribe_path: &'static str,
-        translate_path: &'static str,
         warm_up_path: &'static str,
         transcribe_model: &'static str,
         /// Vendors disagree and both are load-bearing: Groq's turbo model
         /// cannot translate at all, and OpenAI's translations endpoint accepts
         /// nothing but `whisper-1`.
-        translate_model: &'static str,
+        translation: Option<SttTranslation>,
         /// `None` means "do not send the field". Only Groq documents it; for
         /// the 4o generation it is undocumented and guessing is not free.
         temperature: Option<&'static str>,
@@ -93,6 +92,14 @@ pub enum SttWire {
         path: &'static str,
         warm_up_path: &'static str,
     },
+}
+
+/// A translation endpoint and its model belong together. Compatible STT APIs
+/// such as OpenRouter may offer transcription without any translation route.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct SttTranslation {
+    pub path: &'static str,
+    pub model: &'static str,
 }
 
 impl SttWire {
@@ -118,12 +125,8 @@ impl SttWire {
     /// has somewhere else to go.
     pub fn path(&self, translate: bool) -> &'static str {
         match self {
-            SttWire::OpenAiMultipart { transcribe_path, translate_path, .. } => {
-                if translate {
-                    translate_path
-                } else {
-                    transcribe_path
-                }
+            SttWire::OpenAiMultipart { transcribe_path, translation, .. } => {
+                translation.filter(|_| translate).map_or(transcribe_path, |t| t.path)
             }
             SttWire::Xai { path, .. } => path,
             SttWire::Deepgram { listen_path, .. } => listen_path,
@@ -135,6 +138,7 @@ pub const PROVIDER_GROQ: &str = "groq";
 pub const PROVIDER_OPENAI: &str = "openai";
 pub const PROVIDER_XAI: &str = "xai";
 pub const PROVIDER_DEEPGRAM: &str = "deepgram";
+pub const PROVIDER_OPENROUTER: &str = "openrouter";
 
 /// Order is UI order, and the first row is the default: an unknown value in
 /// `Settings.stt_provider` resolves to it rather than failing.
@@ -150,10 +154,12 @@ pub const PROVIDERS: &[SttProviderSpec] = &[
         wire: SttWire::OpenAiMultipart {
             base_url: "https://api.groq.com",
             transcribe_path: "/openai/v1/audio/transcriptions",
-            translate_path: "/openai/v1/audio/translations",
             warm_up_path: "/openai/v1/models",
             transcribe_model: "whisper-large-v3-turbo",
-            translate_model: "whisper-large-v3",
+            translation: Some(SttTranslation {
+                path: "/openai/v1/audio/translations",
+                model: "whisper-large-v3",
+            }),
             temperature: Some("0"),
         },
     },
@@ -175,10 +181,12 @@ pub const PROVIDERS: &[SttProviderSpec] = &[
         wire: SttWire::OpenAiMultipart {
             base_url: "https://api.openai.com",
             transcribe_path: "/v1/audio/transcriptions",
-            translate_path: "/v1/audio/translations",
             warm_up_path: "/v1/models",
             transcribe_model: "gpt-4o-mini-transcribe",
-            translate_model: "whisper-1",
+            translation: Some(SttTranslation {
+                path: "/v1/audio/translations",
+                model: "whisper-1",
+            }),
             temperature: None,
         },
     },
@@ -224,6 +232,26 @@ pub const PROVIDERS: &[SttProviderSpec] = &[
             base_url: "https://api.eu.deepgram.com",
             listen_path: "/v1/listen",
             warm_up_path: "/v1/projects",
+        },
+    },
+    // The same model as our direct OpenAI row, with OpenRouter billing/auth.
+    // Its dedicated transcription API accepts multipart but has no translation
+    // route. The relay does not proxy OpenRouter; a personal key is required.
+    SttProviderSpec {
+        id: PROVIDER_OPENROUTER,
+        label: "OpenRouter · gpt-4o mini",
+        key_id: "openrouter",
+        proxied: false,
+        supports_translate: false,
+        keyterms: SttKeyterms::Unsupported,
+        key_label: "OpenRouter",
+        wire: SttWire::OpenAiMultipart {
+            base_url: "https://openrouter.ai",
+            transcribe_path: "/api/v1/audio/transcriptions",
+            warm_up_path: "/api/v1/models?output_modalities=transcription",
+            transcribe_model: "openai/gpt-4o-mini-transcribe",
+            translation: None,
+            temperature: None,
         },
     },
 ];

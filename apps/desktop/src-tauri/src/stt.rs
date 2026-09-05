@@ -269,8 +269,10 @@ impl SttHttpClient {
     ) -> Result<reqwest::multipart::Form, SttError> {
         let file = part.file_name(WAV_FILE_NAME);
         match self.spec.wire {
-            registry::SttWire::OpenAiMultipart { transcribe_model, translate_model, temperature, .. } => {
-                let model = if self.translate() { translate_model } else { transcribe_model };
+            registry::SttWire::OpenAiMultipart { transcribe_model, translation, temperature, .. } => {
+                let model = translation
+                    .filter(|_| self.translate())
+                    .map_or(transcribe_model, |t| t.model);
                 let mut form = reqwest::multipart::Form::new()
                     .part("file", file)
                     .text("model", model)
@@ -389,3 +391,6 @@ impl SttEngine for SttHttpClient {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod openrouter_tests;

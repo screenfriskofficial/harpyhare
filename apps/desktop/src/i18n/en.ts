@@ -168,6 +168,7 @@ export const en: Dictionary = {
       openai: "GPT answers and speech recognition via OpenAI",
       xai: "Grok answers",
       deepgram: "real-time speech recognition",
+      openrouter: "speech recognition via OpenRouter",
       xclis: "answers via the Xclis aggregator",
     },
     keyLabel: "{{name}} key",

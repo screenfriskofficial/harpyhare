@@ -181,6 +181,7 @@ export const ru = {
       openai: "ответов GPT и распознавания речи через OpenAI",
       xai: "ответов Grok",
       deepgram: "распознавания речи в реальном времени",
+      openrouter: "распознавания речи через OpenRouter",
       xclis: "ответов через агрегатор Xclis",
     },
     keyLabel: "Ключ {{name}}",

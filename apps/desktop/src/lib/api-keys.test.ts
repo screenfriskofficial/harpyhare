@@ -33,6 +33,7 @@ const keys = (
   openai_api_key: openai,
   xai_api_key: xai,
   deepgram_api_key: deepgram,
+  openrouter_api_key: "",
   xclis_api_key: xclis,
   access_token: accessToken,
   stt_provider: sttProvider,
@@ -121,6 +122,18 @@ describe("modelProvidersMissingKey", () => {
 });
 
 describe("код доступа и непроксируемые вендоры речи", () => {
+  it("OpenRouter требует свой ключ и не открывает модели ответов", () => {
+    for (const token of ["", "itk_code"]) {
+      const settings = { ...keys("sk-ant", "", token), stt_provider: "openrouter" };
+      expect(accessGaps(settings).map((g) => g.kind)).toEqual(["speech"]);
+      expect(sttProvidersMissingKey(settings)).toContain("openrouter");
+      const configured = { ...settings, openrouter_api_key: "sk-or-test" };
+      expect(accessGaps(configured)).toEqual([]);
+      expect(sttProvidersMissingKey(configured)).not.toContain("openrouter");
+      expect(availableAnswerProviders(configured)).toEqual(availableAnswerProviders(settings));
+    }
+  });
+
   it("код доступа открывает только тех, кого проксирует relay", () => {
     const settings = {
       anthropic_api_key: "",
@@ -128,6 +141,7 @@ describe("код доступа и непроксируемые вендоры �
       openai_api_key: "",
       xai_api_key: "",
       deepgram_api_key: "",
+      openrouter_api_key: "",
       xclis_api_key: "",
       access_token: "itk_code",
       stt_provider: "groq",
@@ -146,6 +160,7 @@ describe("код доступа и непроксируемые вендоры �
       openai_api_key: "",
       xai_api_key: "xai-key",
       deepgram_api_key: "",
+      openrouter_api_key: "",
       xclis_api_key: "",
       access_token: "",
       stt_provider: "xai",
@@ -169,9 +184,15 @@ describe("visibleApiKeys", () => {
   });
 
   it("под кодом остаются поля только тех вендоров, до которых relay не дотягивается", () => {
-    // Deepgram — единственный такой вендор: у relay нет его роута, поэтому код
-    // доступа его не открывает и поле ключа обязано остаться видимым.
-    expect(vendorsOutsideCode()).toEqual(["Xclis", "Deepgram · Nova-3"]);
-    expect(visibleApiKeys(keys("sk-ant", "gsk_y", "itk_token"))).toEqual(["deepgram", "xclis"]);
+    expect(vendorsOutsideCode()).toEqual([
+      "Xclis",
+      "Deepgram · Nova-3",
+      "OpenRouter · gpt-4o mini",
+    ]);
+    expect(visibleApiKeys(keys("sk-ant", "gsk_y", "itk_token"))).toEqual([
+      "deepgram",
+      "openrouter",
+      "xclis",
+    ]);
   });
 });

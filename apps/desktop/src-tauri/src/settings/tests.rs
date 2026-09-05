@@ -294,6 +294,7 @@ fn load_missing_stt_and_screen_share_fields_default() {
     assert!(!s.stt_translate);
     assert!(!s.screen_share_visible);
     assert_eq!(s.stt_provider, STT_PROVIDER_GROQ);
+    assert!(s.openrouter_api_key.is_empty());
 }
 
 #[test]
@@ -441,11 +442,12 @@ fn debug_output_hides_secrets_but_names_the_fields() {
     let s = Settings {
         anthropic_api_key: "sk-ant-secret".into(),
         deepgram_api_key: "dg-secret".into(),
+        openrouter_api_key: "sk-or-secret".into(),
         access_token: "itk_secret".into(),
         ..Default::default()
     };
     let printed = format!("{s:?}");
-    for secret in ["sk-ant-secret", "dg-secret", "itk_secret"] {
+    for secret in ["sk-ant-secret", "dg-secret", "sk-or-secret", "itk_secret"] {
         assert!(
             !printed.contains(secret),
             "{secret} утёк в Debug: {printed}"
@@ -543,6 +545,8 @@ fn save_load_roundtrip_with_owner_only_perms() {
     let path = dir.path().join("settings.json");
     let s = Settings {
         groq_api_key: "gsk_test".into(),
+        openrouter_api_key: "sk-or-test".into(),
+        stt_provider: crate::stt::registry::PROVIDER_OPENROUTER.into(),
         chat_font_size: 15.0,
         window_opacity: 0.5,
         auto_send: true,
@@ -559,6 +563,8 @@ fn save_load_roundtrip_with_owner_only_perms() {
     }
     let loaded = Settings::load(&path).unwrap();
     assert_eq!(loaded.groq_api_key, "gsk_test");
+    assert_eq!(loaded.openrouter_api_key, "sk-or-test");
+    assert_eq!(loaded.stt_provider, crate::stt::registry::PROVIDER_OPENROUTER);
     assert_eq!(loaded.chat_font_size, 15.0);
     assert_eq!(loaded.window_opacity, 0.5);
     assert!(loaded.auto_send);

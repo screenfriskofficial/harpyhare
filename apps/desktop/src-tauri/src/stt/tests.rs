@@ -16,8 +16,8 @@ fn openai() -> &'static registry::SttProviderSpec {
 /// moves drags its tests along instead of leaving them on a stale wire format.
 fn models_of(spec: &'static registry::SttProviderSpec) -> (&'static str, &'static str) {
     match spec.wire {
-        registry::SttWire::OpenAiMultipart { transcribe_model, translate_model, .. } => {
-            (transcribe_model, translate_model)
+        registry::SttWire::OpenAiMultipart { transcribe_model, translation, .. } => {
+            (transcribe_model, translation.expect("у тестируемого вендора есть перевод").model)
         }
         registry::SttWire::Xai { .. } | registry::SttWire::Deepgram { .. } => {
             panic!("у этого вендора нет моделей в запросе")

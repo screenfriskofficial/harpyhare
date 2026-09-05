@@ -2,7 +2,8 @@ import { t } from "@/i18n";
 import { MODEL_PROVIDERS } from "./models";
 import { STT_PROVIDERS, sttProviderKeyId } from "./stt-providers";
 
-export type ApiKeyId = "anthropic" | "groq" | "openai" | "xai" | "deepgram" | "xclis";
+export type ApiKeyId =
+  "anthropic" | "groq" | "openai" | "xai" | "deepgram" | "openrouter" | "xclis";
 
 export interface ApiKeyInfo {
   id: ApiKeyId;
@@ -19,6 +20,7 @@ const API_KEYS = [
   { id: "openai", name: "OpenAI", consoleUrl: "https://platform.openai.com/api-keys" },
   { id: "xai", name: "xAI", consoleUrl: "https://console.x.ai/team/default/api-keys" },
   { id: "deepgram", name: "Deepgram", consoleUrl: "https://console.deepgram.com/" },
+  { id: "openrouter", name: "OpenRouter", consoleUrl: "https://openrouter.ai/settings/keys" },
   { id: "xclis", name: "Xclis", consoleUrl: "https://jp.xclis.ai/" },
 ] as const satisfies readonly Omit<ApiKeyInfo, "purpose">[];
 
@@ -35,6 +37,7 @@ export interface ApiKeySettings {
   openai_api_key: string;
   xai_api_key: string;
   deepgram_api_key: string;
+  openrouter_api_key: string;
   xclis_api_key: string;
   access_token: string;
   stt_provider: string;
