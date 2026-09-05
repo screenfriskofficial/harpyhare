@@ -35,8 +35,11 @@
   --app-surface: oklch(1 0 0 / 5%);
   --app-surface-active: oklch(1 0 0 / 10%);
   --app-code: oklch(0 0 0 / 28%);
-
-  --hud-shadow: rgb(0 0 0 / 0.7);
+  --app-popover: oklch(0.3 0.005 285);
+  --app-code-surface: oklch(0.12 0.006 285);
+  --app-ring: oklch(0.58 0.14 18);
+  --app-window-edge: oklch(1 0 0 / 24%);
+  --app-opacity: 0.9;
 }
 
 @theme inline {
@@ -62,6 +65,17 @@
   --color-app-surface: var(--app-surface);
   --color-app-surface-active: var(--app-surface-active);
   --color-app-code: var(--app-code);
+  --color-app-popover: var(--app-popover);
+  --color-app-code-surface: var(--app-code-surface);
+  --color-app-ring: var(--app-ring);
+  --shadow-app-btn: inset 0 1px 0 oklch(1 0 0 / 12%), 0 1px 2px 0 oklch(0 0 0 / 30%);
+  --shadow-app-raise: inset 0 1px 0 oklch(1 0 0 / 4%), 0 1px 2px 0 oklch(0 0 0 / 20%);
+  --shadow-app-pop:
+    inset 0 1px 0 oklch(1 0 0 / 5%), 0 12px 32px -8px oklch(0 0 0 / 50%),
+    0 4px 12px -4px oklch(0 0 0 / 32%);
+  --shadow-app-modal:
+    inset 0 1px 0 oklch(1 0 0 / 6%), 0 24px 64px -16px oklch(0 0 0 / 55%),
+    0 8px 24px -8px oklch(0 0 0 / 35%);
   --text-app-hint: 10.5px;
   --text-app-caption: 11.5px;
   --text-app-body: 12.5px;
@@ -194,8 +208,58 @@ section[id] {
 [data-app-theme="black"] {
   --app-bg: oklch(0.17 0.004 285);
   --app-card: oklch(0.21 0.003 285);
+  --app-popover: oklch(0.21 0.005 285);
   --app-muted-fg: oklch(0.68 0.006 285);
   --app-border: oklch(1 0 0 / 10%);
+  --app-window-edge: oklch(1 0 0 / 26%);
+}
+
+/* HUD: фон уходит в прозрачность (как окно приложения с opacity 0.9), а край
+   рисуется своей линией — нативной рамки у frameless-окна нет. */
+.app-hud {
+  background-color: color-mix(in oklch, var(--app-bg) calc(var(--app-opacity) * 100%), transparent);
+  box-shadow: inset 0 0 0 1px var(--app-window-edge);
+}
+
+/* «Жидкий металл» по краю окна во время записи и ответа: в приложении это
+   WebGL-шейдер, здесь — вращающийся конический блик той же ширины (3px). */
+@property --app-frame-angle {
+  syntax: "<angle>";
+  inherits: false;
+  initial-value: 0deg;
+}
+
+.app-liquid-frame {
+  pointer-events: none;
+  position: absolute;
+  inset: 0;
+  z-index: 40;
+  border-radius: inherit;
+  padding: 3px;
+  background: conic-gradient(
+    from var(--app-frame-angle),
+    transparent 0%,
+    oklch(0.98 0.005 285 / 0.85) 12%,
+    transparent 24%,
+    transparent 50%,
+    oklch(0.9 0.02 285 / 0.7) 62%,
+    transparent 74%
+  );
+  -webkit-mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  animation: app-frame-turn 2.8s linear infinite;
+}
+
+@keyframes app-frame-turn {
+  to {
+    --app-frame-angle: 360deg;
+  }
 }
 
 [data-app-theme="black"] .app-launcher {
@@ -211,12 +275,16 @@ section[id] {
 }
 
 .app-scroll::-webkit-scrollbar {
-  width: 6px;
+  width: 4px;
 }
 
 .app-scroll::-webkit-scrollbar-thumb {
-  border-radius: 3px;
-  background: var(--app-surface-active);
+  border-radius: 999px;
+  background: oklch(1 0 0 / 14%);
+}
+
+.app-scroll::-webkit-scrollbar-thumb:hover {
+  background: oklch(1 0 0 / 28%);
 }
 
 .app-no-scrollbar {
@@ -253,13 +321,70 @@ section[id] {
   color: var(--app-primary);
 }
 
+.app-prose p,
+.app-prose li {
+  overflow-wrap: anywhere;
+}
+
 .app-prose code {
-  padding: 1.5px 5.5px;
-  border-radius: 6px;
-  background: color-mix(in oklch, var(--app-primary) 14%, transparent);
-  color: oklch(0.8 0.09 18);
+  padding: 1.5px 5px;
+  border-radius: 4px;
+  background: color-mix(in oklch, var(--app-primary) 16%, transparent);
+  color: var(--app-fg);
   font-family: ui-monospace, "SF Mono", Menlo, monospace;
   font-size: 0.89em;
+}
+
+/* Блок кода: шапка и нумерация строк, как у CodeBlock в приложении. */
+.app-prose .app-code-block pre {
+  margin: 0;
+  padding: 8px 0;
+  overflow-x: auto;
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 0.89em;
+  line-height: 1.55;
+  color: oklch(0.85 0.01 285);
+}
+
+.app-prose .app-code-block code {
+  padding: 0;
+  border-radius: 0;
+  background: none;
+  color: inherit;
+  font-size: inherit;
+}
+
+.app-prose .app-code-block .code-line {
+  display: flex;
+}
+
+.app-prose .app-code-block .code-line-number {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  flex: none;
+  width: calc(var(--code-gutter, 2ch) + 21px);
+  padding: 0 9px 0 12px;
+  background: var(--app-code-surface);
+  color: color-mix(in oklch, var(--app-muted-fg) 65%, transparent);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  user-select: none;
+}
+
+.app-prose .app-code-block .code-line-text {
+  min-width: 0;
+  padding-right: 12px;
+  white-space: pre;
+}
+
+.app-prose .app-code-block[data-wrap="true"] .code-line-text {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.app-prose .app-code-block pre::-webkit-scrollbar {
+  height: 4px;
 }
 
 .app-shimmer {
@@ -351,6 +476,7 @@ section[id] {
   }
   .caret,
   .app-shimmer,
+  .app-liquid-frame,
   .fade-rise,
   .marquee-track {
     animation: none;
