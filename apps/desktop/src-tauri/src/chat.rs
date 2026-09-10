@@ -8,7 +8,8 @@ use tokio::sync::Notify;
 use tokio_util::sync::CancellationToken;
 
 use crate::app_state::{llm_provider, note_connectivity_probe, ActiveLlmStream, App};
-use crate::error::AppError;
+use crate::diagnostics::{self, DiagnosticOrigin, Trace};
+use crate::error::{AppError, CodedError};
 use crate::{events, llm};
 
 /// Окно коалесинга дельт: флашер просыпается по первой дельте и отдаёт всё,
@@ -42,7 +43,10 @@ fn take_stream(
 /// `send_to_claude` стартует на рабочем потоке), новый токен гасится сразу.
 fn register_in(map: &mut StreamRegistry, chat_id: &str, stream_id: &str) -> CancellationToken {
     let cancel = CancellationToken::new();
-    let entry = ActiveLlmStream { stream_id: stream_id.to_string(), cancel: cancel.clone() };
+    let entry = ActiveLlmStream {
+        stream_id: stream_id.to_string(),
+        cancel: cancel.clone(),
+    };
     if let Some(old) = replace_stream(map, chat_id, entry) {
         old.cancel.cancel();
         if old.stream_id == stream_id {
@@ -66,7 +70,14 @@ fn cancel_in(map: &mut StreamRegistry, chat_id: &str, stream_id: &str) {
     }
     let tombstone = CancellationToken::new();
     tombstone.cancel();
-    replace_stream(map, chat_id, ActiveLlmStream { stream_id: stream_id.to_string(), cancel: tombstone });
+    replace_stream(
+        map,
+        chat_id,
+        ActiveLlmStream {
+            stream_id: stream_id.to_string(),
+            cancel: tombstone,
+        },
+    );
 }
 
 fn register_llm_cancel(app: &AppHandle, chat_id: &str, stream_id: &str) -> CancellationToken {
@@ -83,7 +94,12 @@ fn unregister_llm_cancel(app: &AppHandle, chat_id: &str, stream_id: &str) {
 /// Отменяет все активные стримы: HUD закрывается, читать дельты некому.
 pub fn cancel_all_streams(app: &AppHandle) {
     let st = app.state::<App>();
-    let streams: Vec<ActiveLlmStream> = st.llm_cancel.lock_unpoisoned().drain().map(|(_, s)| s).collect();
+    let streams: Vec<ActiveLlmStream> = st
+        .llm_cancel
+        .lock_unpoisoned()
+        .drain()
+        .map(|(_, s)| s)
+        .collect();
     for stream in streams {
         stream.cancel.cancel();
     }
@@ -115,7 +131,12 @@ fn spawn_llm_delta_flusher(app: AppHandle, chat_id: String, stream_id: String) -
             run_llm_delta_flusher(app, chat_id, stream_id, pending, wake, stop).await;
         })
     };
-    LlmDeltaFlusher { pending, wake, stop, task }
+    LlmDeltaFlusher {
+        pending,
+        wake,
+        stop,
+        task,
+    }
 }
 
 /// Спит, пока дельт нет (минуты тихого рассуждения — ни одного пробуждения),
@@ -166,19 +187,12 @@ struct ChatStreamSink {
     stream_id: String,
     pending: Arc<Mutex<String>>,
     wake: Arc<Notify>,
-    started: std::time::Instant,
-    got_first_delta: bool,
+    trace: Trace,
 }
 
 impl llm::LlmStreamSink for ChatStreamSink {
     fn text_delta(&mut self, delta: &str) {
-        if !self.got_first_delta {
-            self.got_first_delta = true;
-            eprintln!(
-                "[perf] llm ttfb (первая текстовая дельта) {:?}",
-                self.started.elapsed()
-            );
-        }
+        self.trace.first_text(delta);
         self.pending.lock_unpoisoned().push_str(delta);
         self.wake.notify_one();
     }
@@ -200,6 +214,7 @@ pub async fn send_to_claude(
     options: llm::RequestOptions,
 ) {
     let provider = llm_provider(&app);
+    let trace = diagnostics::answer_trace(&app, &model, DiagnosticOrigin::Session);
     let cancel = register_llm_cancel(&app, &chat_id, &stream_id);
     let request = llm::LlmRequest {
         model,
@@ -209,19 +224,19 @@ pub async fn send_to_claude(
     };
 
     let flusher = spawn_llm_delta_flusher(app.clone(), chat_id.clone(), stream_id.clone());
-    let started = std::time::Instant::now();
     let mut sink = ChatStreamSink {
         app: app.clone(),
         chat_id: chat_id.clone(),
         stream_id: stream_id.clone(),
         pending: Arc::clone(&flusher.pending),
         wake: Arc::clone(&flusher.wake),
-        started,
-        got_first_delta: false,
+        trace: trace.clone(),
     };
-    let res = provider.stream(request, cancel, &mut sink).await;
+    let res = trace
+        .scope(provider.stream(request, cancel, &mut sink))
+        .await;
     flusher.stop_and_await_final_drain().await;
-    eprintln!("[perf] llm stream total {:?}", started.elapsed());
+    trace.finish(res.as_ref().err().map(CodedError::code));
     unregister_llm_cancel(&app, &chat_id, &stream_id);
     emit_llm_result(&app, chat_id, stream_id, res);
 }

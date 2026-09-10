@@ -43,8 +43,17 @@ pub struct LlmHttp {
 
 impl LlmHttp {
     /// Straight at the vendor with the user's own credential.
-    pub fn direct(base_url: impl Into<String>, credential: Credential, key_label: &'static str) -> Self {
-        Self::with_options(base_url, credential, key_label, HttpClientOptions::default())
+    pub fn direct(
+        base_url: impl Into<String>,
+        credential: Credential,
+        key_label: &'static str,
+    ) -> Self {
+        Self::with_options(
+            base_url,
+            credential,
+            key_label,
+            HttpClientOptions::default(),
+        )
     }
 
     /// `direct` with an explicit pool configuration (idle timeout, proxy policy).
@@ -66,7 +75,11 @@ impl LlmHttp {
     }
 
     /// Through the relay, authenticated by an access token.
-    pub fn proxied(base_url: impl Into<String>, access_token: String, key_label: &'static str) -> Self {
+    pub fn proxied(
+        base_url: impl Into<String>,
+        access_token: String,
+        key_label: &'static str,
+    ) -> Self {
         Self {
             proxy: true,
             ..Self::direct(base_url, Credential::Bearer(access_token), key_label)
@@ -118,7 +131,9 @@ impl LlmHttp {
     }
 
     async fn send(&self, req: reqwest::RequestBuilder) -> Result<reqwest::Response, LlmError> {
-        self.prepared(req).send().await.map_err(network_error)
+        crate::diagnostics::send_request(self.prepared(req).send())
+            .await
+            .map_err(network_error)
     }
 
     async fn json_of(resp: reqwest::Response) -> Result<Value, LlmError> {
@@ -127,14 +142,21 @@ impl LlmHttp {
 
     /// `path` carries its own query string when the vendor needs one.
     pub async fn get_json(&self, path: &str, timeout: Duration) -> Result<Value, LlmError> {
-        let resp = self.send(self.client.get(self.url(path)).timeout(timeout)).await?;
+        let resp = self
+            .send(self.client.get(self.url(path)).timeout(timeout))
+            .await?;
         let resp = require_ok_status(resp, self.key_label, self.proxy).await?;
         Self::json_of(resp).await
     }
 
     pub async fn post_json(&self, path: &str, body: &Value) -> Result<Value, LlmError> {
         let resp = self
-            .send(self.client.post(self.url(path)).json(body).timeout(REQUEST_TIMEOUT))
+            .send(
+                self.client
+                    .post(self.url(path))
+                    .json(body)
+                    .timeout(REQUEST_TIMEOUT),
+            )
             .await?;
         let resp = require_ok_status(resp, self.key_label, self.proxy).await?;
         Self::json_of(resp).await
@@ -154,7 +176,7 @@ impl LlmHttp {
         if let Some(mime) = accept {
             req = req.header(reqwest::header::ACCEPT, mime);
         }
-        let send = self.prepared(req).send();
+        let send = crate::diagnostics::send_request(self.prepared(req).send());
         let resp = tokio::select! {
             r = send => r.map_err(network_error)?,
             _ = cancel.cancelled() => return Err(LlmError::Cancelled),
@@ -181,14 +203,22 @@ impl LlmHttp {
     /// on the shared pool can park behind a dead keep-alive connection and hang
     /// far past its own timeout.
     pub async fn reachable(&self, path: &str) -> bool {
-        self.prepared(probe_http_client().get(self.url(path))).send().await.is_ok()
+        self.prepared(probe_http_client().get(self.url(path)))
+            .send()
+            .await
+            .is_ok()
     }
 
     /// Opens the connection so the first real request does not pay for TLS.
     /// Unauthenticated on purpose — only the socket is being warmed, and the
     /// answer is thrown away.
     pub async fn warm_up(&self, path: &str) {
-        let _ = self.client.get(self.url(path)).timeout(WARM_UP_TIMEOUT).send().await;
+        let _ = self
+            .client
+            .get(self.url(path))
+            .timeout(WARM_UP_TIMEOUT)
+            .send()
+            .await;
     }
 }
 

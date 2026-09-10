@@ -8,14 +8,14 @@ use std::sync::Arc;
 
 use crate::audio;
 
-/// The one table a vendor is declared in; its picker half is exported to the
-/// frontend, its transport half deliberately is not.
-pub mod registry;
-pub mod models;
 /// Deepgram говорит не на общем multipart-диалекте: батч — сырой WAV телом,
 /// а низколатентный путь вообще WebSocket. Поэтому у него свой транспорт,
 /// реализующий тот же порт `SttEngine`, а не ветка в общем клиенте.
 pub mod deepgram;
+pub mod models;
+/// The one table a vendor is declared in; its picker half is exported to the
+/// frontend, its transport half deliberately is not.
+pub mod registry;
 
 const DEFAULT_LANGUAGE: &str = "ru";
 
@@ -35,6 +35,8 @@ const TIMEOUT_STATUS: u16 = 408;
 
 #[derive(Debug, thiserror::Error)]
 pub enum SttError {
+    #[error(transparent)]
+    Http(#[from] crate::error::http::HttpFailure),
     #[error("Неверный ключ {0} — проверь в настройках")]
     BadApiKey(&'static str),
     #[error("{0}")]
@@ -53,13 +55,29 @@ impl crate::error::CodedError for SttError {
     fn code(&self) -> crate::error::ErrorCode {
         use crate::error::ErrorCode;
         match self {
+            SttError::Http(error) => error.code,
             SttError::BadApiKey(_) => ErrorCode::BadApiKey,
             SttError::BadAccessCode(_) => ErrorCode::BadAccessCode,
-            SttError::Retryable(_) => ErrorCode::Retryable,
+            SttError::Retryable(status) => {
+                crate::error::http::classify(*status, &serde_json::Value::Null, false)
+            }
             SttError::Network(_) => ErrorCode::Network,
             SttError::Cancelled => ErrorCode::Cancelled,
             SttError::Other(_) => ErrorCode::Api,
         }
+    }
+}
+
+fn http_failure(error: crate::error::http::HttpFailure, key_label: &'static str) -> SttError {
+    use crate::error::ErrorCode;
+    match error.code {
+        ErrorCode::BadApiKey => SttError::BadApiKey(key_label),
+        ErrorCode::BadAccessCode => SttError::BadAccessCode(error.message),
+        ErrorCode::Api => SttError::Other(error.message),
+        ErrorCode::RateLimited | ErrorCode::ServiceUnavailable | ErrorCode::Timeout => {
+            SttError::Retryable(error.status)
+        }
+        _ => SttError::Http(error),
     }
 }
 
@@ -107,7 +125,10 @@ impl std::fmt::Debug for SttClientConfig {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("SttClientConfig")
             .field("model", &self.model)
-            .field("api_key", &format_args!("<{} симв.>", self.api_key.chars().count()))
+            .field(
+                "api_key",
+                &format_args!("<{} симв.>", self.api_key.chars().count()),
+            )
             .field("proxy_base_url", &self.proxy_base_url)
             .field("language", &self.language)
             .field("translate", &self.translate)
@@ -120,7 +141,10 @@ impl std::fmt::Debug for SttClientConfig {
 /// xAI, собственный — для Deepgram. Приложение (`build_stt_client`) и смоуки
 /// (`examples/stt_smoke.rs`) идут через неё же, поэтому вендор, добавленный
 /// в реестр, обслуживается везде без правок.
-pub fn build_engine(spec: &'static registry::SttProviderSpec, config: SttClientConfig) -> Arc<dyn SttEngine> {
+pub fn build_engine(
+    spec: &'static registry::SttProviderSpec,
+    config: SttClientConfig,
+) -> Arc<dyn SttEngine> {
     match spec.wire {
         registry::SttWire::Deepgram { .. } => Arc::new(
             deepgram::DeepgramStt::from_spec(spec, config.api_key).with_language(config.language),
@@ -134,7 +158,11 @@ pub fn build_engine(spec: &'static registry::SttProviderSpec, config: SttClientC
                 Some(url) => client.with_base_url(url).with_proxy(true),
                 None => client,
             };
-            Arc::new(client.with_language(config.language).with_translate(config.translate))
+            Arc::new(
+                client
+                    .with_language(config.language)
+                    .with_translate(config.translate),
+            )
         }
     }
 }
@@ -181,7 +209,10 @@ fn network_error(e: reqwest::Error) -> SttError {
 /// конвейера и подшивает заголовок сам: контейнер — забота транспорта.
 fn streaming_wav_body(chunks: AudioChunkStream) -> AudioChunkStream {
     let header: Result<Vec<u8>, std::io::Error> = Ok(audio::wav_header_streaming().to_vec());
-    Box::pin(futures_util::stream::StreamExt::chain(futures_util::stream::iter([header]), chunks))
+    Box::pin(futures_util::stream::StreamExt::chain(
+        futures_util::stream::iter([header]),
+        chunks,
+    ))
 }
 
 impl SttHttpClient {
@@ -279,10 +310,16 @@ impl SttHttpClient {
     ) -> Result<reqwest::multipart::Form, SttError> {
         let file = part.file_name(WAV_FILE_NAME);
         match self.spec.wire {
-            registry::SttWire::OpenAiMultipart { transcribe_model, translation, temperature, .. } => {
-                let model = translation
-                    .filter(|_| self.translate())
-                    .map_or_else(|| self.model.as_deref().unwrap_or(transcribe_model), |t| t.model);
+            registry::SttWire::OpenAiMultipart {
+                transcribe_model,
+                translation,
+                temperature,
+                ..
+            } => {
+                let model = translation.filter(|_| self.translate()).map_or_else(
+                    || self.model.as_deref().unwrap_or(transcribe_model),
+                    |t| t.model,
+                );
                 let mut form = reqwest::multipart::Form::new()
                     .part("file", file)
                     .text("model", model.to_string())
@@ -324,26 +361,32 @@ impl SttHttpClient {
     ) -> Result<reqwest::RequestBuilder, SttError> {
         Ok(self
             .client
-            .post(format!("{}{}", self.base_url, self.spec.wire.path(self.translate())))
+            .post(format!(
+                "{}{}",
+                self.base_url,
+                self.spec.wire.path(self.translate())
+            ))
             .bearer_auth(&self.api_key)
             .multipart(self.form_with(part, keyterms)?)
             .timeout(timeout))
     }
 
     async fn parse_response(&self, resp: reqwest::Response) -> Result<String, SttError> {
-        match resp.status().as_u16() {
-            200 => Self::text_from_success(resp).await,
-            code @ (401 | 403) if self.proxy => {
-                Err(SttError::BadAccessCode(crate::llm::api_error_message(resp, code).await))
-            }
-            401 | 403 => Err(SttError::BadApiKey(self.spec.key_label)),
-            code @ (429 | 500..=599) => Err(SttError::Retryable(code)),
-            code => Err(SttError::Other(crate::llm::api_error_message(resp, code).await)),
+        if resp.status().is_success() {
+            Self::text_from_success(resp).await
+        } else {
+            Err(http_failure(
+                crate::error::http::failure(resp, self.proxy).await,
+                self.spec.key_label,
+            ))
         }
     }
 
     async fn text_from_success(resp: reqwest::Response) -> Result<String, SttError> {
-        let v: serde_json::Value = resp.json().await.map_err(|e| SttError::Other(e.to_string()))?;
+        let v: serde_json::Value = resp
+            .json()
+            .await
+            .map_err(|e| SttError::Other(e.to_string()))?;
         Ok(v["text"]
             .as_str()
             .ok_or_else(|| SttError::Other("ответ распознавания без поля text".into()))?
@@ -364,7 +407,10 @@ impl SttEngine for SttHttpClient {
         let part = reqwest::multipart::Part::stream(body)
             .mime_str(WAV_MIME)
             .map_err(|e| SttError::Other(e.to_string()))?;
-        let send = self.request_with(part, keyterms, STREAM_REQUEST_TIMEOUT)?.send();
+        let send = crate::diagnostics::send_request(
+            self.request_with(part, keyterms, STREAM_REQUEST_TIMEOUT)?
+                .send(),
+        );
         let resp = tokio::select! {
             r = send => r.map_err(network_error)?,
             _ = cancel.cancelled() => return Err(SttError::Cancelled),
@@ -375,7 +421,11 @@ impl SttEngine for SttHttpClient {
     async fn warm_up(&self) {
         let _ = self
             .client
-            .get(format!("{}{}", self.base_url, self.spec.wire.warm_up_path()))
+            .get(format!(
+                "{}{}",
+                self.base_url,
+                self.spec.wire.warm_up_path()
+            ))
             .timeout(WARM_UP_TIMEOUT)
             .send()
             .await;
@@ -386,15 +436,17 @@ impl SttEngine for SttHttpClient {
         samples: &[f32],
         keyterms: Keyterms<'_>,
     ) -> Result<String, SttError> {
-        let wav = audio::encode_wav_16k_mono(samples).map_err(|e| SttError::Other(e.to_string()))?;
+        let wav =
+            audio::encode_wav_16k_mono(samples).map_err(|e| SttError::Other(e.to_string()))?;
         let part = reqwest::multipart::Part::bytes(wav)
             .mime_str(WAV_MIME)
             .map_err(|e| SttError::Other(e.to_string()))?;
-        let resp = self
-            .request_with(part, keyterms, self.batch_timeout(samples.len()))?
-            .send()
-            .await
-            .map_err(network_error)?;
+        let resp = crate::diagnostics::send_request(
+            self.request_with(part, keyterms, self.batch_timeout(samples.len()))?
+                .send(),
+        )
+        .await
+        .map_err(network_error)?;
         self.parse_response(resp).await
     }
 }

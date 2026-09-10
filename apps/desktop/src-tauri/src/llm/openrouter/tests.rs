@@ -217,6 +217,15 @@ async fn streaming_answers_include_late_usage_and_ignore_reasoning() {
 
 #[test]
 fn errors_inside_http_200_are_failures_not_successful_finishes() {
+    for code in [
+        serde_json::json!(402),
+        serde_json::json!("insufficient_quota"),
+    ] {
+        let event = serde_json::json!({"error": {"code": code, "message": "credits exhausted"}});
+        assert!(
+            matches!(&parse_block(&event.to_string())[0], SseOut::HttpError(error) if error.code == crate::error::ErrorCode::Billing)
+        );
+    }
     assert!(matches!(
         parse_block(r#"{"error":{"code":429,"message":"rate limited"}}"#)[0],
         SseOut::Retryable { code: 429, .. }
@@ -224,10 +233,6 @@ fn errors_inside_http_200_are_failures_not_successful_finishes() {
     assert!(matches!(
         parse_block(r#"{"error":{"code":"server_error","message":"disconnected"}}"#)[0],
         SseOut::Retryable { code: 500, .. }
-    ));
-    assert!(matches!(
-        parse_block(r#"{"error":{"code":402,"message":"Insufficient credits"}}"#)[0],
-        SseOut::ApiError(_)
     ));
     for reason in ["length", "content_filter", "error", "tool_calls"] {
         assert!(matches!(

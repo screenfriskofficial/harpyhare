@@ -1,20 +1,18 @@
-export type ErrorCode =
-  | "network"
-  | "badApiKey"
-  | "badAccessCode"
-  | "retryable"
-  | "api"
-  | "cancelled"
-  | "permission"
-  | "silence"
-  | "internal";
+import type { ErrorCode } from "@/ipc/bindings";
+export type { ErrorCode };
 
 export interface AppError {
   code: ErrorCode;
   message: string;
 }
 
-const RETRYABLE_CODES: readonly ErrorCode[] = ["network", "retryable"];
+const RETRYABLE_CODES: readonly ErrorCode[] = [
+  "network",
+  "retryable",
+  "rateLimited",
+  "serviceUnavailable",
+  "timeout",
+];
 
 export function internalError(message: string): AppError {
   return { code: "internal", message };

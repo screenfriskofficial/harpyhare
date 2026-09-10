@@ -27,6 +27,14 @@ const ERROR_TOAST_TITLE: Record<ErrorCode, TranslationKey | null> = {
   permission: "errors.titles.permission",
   silence: "errors.titles.silence",
   internal: "errors.titles.internal",
+  billing: "diagnostics.errors.billing.title",
+  dailyLimit: "diagnostics.errors.dailyLimit.title",
+  rateLimited: "diagnostics.errors.rateLimited.title",
+  serviceUnavailable: "diagnostics.errors.serviceUnavailable.title",
+  timeout: "diagnostics.errors.timeout.title",
+  accessDenied: "diagnostics.errors.accessDenied.title",
+  modelUnavailable: "diagnostics.errors.modelUnavailable.title",
+  requestTooLarge: "diagnostics.errors.requestTooLarge.title",
 };
 
 interface NotifyInput {
@@ -41,7 +49,7 @@ interface NotifyInput {
 export function errorToastContent(error: AppError): { title: string; message: string } | null {
   const titleKey = ERROR_TOAST_TITLE[error.code];
   if (titleKey === null) return null;
-  return { title: t(titleKey), message: error.message };
+  return { title: t(titleKey), message: t(`diagnostics.errors.${error.code}.action`) };
 }
 
 export function notify(input: NotifyInput): void {
@@ -68,8 +76,8 @@ export function notify(input: NotifyInput): void {
   );
 }
 
-export function notifyAppError(error: AppError): void {
+export function notifyAppError(error: AppError, action?: ToastAction): void {
   const content = errorToastContent(error);
   if (content === null) return;
-  notify({ ...content, variant: "error" });
+  notify({ ...content, variant: "error", action });
 }

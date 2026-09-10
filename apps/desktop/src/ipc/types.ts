@@ -1,7 +1,7 @@
 import type { ImagePayload } from "@/lib/composer";
 import type { AppError } from "@/lib/errors";
 import type { PromptPreset } from "@/lib/presets";
-import type { TranscriptReady } from "./bindings";
+import type { TranscriptReady, PreflightProgress } from "./bindings";
 import { SETTINGS_DEFAULTS } from "./bindings";
 
 export type { AppError, ImagePayload };
@@ -93,6 +93,7 @@ export interface UpdateProgress {
 }
 
 export interface EventMap {
+  "preflight-progress": PreflightProgress;
   "state-changed": RecorderState;
   "transcript-ready": TranscriptReady;
   "stt-error": AppError;

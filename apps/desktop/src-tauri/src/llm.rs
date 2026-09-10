@@ -18,14 +18,14 @@ use http::{Credential, LlmHttp};
 /// Transport shared by every vendor: pool, auth, status mapping, SSE pumping.
 pub mod http;
 pub mod openrouter;
-/// The OpenAI Responses dialect, shared by more than one vendor.
-pub mod responses;
-/// OpenAI-compatible Chat Completions as spoken by the Xclis aggregator.
-pub mod xclis;
 /// The one table a new vendor is declared in; exported to the frontend.
 pub mod registry;
+/// The OpenAI Responses dialect, shared by more than one vendor.
+pub mod responses;
 /// Dispatches each request to the vendor that owns the requested model.
 pub mod router;
+/// OpenAI-compatible Chat Completions as spoken by the Xclis aggregator.
+pub mod xclis;
 
 pub const APP_USER_AGENT: &str = concat!("AudioSystem/", env!("CARGO_PKG_VERSION"));
 
@@ -91,11 +91,16 @@ pub(crate) const UNKNOWN_API_ERROR: &str = "неизвестная ошибка 
 /// и HTTP-эквивалент для `LlmError::Retryable`: перегрузка приходит именно
 /// так, событием, а не статусом, и без этой таблицы уезжала кодом `api`
 /// — без кнопки «Повторить» ровно там, где она нужна.
-const ANTHROPIC_RETRYABLE_ERROR_TYPES: [(&str, u16); 3] =
-    [("overloaded_error", 529), ("rate_limit_error", 429), ("api_error", 500)];
+const ANTHROPIC_RETRYABLE_ERROR_TYPES: [(&str, u16); 3] = [
+    ("overloaded_error", 529),
+    ("rate_limit_error", 429),
+    ("api_error", 500),
+];
 
 #[derive(Debug, thiserror::Error)]
 pub enum LlmError {
+    #[error(transparent)]
+    Http(#[from] crate::error::http::HttpFailure),
     #[error("Неверный ключ {0} — проверь в настройках")]
     BadApiKey(&'static str),
     /// 401/403 от relay: код доступа недействителен или исчерпан. Текст — от
@@ -116,9 +121,12 @@ impl crate::error::CodedError for LlmError {
     fn code(&self) -> crate::error::ErrorCode {
         use crate::error::ErrorCode;
         match self {
+            LlmError::Http(error) => error.code,
             LlmError::BadApiKey(_) => ErrorCode::BadApiKey,
             LlmError::BadAccessCode(_) => ErrorCode::BadAccessCode,
-            LlmError::Retryable(_) => ErrorCode::Retryable,
+            LlmError::Retryable(status) => {
+                crate::error::http::classify(*status, &Value::Null, false)
+            }
             LlmError::Network(_) => ErrorCode::Network,
             LlmError::Api(_) => ErrorCode::Api,
             LlmError::Cancelled => ErrorCode::Cancelled,
@@ -126,10 +134,26 @@ impl crate::error::CodedError for LlmError {
     }
 }
 
+fn http_failure(error: crate::error::http::HttpFailure, key_label: &'static str) -> LlmError {
+    use crate::error::ErrorCode;
+    match error.code {
+        ErrorCode::BadApiKey => LlmError::BadApiKey(key_label),
+        ErrorCode::BadAccessCode => LlmError::BadAccessCode(error.message),
+        ErrorCode::Api => LlmError::Api(error.message),
+        ErrorCode::RateLimited | ErrorCode::ServiceUnavailable | ErrorCode::Timeout => {
+            LlmError::Retryable(error.status)
+        }
+        _ => LlmError::Http(error),
+    }
+}
+
 /// Сетевая ошибка с цепочкой причин: reqwest в `Display` прячет источник
 /// («error sending request»), а пользователю и логам нужен именно он —
 /// таймаут это, отказ TLS или DNS.
 pub(crate) fn network_error(err: reqwest::Error) -> LlmError {
+    if err.is_timeout() {
+        return LlmError::Retryable(408);
+    }
     let kind = if err.is_timeout() {
         "таймаут"
     } else if err.is_connect() {
@@ -271,7 +295,11 @@ pub fn thinking_value(info: Option<&ModelInfo>, model_id: &str, requested: bool)
     }
 }
 
-pub fn web_search_value(info: Option<&ModelInfo>, model_id: &str, requested: bool) -> Option<Value> {
+pub fn web_search_value(
+    info: Option<&ModelInfo>,
+    model_id: &str,
+    requested: bool,
+) -> Option<Value> {
     if !requested {
         return None;
     }
@@ -297,7 +325,10 @@ pub(crate) struct HttpClientOptions {
 
 impl Default for HttpClientOptions {
     fn default() -> Self {
-        Self { read_timeout: STREAM_IDLE_TIMEOUT, system_proxy: true }
+        Self {
+            read_timeout: STREAM_IDLE_TIMEOUT,
+            system_proxy: true,
+        }
     }
 }
 
@@ -341,14 +372,13 @@ pub(crate) async fn require_ok_status(
     key_label: &'static str,
     proxy: bool,
 ) -> Result<reqwest::Response, LlmError> {
-    match resp.status().as_u16() {
-        200 => Ok(resp),
-        code @ (401 | 403) if proxy => {
-            Err(LlmError::BadAccessCode(api_error_message(resp, code).await))
-        }
-        401 | 403 => Err(LlmError::BadApiKey(key_label)),
-        code @ (429 | 500..=599) => Err(LlmError::Retryable(code)),
-        code => Err(LlmError::Api(api_error_message(resp, code).await)),
+    if resp.status().is_success() {
+        Ok(resp)
+    } else {
+        Err(http_failure(
+            crate::error::http::failure(resp, proxy).await,
+            key_label,
+        ))
     }
 }
 
@@ -420,6 +450,7 @@ pub(crate) async fn pump_sse_stream(
                 }
                 SseOut::Finished => finished = true,
                 SseOut::ApiError(m) => return Err(LlmError::Api(m)),
+                SseOut::HttpError(error) => return Err(LlmError::Http(error)),
                 SseOut::Retryable { code, .. } => return Err(LlmError::Retryable(code)),
             }
         }
@@ -428,21 +459,29 @@ pub(crate) async fn pump_sse_stream(
 
 impl AnthropicClient {
     pub fn new(api_key: String) -> Self {
-        Self::over(
-            LlmHttp::direct(
-                ANTHROPIC_BASE_URL,
-                Credential::ApiKeyHeader { header: API_KEY_HEADER, key: api_key },
-                ANTHROPIC_KEY_LABEL,
-            ),
-        )
+        Self::over(LlmHttp::direct(
+            ANTHROPIC_BASE_URL,
+            Credential::ApiKeyHeader {
+                header: API_KEY_HEADER,
+                key: api_key,
+            },
+            ANTHROPIC_KEY_LABEL,
+        ))
     }
 
     pub fn for_proxy(access_token: String, base_url: String) -> Self {
-        Self::over(LlmHttp::proxied(base_url, access_token, ANTHROPIC_KEY_LABEL))
+        Self::over(LlmHttp::proxied(
+            base_url,
+            access_token,
+            ANTHROPIC_KEY_LABEL,
+        ))
     }
 
     fn over(http: LlmHttp) -> Self {
-        Self { http: http.with_headers(ANTHROPIC_HEADERS), catalog: ModelCatalog::default() }
+        Self {
+            http: http.with_headers(ANTHROPIC_HEADERS),
+            catalog: ModelCatalog::default(),
+        }
     }
 
     pub fn with_catalog(mut self, catalog: ModelCatalog) -> Self {
@@ -674,9 +713,13 @@ pub enum SseOut {
     /// и `[DONE]`). Поток читается дальше; EOF после этого — штатный конец.
     Finished,
     ApiError(String),
+    HttpError(crate::error::http::HttpFailure),
     /// Ошибка внутри 200-стрима, при которой стоит повторить (перегрузка,
     /// лимит). `code` — HTTP-эквивалент для `LlmError::Retryable`.
-    Retryable { code: u16, message: String },
+    Retryable {
+        code: u16,
+        message: String,
+    },
 }
 
 /// Разбор одного события: на вход — склеенная полезная нагрузка `data:`.
@@ -707,7 +750,11 @@ impl SseParser {
     }
 
     pub fn with_block_parser(parse_block: SseBlockParser) -> Self {
-        Self { buffer: Vec::new(), search_from: 0, parse_block }
+        Self {
+            buffer: Vec::new(),
+            search_from: 0,
+            parse_block,
+        }
     }
 
     pub fn feed(&mut self, chunk: &str) -> Vec<SseOut> {
@@ -718,7 +765,9 @@ impl SseParser {
         self.buffer.extend_from_slice(chunk);
         let mut out = Vec::new();
         let mut consumed = 0;
-        while let Some((offset, separator_len)) = find_sse_separator(&self.buffer[self.search_from..]) {
+        while let Some((offset, separator_len)) =
+            find_sse_separator(&self.buffer[self.search_from..])
+        {
             let end = self.search_from + offset;
             let payload = sse_event_data(&self.buffer[consumed..end]);
             consumed = end + separator_len;
@@ -778,11 +827,33 @@ fn sse_event_data(event: &[u8]) -> String {
 }
 
 fn anthropic_error_out(error: &Value) -> SseOut {
-    let message = error["message"].as_str().unwrap_or(UNKNOWN_API_ERROR).to_string();
+    let message = error["message"]
+        .as_str()
+        .unwrap_or(UNKNOWN_API_ERROR)
+        .to_string();
     let kind = error["type"].as_str().unwrap_or_default();
-    match ANTHROPIC_RETRYABLE_ERROR_TYPES.iter().find(|(t, _)| *t == kind) {
-        Some((_, code)) => SseOut::Retryable { code: *code, message },
-        None => SseOut::ApiError(message),
+    match ANTHROPIC_RETRYABLE_ERROR_TYPES
+        .iter()
+        .find(|(t, _)| *t == kind)
+    {
+        Some((_, code)) => SseOut::Retryable {
+            code: *code,
+            message,
+        },
+        None => classified_stream_error(200, error, message),
+    }
+}
+
+fn classified_stream_error(status: u16, error: &Value, message: String) -> SseOut {
+    let code = crate::error::http::classify(status, &json!({"error": error}), false);
+    if code == crate::error::ErrorCode::Api {
+        SseOut::ApiError(message)
+    } else {
+        SseOut::HttpError(crate::error::http::HttpFailure {
+            status,
+            code,
+            message,
+        })
     }
 }
 
@@ -791,9 +862,9 @@ fn parse_anthropic_block(data: &str) -> Vec<SseOut> {
         return Vec::new();
     };
     let out = match v["type"].as_str() {
-        Some("content_block_delta") if v["delta"]["type"] == "text_delta" => {
-            v["delta"]["text"].as_str().map(|t| SseOut::TextDelta(t.to_string()))
-        }
+        Some("content_block_delta") if v["delta"]["type"] == "text_delta" => v["delta"]["text"]
+            .as_str()
+            .map(|t| SseOut::TextDelta(t.to_string())),
         Some("message_start") => {
             let usage = &v["message"]["usage"];
             let total = usage["input_tokens"].as_u64().unwrap_or(0)

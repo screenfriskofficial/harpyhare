@@ -1,3 +1,4 @@
+import { diagnosticsEn, preflightEn } from "./diagnostics-en";
 import type { Dictionary } from "./ru";
 import { plural } from "./types";
 
@@ -8,6 +9,8 @@ import { plural } from "./types";
  * produces for English.
  */
 export const en: Dictionary = {
+  diagnostics: diagnosticsEn,
+  preflight: preflightEn,
   common: {
     cancel: "Cancel",
     save: "Save",
@@ -382,6 +385,8 @@ export const en: Dictionary = {
       overflow: "Showing the first {{shown}} of {{total}} — narrow the query",
     },
     screens: {
+      check: { label: "Check", description: "Interview readiness" },
+      diagnostics: { label: "Diagnostics", description: "Requests, errors and stage timings" },
       contexts: {
         label: "Contexts",
         description: "Reference materials you can mix into a chat's system prompt.",

@@ -19,6 +19,7 @@ export function createQueryClient(): QueryClient {
 }
 
 export const queryKeys = {
+  diagnostics: ["diagnostics"] as const,
   models: ["models"] as const,
   openrouterSttModels: ["stt-models", "openrouter"] as const,
   officialPresets: ["official-presets"] as const,

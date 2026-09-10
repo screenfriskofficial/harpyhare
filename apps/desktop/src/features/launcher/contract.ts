@@ -21,5 +21,6 @@ export interface LauncherPanelProps {
   onUnlink: () => Promise<void>;
   onCheckUpdates: () => Promise<UpdateInfo | null>;
   onSave: (next: Settings) => void;
+  onPrepare: (next: Settings) => Promise<boolean>;
   onLaunch: (next: Settings) => void;
 }

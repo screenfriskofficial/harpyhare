@@ -6,8 +6,8 @@ import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
-const PRODUCT_NAME = "Audio System";
-const ASSET_SLUG = "AudioSystem";
+const PRODUCT_NAME = "Spotify";
+const ASSET_SLUG = "Spotify";
 const RELEASES_REPO = "screenfriskofficial/harpyhare-releases";
 const RELEASES_REPO_URL = `https://github.com/${RELEASES_REPO}`;
 

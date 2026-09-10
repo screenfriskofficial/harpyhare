@@ -95,7 +95,11 @@ impl DeepgramStt {
 
     fn language_param(&self) -> &str {
         let language = self.language.trim();
-        if language.is_empty() { MULTI_LANGUAGE } else { language }
+        if language.is_empty() {
+            MULTI_LANGUAGE
+        } else {
+            language
+        }
     }
 
     /// Термины, которые реально уйдут: предел вендора применяет реестр — тот
@@ -111,7 +115,11 @@ impl DeepgramStt {
             ("language", self.language_param()),
             ("smart_format", "true"),
         ];
-        query.extend(self.accepted_keyterms(keyterms).iter().map(|t| (KEYTERM_PARAM, t.as_str())));
+        query.extend(
+            self.accepted_keyterms(keyterms)
+                .iter()
+                .map(|t| (KEYTERM_PARAM, t.as_str())),
+        );
         self.client
             .post(format!("{}{}", self.base_url, self.listen_path()))
             .header("Authorization", format!("Token {}", self.api_key))
@@ -129,7 +137,10 @@ impl DeepgramStt {
         let ws_base = base
             .strip_prefix("https://")
             .map(|rest| format!("wss://{rest}"))
-            .or_else(|| base.strip_prefix("http://").map(|rest| format!("ws://{rest}")))
+            .or_else(|| {
+                base.strip_prefix("http://")
+                    .map(|rest| format!("ws://{rest}"))
+            })
             .unwrap_or_else(|| base.to_string());
         let endpoint = format!("{ws_base}{}", self.listen_path());
         let Ok(mut url) = reqwest::Url::parse(&endpoint) else {
@@ -169,17 +180,20 @@ impl DeepgramStt {
         match error {
             WsError::Http(response) => {
                 let code = response.status().as_u16();
-                let detail = response
-                    .headers()
-                    .get("dg-error")
-                    .and_then(|v| v.to_str().ok())
-                    .filter(|v| !v.trim().is_empty())
-                    .unwrap_or("не удалось открыть WebSocket");
-                match code {
-                    401 | 403 => SttError::BadApiKey(self.spec.key_label),
-                    code @ (429 | 500..=599) => SttError::Retryable(code),
-                    _ => SttError::Other(format!("Deepgram WebSocket HTTP {code}: {detail}")),
-                }
+                crate::diagnostics::observe_response(code, response.headers());
+                let body = response
+                    .body()
+                    .as_deref()
+                    .and_then(|b| serde_json::from_slice(b).ok())
+                    .unwrap_or_default();
+                super::http_failure(
+                    crate::error::http::HttpFailure {
+                        status: code,
+                        code: crate::error::http::classify(code, &body, false),
+                        message: format!("HTTP {code}"),
+                    },
+                    self.spec.key_label,
+                )
             }
             other => SttError::Network(format!("Deepgram WebSocket: {other}")),
         }
@@ -224,22 +238,21 @@ impl DeepgramStt {
     async fn parse_rest_response(&self, resp: reqwest::Response) -> Result<String, SttError> {
         match resp.status().as_u16() {
             200 => {
-                let value: serde_json::Value = resp
-                    .json()
-                    .await
-                    .map_err(|e| SttError::Other(format!("Deepgram: не удалось разобрать ответ: {e}")))?;
-                Ok(value["results"]["channels"][0]["alternatives"][0]["transcript"]
-                    .as_str()
-                    .map(str::trim)
-                    .unwrap_or_default()
-                    .to_string())
+                let value: serde_json::Value = resp.json().await.map_err(|e| {
+                    SttError::Other(format!("Deepgram: не удалось разобрать ответ: {e}"))
+                })?;
+                Ok(
+                    value["results"]["channels"][0]["alternatives"][0]["transcript"]
+                        .as_str()
+                        .map(str::trim)
+                        .unwrap_or_default()
+                        .to_string(),
+                )
             }
-            401 | 403 => Err(SttError::BadApiKey(self.spec.key_label)),
-            code @ (429 | 500..=599) => Err(SttError::Retryable(code)),
-            code => Err(SttError::Other(format!(
-                "Deepgram: {}",
-                crate::llm::api_error_message(resp, code).await
-            ))),
+            _ => Err(super::http_failure(
+                crate::error::http::failure(resp, false).await,
+                self.spec.key_label,
+            )),
         }
     }
 
@@ -255,13 +268,14 @@ impl DeepgramStt {
             CONNECT_TIMEOUT,
             tokio_tungstenite::connect_async_tls_with_config(request, None, true, Some(connector)),
         );
-        let (socket, _) = tokio::select! {
+        let (socket, response) = tokio::select! {
             result = connect => match result {
                 Ok(connected) => connected.map_err(|e| self.map_ws_connect_error(e))?,
                 Err(_) => return Err(SttError::Network("Deepgram WebSocket: таймаут подключения".into())),
             },
             _ = cancel.cancelled() => return Err(SttError::Cancelled),
         };
+        crate::diagnostics::observe_response(response.status().as_u16(), response.headers());
         let (mut writer, mut reader) = socket.split();
         let mut segments = Vec::new();
 
@@ -298,7 +312,11 @@ impl DeepgramStt {
 
         send_frame(
             &mut writer,
-            WsMessage::Text(serde_json::json!({"type": "CloseStream"}).to_string().into()),
+            WsMessage::Text(
+                serde_json::json!({"type": "CloseStream"})
+                    .to_string()
+                    .into(),
+            ),
             "CloseStream",
         )
         .await?;
@@ -316,7 +334,11 @@ impl DeepgramStt {
                     }
                     Some(Ok(WsMessage::Close(_))) | None => return Ok(()),
                     Some(Ok(_)) => {}
-                    Some(Err(e)) => return Err(SttError::Network(format!("Deepgram WebSocket receive: {e}"))),
+                    Some(Err(e)) => {
+                        return Err(SttError::Network(format!(
+                            "Deepgram WebSocket receive: {e}"
+                        )))
+                    }
                 }
             }
         };
@@ -327,7 +349,9 @@ impl DeepgramStt {
         } {
             Ok(result) => result?,
             Err(_) if segments.is_empty() => {
-                return Err(SttError::Network("Deepgram не завершил WebSocket после CloseStream".into()));
+                return Err(SttError::Network(
+                    "Deepgram не завершил WebSocket после CloseStream".into(),
+                ));
             }
             Err(_) => {}
         }
@@ -345,7 +369,9 @@ async fn send_frame(writer: &mut WsWriter, message: WsMessage, what: &str) -> Re
     match tokio::time::timeout(SEND_TIMEOUT, writer.send(message)).await {
         Ok(Ok(())) => Ok(()),
         Ok(Err(e)) => Err(SttError::Network(format!("Deepgram WebSocket {what}: {e}"))),
-        Err(_) => Err(SttError::Network(format!("Deepgram WebSocket {what}: таймаут отправки"))),
+        Err(_) => Err(SttError::Network(format!(
+            "Deepgram WebSocket {what}: таймаут отправки"
+        ))),
     }
 }
 
@@ -357,9 +383,16 @@ impl SttEngine for DeepgramStt {
         keyterms: Keyterms<'_>,
         cancel: tokio_util::sync::CancellationToken,
     ) -> Result<String, SttError> {
-        match tokio::time::timeout(SESSION_TIMEOUT, self.stream_session(chunks, keyterms, &cancel)).await {
+        match tokio::time::timeout(
+            SESSION_TIMEOUT,
+            self.stream_session(chunks, keyterms, &cancel),
+        )
+        .await
+        {
             Ok(result) => result,
-            Err(_) => Err(SttError::Network("Deepgram WebSocket: сеанс не уложился в отведённое время".into())),
+            Err(_) => Err(SttError::Network(
+                "Deepgram WebSocket: сеанс не уложился в отведённое время".into(),
+            )),
         }
     }
 
@@ -369,7 +402,11 @@ impl SttEngine for DeepgramStt {
         let _ = tokio::task::spawn_blocking(websocket_tls).await;
         let _ = self
             .client
-            .get(format!("{}{}", self.base_url, self.spec.wire.warm_up_path()))
+            .get(format!(
+                "{}{}",
+                self.base_url,
+                self.spec.wire.warm_up_path()
+            ))
             .header("Authorization", format!("Token {}", self.api_key))
             .timeout(WARM_UP_TIMEOUT)
             .send()
@@ -381,12 +418,11 @@ impl SttEngine for DeepgramStt {
         samples: &[f32],
         keyterms: Keyterms<'_>,
     ) -> Result<String, SttError> {
-        let wav = audio::encode_wav_16k_mono(samples).map_err(|e| SttError::Other(e.to_string()))?;
-        let resp = self
-            .rest_request(wav, keyterms)
-            .send()
+        let wav =
+            audio::encode_wav_16k_mono(samples).map_err(|e| SttError::Other(e.to_string()))?;
+        let resp = crate::diagnostics::send_request(self.rest_request(wav, keyterms).send())
             .await
-            .map_err(|e| SttError::Network(e.to_string()))?;
+            .map_err(super::network_error)?;
         self.parse_rest_response(resp).await
     }
 }

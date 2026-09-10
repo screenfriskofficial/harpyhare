@@ -190,7 +190,7 @@ fn error_event(error: &Value) -> SseOut {
         });
     match code {
         Some(code) if code == 429 || code >= 500 => SseOut::Retryable { code, message },
-        _ => SseOut::ApiError(message),
+        _ => super::classified_stream_error(code.unwrap_or(200), error, message),
     }
 }
 

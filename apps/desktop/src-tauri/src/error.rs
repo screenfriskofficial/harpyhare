@@ -1,5 +1,7 @@
 use serde::Serialize;
 
+pub mod http;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub enum ErrorCode {
@@ -12,6 +14,14 @@ pub enum ErrorCode {
     Permission,
     Silence,
     Internal,
+    Billing,
+    DailyLimit,
+    RateLimited,
+    ServiceUnavailable,
+    Timeout,
+    AccessDenied,
+    ModelUnavailable,
+    RequestTooLarge,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, specta::Type)]

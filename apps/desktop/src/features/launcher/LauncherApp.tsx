@@ -98,6 +98,7 @@ export function LauncherApp() {
       onUnlink={unlink}
       onCheckUpdates={updater.checkNow}
       onSave={handleSave}
+      onPrepare={persist}
       onLaunch={handleLaunch}
     />
   );

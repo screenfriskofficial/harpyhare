@@ -25,6 +25,10 @@ const EVENT_FOCUS_PROMPT: &str = "focus-prompt";
 const EVENT_DUPLICATE_CHAT: &str = "duplicate-chat";
 const EVENT_HOTKEY_ERROR: &str = "hotkey-error";
 
+pub fn preflight_progress(app: &AppHandle, progress: crate::preflight::PreflightProgress) {
+    let _ = app.emit("preflight-progress", progress);
+}
+
 #[derive(Clone, serde::Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct ScreenshotReady {

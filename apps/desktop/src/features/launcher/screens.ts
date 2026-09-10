@@ -1,4 +1,6 @@
 import {
+  Activity,
+  CircleCheck,
   Download,
   Library,
   MessageSquareText,
@@ -24,9 +26,11 @@ interface ScreenMeta {
 const MACOS_ONLY: readonly Platform[] = ["macos"];
 
 export const LAUNCHER_SCREENS = [
+  { id: "check", icon: CircleCheck, group: "content" },
   { id: "contexts", icon: Library, group: "content" },
   { id: "presets", icon: MessageSquareText, group: "content" },
   { id: "settings", icon: SlidersHorizontal, group: "system" },
+  { id: "diagnostics", icon: Activity, group: "system" },
   { id: "permissions", icon: ShieldCheck, group: "system", platforms: MACOS_ONLY },
   { id: "updates", icon: Download, group: "system" },
 ] as const satisfies readonly ScreenMeta[];
@@ -41,7 +45,7 @@ export function screenDescription(id: ScreenId): string {
   return t(`launcher.screens.${id}.description`);
 }
 
-export const DEFAULT_SCREEN: ScreenId = "settings";
+export const DEFAULT_SCREEN: ScreenId = "check";
 
 function availableOn(screen: ScreenMeta, platform: Platform): boolean {
   return screen.platforms?.includes(platform) ?? true;

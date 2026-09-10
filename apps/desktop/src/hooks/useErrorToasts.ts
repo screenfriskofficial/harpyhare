@@ -1,16 +1,32 @@
-import { useEffect } from "react";
+import { useCallback, useEffect } from "react";
+import { useTranslation } from "react-i18next";
 import { onEvent } from "@/ipc/events";
+import type { AppError } from "@/lib/errors";
 import { notifyAppError } from "@/lib/notify";
+import { useCopyDiagnosticReport } from "./useDiagnostics";
 
 export function useErrorToasts(): void {
-  useEffect(() => onEvent("stt-error", notifyAppError), []);
-  useEffect(() => onEvent("screenshot-error", notifyAppError), []);
-  useEffect(() => onEvent("hotkey-error", notifyAppError), []);
+  const { t } = useTranslation();
+  const copy = useCopyDiagnosticReport();
+  const show = useCallback(
+    (error: AppError) => {
+      notifyAppError(error, {
+        label: t("diagnostics.copy"),
+        run: () => {
+          void copy();
+        },
+      });
+    },
+    [copy, t],
+  );
+  useEffect(() => onEvent("stt-error", show), [show]);
+  useEffect(() => onEvent("screenshot-error", show), [show]);
+  useEffect(() => onEvent("hotkey-error", show), [show]);
   useEffect(
     () =>
       onEvent("llm-error", ({ code, message }) => {
-        notifyAppError({ code, message });
+        show({ code, message });
       }),
-    [],
+    [show],
   );
 }

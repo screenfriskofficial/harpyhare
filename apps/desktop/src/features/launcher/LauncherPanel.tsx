@@ -1,9 +1,12 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { CSSProperties } from "react";
 import { useTranslation } from "react-i18next";
+import { DiagnosticsPanel } from "@/features/diagnostics/DiagnosticsPanel";
+import { useModels } from "@/hooks/useModels";
 import { useOfficialPresets } from "@/hooks/useOfficialPresets";
 import type { Settings } from "@/ipc/types";
-import { visibleApiKeys } from "@/lib/api-keys";
+import { visibleApiKeys, availableAnswerProviders } from "@/lib/api-keys";
+import { DEFAULT_MODEL, MODEL_PROVIDERS, selectableModels } from "@/lib/models";
 import { mergePresets } from "@/lib/presets";
 import { normalizeDraft } from "@/lib/settings-draft";
 import { ContextLibraryPanel } from "./ContextLibraryPanel";
@@ -12,6 +15,7 @@ import { LaunchBar } from "./LaunchBar";
 import { LauncherSearch } from "./LauncherSearch";
 import { DEFAULT_SCREEN, type ScreenId } from "./screens";
 import { PermissionsScreen } from "./screens/PermissionsScreen";
+import { PreflightScreen } from "./screens/PreflightScreen";
 import { SettingsScreen } from "./screens/SettingsScreen";
 import { UpdatesScreen, type CheckState } from "./screens/UpdatesScreen";
 import { ScreenShell } from "./ScreenShell";
@@ -19,6 +23,7 @@ import { PresetsSection, type PresetsUpdate } from "./sections/PresetsSection";
 import { DEFAULT_SETTINGS_TAB, type SettingsTabId } from "./settings-tabs";
 import { Sidebar, type SidebarNotice } from "./Sidebar";
 import { useDraftAutosave } from "./useDraftAutosave";
+import { usePreflight } from "./usePreflight";
 
 const RISE_STEP_MS = 50;
 
@@ -42,6 +47,7 @@ export function LauncherPanel({
   onUnlink,
   onCheckUpdates,
   onSave,
+  onPrepare,
   onLaunch,
 }: LauncherPanelProps) {
   const { t } = useTranslation();
@@ -49,6 +55,22 @@ export function LauncherPanel({
   const [checkState, setCheckState] = useState<CheckState>("idle");
   const [screen, setScreen] = useState<ScreenId>(DEFAULT_SCREEN);
   const [settingsTab, setSettingsTab] = useState<SettingsTabId>(DEFAULT_SETTINGS_TAB);
+  const available = availableAnswerProviders(draft);
+  const [checkModel, setCheckModel] = useState(
+    () => MODEL_PROVIDERS.find((p) => available.includes(p.id))?.defaultModel ?? DEFAULT_MODEL,
+  );
+  const modelState = useModels();
+  const preflight = usePreflight(draft, checkModel, screen === "check", () =>
+    onPrepare(normalizeDraft(draft)),
+  );
+  const availableKey = available.join(",");
+  useEffect(() => {
+    const providers = availableKey.split(",");
+    const current = modelState.models.find((m) => m.id === checkModel);
+    if (preflight.busy || (current && providers.includes(current.provider))) return;
+    const fallback = modelState.models.find((m) => providers.includes(m.provider));
+    if (fallback && current && !providers.includes(current.provider)) setCheckModel(fallback.id);
+  }, [availableKey, checkModel, modelState.models, preflight.busy]);
 
   const official = useOfficialPresets();
 
@@ -90,23 +112,13 @@ export function LauncherPanel({
     if (tab !== undefined) setSettingsTab(tab);
   };
 
-  const landed = useRef(false);
-  useEffect(() => {
-    if (landed.current || readiness.checking) return;
-    landed.current = true;
-    const blocker = readiness.blockers[0];
-    if (!blocker) return;
-    setScreen(blocker.screen);
-    if (blocker.tab !== undefined) setSettingsTab(blocker.tab);
-  }, [readiness.checking, readiness.blockers]);
-
   useEffect(() => {
     setDraft((d) =>
       d.access_token === settings.access_token ? d : { ...d, access_token: settings.access_token },
     );
   }, [settings.access_token]);
 
-  useDraftAutosave(draft, launching, onSave);
+  useDraftAutosave(draft, launching || preflight.busy, onSave);
 
   const checkUpdates = () => {
     setCheckState("checking");
@@ -134,6 +146,7 @@ export function LauncherPanel({
           readiness={readiness}
           launching={launching}
           saving={saving}
+          checkingSession={preflight.busy}
           search={
             <LauncherSearch
               sources={searchSources}
@@ -166,6 +179,25 @@ export function LauncherPanel({
             key={screen}
             className="flex min-h-0 min-w-0 flex-1 animate-in duration-150 fade-in-0 slide-in-from-bottom-1 motion-reduce:animate-none"
           >
+            {screen === "check" && (
+              <PreflightScreen
+                api={preflight}
+                settings={draft}
+                readiness={readiness}
+                models={selectableModels(modelState.models, checkModel)}
+                model={checkModel}
+                onModel={setCheckModel}
+                onNavigate={goTo}
+                onLaunch={() => {
+                  onLaunch(normalizeDraft(draft));
+                }}
+              />
+            )}
+            {screen === "diagnostics" && (
+              <ScreenShell screen="diagnostics">
+                <DiagnosticsPanel />
+              </ScreenShell>
+            )}
             {screen === "settings" && (
               <SettingsScreen
                 permissions={readiness.permissions}

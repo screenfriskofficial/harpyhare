@@ -1,3 +1,4 @@
+import { diagnosticsRu, preflightRu } from "./diagnostics-ru";
 import { plural } from "./types";
 
 /**
@@ -11,6 +12,8 @@ import { plural } from "./types";
  * держит тест `i18n.test.ts`.
  */
 export const ru = {
+  diagnostics: diagnosticsRu,
+  preflight: preflightRu,
   common: {
     cancel: "Отмена",
     save: "Сохранить",
@@ -395,6 +398,8 @@ export const ru = {
       overflow: "Показаны первые {{shown}} из {{total}} — уточните запрос",
     },
     screens: {
+      check: { label: "Проверка", description: "Готовность к интервью" },
+      diagnostics: { label: "Диагностика", description: "Запросы, ошибки и время этапов" },
       contexts: {
         label: "Контексты",
         description: "Справочные материалы, которые можно подмешать в системный промпт чата.",

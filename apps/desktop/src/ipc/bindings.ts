@@ -4,6 +4,10 @@ import { invoke as __TAURI_INVOKE } from "@tauri-apps/api/core";
 
 /** Commands */
 export const commands = {
+	getDiagnostics: () => __TAURI_INVOKE<DiagnosticReport>("get_diagnostics"),
+	clearDiagnostics: () => __TAURI_INVOKE<void>("clear_diagnostics"),
+	runPreflight: (runId: string, model: string) => __TAURI_INVOKE<PreflightReport>("run_preflight", { runId, model }),
+	cancelPreflight: (runId: string) => __TAURI_INVOKE<void>("cancel_preflight", { runId }),
 	sendToClaude: (messages: ChatMessage[], chatId: string, streamId: string, system: string, model: string, options: RequestOptions) => __TAURI_INVOKE<void>("send_to_claude", { messages, chatId, streamId, system, model, options }),
 	cancelStream: (chatId: string, streamId: string) => __TAURI_INVOKE<void>("cancel_stream", { chatId, streamId }),
 	countChatTokens: (messages: ChatMessage[], system: string, model: string, options: RequestOptions) => __TAURI_INVOKE<number>("count_chat_tokens", { messages, system, model, options }),
@@ -105,6 +109,11 @@ export type AudioDevices = {
 	outputs: AudioDeviceInfo[],
 };
 
+export type AudioLevel = {
+	source: CheckStep,
+	percent: number,
+};
+
 export type AudioSource = "system" | "microphone";
 
 export type ChatMessage = {
@@ -113,7 +122,51 @@ export type ChatMessage = {
 	images?: ImageAttachment[],
 };
 
-export type ErrorCode = "network" | "badApiKey" | "badAccessCode" | "retryable" | "api" | "cancelled" | "permission" | "silence" | "internal";
+export type CheckPhase = "preparing" | "recording" | "transcribing" | "answering";
+
+export type CheckResult = {
+	step: CheckStep,
+	source: CheckStep | null,
+	status: CheckStatus,
+	durationMs: number,
+	errorCode: ErrorCode | null,
+	diagnosticId: string | null,
+	/**  Explicitly shown only in the check UI, excluded from diagnostics export. */
+	preview: string | null,
+};
+
+export type CheckStatus = "passed" | "failed" | "skipped";
+
+export type CheckStep = "systemAudio" | "microphone" | "transcription" | "answer";
+
+export type DiagnosticKind = "capture" | "transcription" | "answer";
+
+export type DiagnosticOrigin = "session" | "preflight";
+
+export type DiagnosticRecord = {
+	id: string,
+	startedAt: number | null,
+	kind: DiagnosticKind,
+	origin: DiagnosticOrigin,
+	provider: string,
+	model: string,
+	viaRelay: boolean,
+	captureMs: number | null,
+	processingMs: number | null,
+	firstTextMs: number | null,
+	totalMs: number,
+	errorCode: ErrorCode | null,
+	requests: HttpObservation[],
+};
+
+export type DiagnosticReport = {
+	schemaVersion: number,
+	appVersion: string,
+	platform: string,
+	records: DiagnosticRecord[],
+};
+
+export type ErrorCode = "network" | "badApiKey" | "badAccessCode" | "retryable" | "api" | "cancelled" | "permission" | "silence" | "internal" | "billing" | "dailyLimit" | "rateLimited" | "serviceUnavailable" | "timeout" | "accessDenied" | "modelUnavailable" | "requestTooLarge";
 
 export type HotkeyAction = {
 	id: string,
@@ -133,6 +186,18 @@ export type HotkeyBinding = {
 export type HotkeyKind = "combo" | "modifier_arrows" | "modifier_plus_minus" | "modifier_digits" | "modifier_brackets";
 
 export type HotkeyScope = "global" | "recording" | "hud" | "teleprompter" | "streaming";
+
+export type HttpObservation = {
+	kind: HttpRequestKind,
+	requestStartedMs: number | null,
+	status: number,
+	requestId: string | null,
+	edgeId: string | null,
+	retryAfterSeconds: number | null,
+	elapsedMs: number,
+};
+
+export type HttpRequestKind = "catalog" | "speech" | "answer" | "speechStream" | "other";
 
 export type ImageAttachment = {
 	media_type: string,
@@ -186,6 +251,18 @@ export type PermissionsStatus = {
 export type PlatformCombo = {
 	macos: string,
 	windows: string,
+};
+
+export type PreflightProgress = {
+	runId: string,
+	phase: CheckPhase,
+	remainingMs: number,
+	levels: AudioLevel[],
+};
+
+export type PreflightReport = {
+	runId: string,
+	checks: CheckResult[],
 };
 
 export type PromptPreset = {

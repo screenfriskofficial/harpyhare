@@ -6,6 +6,7 @@ import { HotkeysPopover } from "@/components/HotkeysPopover";
 import { ModeSwitch } from "@/components/ModeSwitch";
 import { StatusBar, type ContextUsage } from "@/components/StatusBar";
 import { DOCK_BUTTON_CLASS, type ToolbarDockItem } from "@/components/ToolbarDock";
+import { DiagnosticsButton } from "@/features/diagnostics/DiagnosticsPanel";
 import type { HotkeyBinding, RecorderState } from "@/ipc/types";
 import type { Chat } from "@/lib/chats";
 import { effectiveCombo, formatCombo } from "@/lib/hotkeys";
@@ -112,6 +113,11 @@ export const AppHeader = memo(function AppHeader({
         id: "hotkeys",
         label: t("hud.header.hotkeys"),
         element: <HotkeysPopover hotkeys={hotkeys} triggerClass={DOCK_BUTTON_CLASS} />,
+      },
+      {
+        id: "diagnostics",
+        label: t("launcher.screens.diagnostics.label"),
+        element: <DiagnosticsButton triggerClass={DOCK_BUTTON_CLASS} />,
       },
       ...(update
         ? [

@@ -122,7 +122,10 @@ fn cache_breakpoint_lands_on_last_block() {
         content,
         json!([{"type": "text", "text": "вопрос", "cache_control": {"type": "ephemeral"}}])
     );
-    let imgs = vec![ImageAttachment { media_type: "image/png".into(), data: "AAAA".into() }];
+    let imgs = vec![ImageAttachment {
+        media_type: "image/png".into(),
+        data: "AAAA".into(),
+    }];
     let content = build_content("что тут?", &imgs, true);
     let arr = content.as_array().unwrap();
     assert!(arr[0].get("cache_control").is_none());
@@ -150,9 +153,21 @@ fn request_body_shape_for_opus_includes_adaptive_thinking() {
 #[test]
 fn request_body_preserves_multi_turn_history() {
     let msgs = vec![
-        ChatMessage { role: "user".into(), text: "1+1?".into(), images: vec![] },
-        ChatMessage { role: "assistant".into(), text: "2".into(), images: vec![] },
-        ChatMessage { role: "user".into(), text: "а 2+2?".into(), images: vec![] },
+        ChatMessage {
+            role: "user".into(),
+            text: "1+1?".into(),
+            images: vec![],
+        },
+        ChatMessage {
+            role: "assistant".into(),
+            text: "2".into(),
+            images: vec![],
+        },
+        ChatMessage {
+            role: "user".into(),
+            text: "а 2+2?".into(),
+            images: vec![],
+        },
     ];
     let body = build_request_body("claude-opus-4-8", "sys", &msgs, adaptive(), None);
     assert_eq!(body["messages"].as_array().unwrap().len(), 3);
@@ -167,7 +182,11 @@ fn request_body_preserves_multi_turn_history() {
 
 #[test]
 fn thinking_none_omits_field_entirely() {
-    let msgs = vec![ChatMessage { role: "user".into(), text: "q".into(), images: vec![] }];
+    let msgs = vec![ChatMessage {
+        role: "user".into(),
+        text: "q".into(),
+        images: vec![],
+    }];
     let body = build_request_body(
         "claude-haiku-4-5",
         "sys",
@@ -180,7 +199,11 @@ fn thinking_none_omits_field_entirely() {
 
 #[test]
 fn thinking_off_sends_explicit_disabled() {
-    let msgs = vec![ChatMessage { role: "user".into(), text: "q".into(), images: vec![] }];
+    let msgs = vec![ChatMessage {
+        role: "user".into(),
+        text: "q".into(),
+        images: vec![],
+    }];
     let body = build_request_body(
         "claude-opus-4-8",
         "sys",
@@ -220,7 +243,11 @@ fn web_search_value_semantics() {
 
 #[test]
 fn web_search_tool_lands_in_body_tools() {
-    let msgs = vec![ChatMessage { role: "user".into(), text: "q".into(), images: vec![] }];
+    let msgs = vec![ChatMessage {
+        role: "user".into(),
+        text: "q".into(),
+        images: vec![],
+    }];
     let tool = web_search_value(None, "claude-opus-4-8", true);
     let body = build_request_body("claude-opus-4-8", "", &msgs, adaptive(), tool);
     assert_eq!(body["tools"][0]["type"], "web_search_20260209");
@@ -233,9 +260,21 @@ fn web_search_tool_lands_in_body_tools() {
 #[test]
 fn empty_messages_are_dropped_from_history() {
     let msgs = vec![
-        ChatMessage { role: "user".into(), text: "1+1?".into(), images: vec![] },
-        ChatMessage { role: "assistant".into(), text: "".into(), images: vec![] },
-        ChatMessage { role: "user".into(), text: "а 2+2?".into(), images: vec![] },
+        ChatMessage {
+            role: "user".into(),
+            text: "1+1?".into(),
+            images: vec![],
+        },
+        ChatMessage {
+            role: "assistant".into(),
+            text: "".into(),
+            images: vec![],
+        },
+        ChatMessage {
+            role: "user".into(),
+            text: "а 2+2?".into(),
+            images: vec![],
+        },
     ];
     let body = build_request_body("claude-opus-4-8", "s", &msgs, adaptive(), None);
     let arr = body["messages"].as_array().unwrap();
@@ -246,7 +285,11 @@ fn empty_messages_are_dropped_from_history() {
 
 #[test]
 fn empty_system_stays_plain_string() {
-    let msgs = vec![ChatMessage { role: "user".into(), text: "q".into(), images: vec![] }];
+    let msgs = vec![ChatMessage {
+        role: "user".into(),
+        text: "q".into(),
+        images: vec![],
+    }];
     let body = build_request_body("claude-opus-4-8", "", &msgs, adaptive(), None);
     assert_eq!(body["system"], "");
 }
@@ -290,7 +333,13 @@ fn sse_parser_handles_chunk_split_mid_event() {
 fn sse_parser_reports_an_overloaded_event_as_retryable() {
     let mut p = SseParser::anthropic();
     let out = p.feed("event: error\ndata: {\"type\":\"error\",\"error\":{\"type\":\"overloaded_error\",\"message\":\"Overloaded\"}}\n\n");
-    assert_eq!(out, vec![SseOut::Retryable { code: 529, message: "Overloaded".into() }]);
+    assert_eq!(
+        out,
+        vec![SseOut::Retryable {
+            code: 529,
+            message: "Overloaded".into()
+        }]
+    );
 }
 
 #[test]
@@ -349,7 +398,10 @@ async fn stream_ending_after_a_soft_finish_is_a_success() {
 
 #[test]
 fn empty_text_with_images_has_no_text_block() {
-    let imgs = vec![ImageAttachment { media_type: "image/png".into(), data: "AAAA".into() }];
+    let imgs = vec![ImageAttachment {
+        media_type: "image/png".into(),
+        data: "AAAA".into(),
+    }];
     let content = build_content("", &imgs, false);
     let arr = content.as_array().unwrap();
     assert_eq!(arr.len(), 1);
@@ -366,7 +418,8 @@ fn sse_message_start_usage_summed_with_cache() {
 #[test]
 fn sse_message_start_without_usage_ignored() {
     let mut p = SseParser::anthropic();
-    let block = "event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"id\":\"m\"}}\n\n";
+    let block =
+        "event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"id\":\"m\"}}\n\n";
     assert_eq!(p.feed(block), vec![]);
 }
 
@@ -375,7 +428,10 @@ fn feed_bytes_handles_utf8_split_across_chunks() {
     let raw = "event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"Привет\"}}\n\n";
     let bytes = raw.as_bytes();
     let cut = raw.find("Привет").unwrap() + 3;
-    assert!(std::str::from_utf8(&bytes[..cut]).is_err(), "разрез должен попадать в середину символа");
+    assert!(
+        std::str::from_utf8(&bytes[..cut]).is_err(),
+        "разрез должен попадать в середину символа"
+    );
     let mut p = SseParser::anthropic();
     let mut out = p.feed_bytes(&bytes[..cut]);
     out.extend(p.feed_bytes(&bytes[cut..]));
@@ -422,7 +478,11 @@ async fn stream_collects_deltas_via_callback() {
 
     let client = AnthropicClient::new("sk-test".into()).with_base_url(server.uri());
     let cancel = tokio_util::sync::CancellationToken::new();
-    let msgs = vec![ChatMessage { role: "user".into(), text: "q".into(), images: vec![] }];
+    let msgs = vec![ChatMessage {
+        role: "user".into(),
+        text: "q".into(),
+        images: vec![],
+    }];
     let mut sink = TestSink::default();
     client
         .stream_message(
@@ -452,7 +512,11 @@ async fn stream_times_out_on_silent_server() {
     let client = AnthropicClient::new("k".into())
         .with_base_url(server.uri())
         .with_read_timeout(std::time::Duration::from_millis(200));
-    let msgs = vec![ChatMessage { role: "user".into(), text: "q".into(), images: vec![] }];
+    let msgs = vec![ChatMessage {
+        role: "user".into(),
+        text: "q".into(),
+        images: vec![],
+    }];
     let err = client
         .stream_message(
             build_request_body("claude-opus-4-8", "s", &msgs, adaptive(), None),
@@ -461,7 +525,7 @@ async fn stream_times_out_on_silent_server() {
         )
         .await
         .unwrap_err();
-    assert!(matches!(err, LlmError::Network(_)), "got: {err:?}");
+    assert!(matches!(err, LlmError::Retryable(408)), "got: {err:?}");
 }
 
 #[tokio::test]
@@ -479,7 +543,11 @@ async fn stream_eof_without_message_stop_is_error() {
         .mount(&server)
         .await;
     let client = AnthropicClient::new("k".into()).with_base_url(server.uri());
-    let msgs = vec![ChatMessage { role: "user".into(), text: "q".into(), images: vec![] }];
+    let msgs = vec![ChatMessage {
+        role: "user".into(),
+        text: "q".into(),
+        images: vec![],
+    }];
     let mut sink = TestSink::default();
     let err = client
         .stream_message(
@@ -506,7 +574,11 @@ async fn stream_surfaces_api_error_message_from_body() {
         .mount(&server)
         .await;
     let client = AnthropicClient::new("k".into()).with_base_url(server.uri());
-    let msgs = vec![ChatMessage { role: "user".into(), text: "q".into(), images: vec![] }];
+    let msgs = vec![ChatMessage {
+        role: "user".into(),
+        text: "q".into(),
+        images: vec![],
+    }];
     let err = client
         .stream_message(
             build_request_body("claude-opus-4-8", "s", &msgs, adaptive(), None),
@@ -531,7 +603,11 @@ async fn stream_maps_401() {
         .mount(&server)
         .await;
     let client = AnthropicClient::new("bad".into()).with_base_url(server.uri());
-    let msgs = vec![ChatMessage { role: "user".into(), text: "q".into(), images: vec![] }];
+    let msgs = vec![ChatMessage {
+        role: "user".into(),
+        text: "q".into(),
+        images: vec![],
+    }];
     let err = client
         .stream_message(
             build_request_body("claude-opus-4-8", "s", &msgs, adaptive(), None),
@@ -564,7 +640,11 @@ async fn proxy_mode_authorizes_with_bearer_not_api_key() {
         .mount(&server)
         .await;
     let client = llm_proxy_client("itk_token".into(), server.uri());
-    let msgs = vec![ChatMessage { role: "user".into(), text: "q".into(), images: vec![] }];
+    let msgs = vec![ChatMessage {
+        role: "user".into(),
+        text: "q".into(),
+        images: vec![],
+    }];
     client
         .stream_message(
             build_request_body("claude-opus-4-8", "s", &msgs, adaptive(), None),
@@ -587,7 +667,11 @@ async fn proxy_mode_401_is_a_dead_access_code_with_the_relays_message() {
         .mount(&server)
         .await;
     let client = llm_proxy_client("itk_bad".into(), server.uri());
-    let msgs = vec![ChatMessage { role: "user".into(), text: "q".into(), images: vec![] }];
+    let msgs = vec![ChatMessage {
+        role: "user".into(),
+        text: "q".into(),
+        images: vec![],
+    }];
     let err = client
         .stream_message(
             build_request_body("claude-opus-4-8", "s", &msgs, adaptive(), None),
@@ -623,7 +707,11 @@ async fn stream_cancellation_stops_early() {
     let client = AnthropicClient::new("k".into()).with_base_url(server.uri());
     let cancel = tokio_util::sync::CancellationToken::new();
     cancel.cancel();
-    let msgs = vec![ChatMessage { role: "user".into(), text: "q".into(), images: vec![] }];
+    let msgs = vec![ChatMessage {
+        role: "user".into(),
+        text: "q".into(),
+        images: vec![],
+    }];
     let err = client
         .stream_message(
             build_request_body("claude-opus-4-8", "s", &msgs, adaptive(), None),
@@ -668,8 +756,20 @@ fn sse_framing_survives_every_byte_boundary_and_batches_of_events() {
     let source = "data: Привет\r\n\r\ndata: second\n\ndata: third\r\r";
     for chunk_size in 1..=source.len() {
         let mut parser = SseParser::with_block_parser(echo_sse_payload);
-        let result: Vec<_> = source.as_bytes().chunks(chunk_size).flat_map(|chunk| parser.feed_bytes(chunk)).collect();
-        assert_eq!(result, vec![SseOut::TextDelta("Привет".into()), SseOut::TextDelta("second".into()), SseOut::TextDelta("third".into())], "chunk size {chunk_size}");
+        let result: Vec<_> = source
+            .as_bytes()
+            .chunks(chunk_size)
+            .flat_map(|chunk| parser.feed_bytes(chunk))
+            .collect();
+        assert_eq!(
+            result,
+            vec![
+                SseOut::TextDelta("Привет".into()),
+                SseOut::TextDelta("second".into()),
+                SseOut::TextDelta("third".into())
+            ],
+            "chunk size {chunk_size}"
+        );
     }
     let mut parser = SseParser::with_block_parser(echo_sse_payload);
     let batch = "data: x\n\n".repeat(4096);
@@ -680,5 +780,8 @@ fn sse_framing_survives_every_byte_boundary_and_batches_of_events() {
 #[test]
 fn sse_multiline_payload_preserves_empty_data_lines() {
     let mut parser = SseParser::with_block_parser(echo_sse_payload);
-    assert_eq!(parser.feed("data:\ndata: next\ndata:\n\n"), vec![SseOut::TextDelta("\nnext\n".into())]);
+    assert_eq!(
+        parser.feed("data:\ndata: next\ndata:\n\n"),
+        vec![SseOut::TextDelta("\nnext\n".into())]
+    );
 }

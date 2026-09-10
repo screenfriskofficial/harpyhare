@@ -12,6 +12,7 @@ use tokio_util::sync::CancellationToken;
 use crate::app_state::{
     build_capture, current_settings, llm_provider, stt_engine, stt_keyterms, App, SttStream,
 };
+use crate::diagnostics::{self, DiagnosticOrigin, Trace};
 use crate::error::{AppError, ErrorCode};
 use crate::{audio, capture, events, global_shortcuts, state, stt};
 
@@ -65,6 +66,7 @@ pub struct RecordingSession {
     engine: Arc<dyn stt::SttEngine>,
     keyterms: Vec<String>,
     started: std::time::Instant,
+    trace: Trace,
 }
 
 impl Drop for RecordingSession {
@@ -233,9 +235,11 @@ pub fn on_ptt_pressed(app: &AppHandle) {
     {
         rebuild_capture_now(app);
     }
-    let session = match start_session(app, &settings) {
+    let trace = diagnostics::transcription_trace(&settings, DiagnosticOrigin::Session);
+    let session = match start_session(app, &settings, trace.clone()) {
         Ok(session) => session,
         Err(error) => {
+            trace.finish(Some(error.code));
             events::stt_error(app, error);
             return;
         }
@@ -254,6 +258,7 @@ pub fn on_ptt_pressed(app: &AppHandle) {
 fn start_session(
     app: &AppHandle,
     settings: &crate::settings::Settings,
+    trace: Trace,
 ) -> Result<RecordingSession, AppError> {
     let st = app.state::<App>();
     if settings.capture_system_audio && st.capture.lock_unpoisoned().is_none() {
@@ -287,18 +292,25 @@ fn start_session(
         engine: stt_engine(app),
         keyterms: stt_keyterms(app),
         started: std::time::Instant::now(),
+        trace,
     };
     if let Some(microphone) = &mut session.microphone {
-        let (sink, stream) =
-            start_streaming_transcription(Arc::clone(&session.engine), session.keyterms.clone());
+        let (sink, stream) = start_streaming_transcription(
+            Arc::clone(&session.engine),
+            session.keyterms.clone(),
+            Some(session.trace.clone()),
+        );
         session.streams.push((AudioSource::Microphone, stream));
         microphone
             .start(Some(sink))
             .map_err(microphone_capture_error)?;
     }
     if session.system {
-        let (sink, stream) =
-            start_streaming_transcription(Arc::clone(&session.engine), session.keyterms.clone());
+        let (sink, stream) = start_streaming_transcription(
+            Arc::clone(&session.engine),
+            session.keyterms.clone(),
+            Some(session.trace.clone()),
+        );
         session.streams.push((AudioSource::System, stream));
         if let Some(capture) = st.capture.lock_unpoisoned().as_mut() {
             capture.start(Some(sink)).map_err(|e| AppError::from(&e))?;
@@ -348,6 +360,7 @@ impl Drop for ChunkCoalescer {
 fn start_streaming_transcription(
     stt_client: Arc<dyn stt::SttEngine>,
     keyterms: Vec<String>,
+    trace: Option<Trace>,
 ) -> (capture::ChunkSink, SttStream) {
     let cancel = CancellationToken::new();
     let broken = Arc::new(AtomicBool::new(false));
@@ -359,9 +372,11 @@ fn start_streaming_transcription(
     let handle = {
         let cancel = cancel.clone();
         tauri::async_runtime::spawn(async move {
-            stt_client
-                .transcribe_stream(body_stream, &keyterms, cancel)
-                .await
+            let job = stt_client.transcribe_stream(body_stream, &keyterms, cancel);
+            match trace {
+                Some(trace) => trace.scope(job).await,
+                None => job.await,
+            }
         })
     };
     let stream = SttStream {
@@ -395,6 +410,8 @@ fn current_recording_secs(st: &App) -> f32 {
 fn stop_capture_discarding(st: &App) {
     let mut session = st.recording_session.lock_unpoisoned().take();
     if let Some(session) = &mut session {
+        session.trace.capture_duration(session.started.elapsed());
+        session.trace.finish(Some(ErrorCode::Cancelled));
         for (_, stream) in &session.streams {
             stream.cancel.cancel();
         }
@@ -501,6 +518,7 @@ fn transcribe_recording(app: &AppHandle) {
             Err(AppError::new(ErrorCode::Internal, "Нет активной записи")),
         );
     };
+    session.trace.capture_duration(session.started.elapsed());
     // Signal both channels before waiting for either consumer's final drain.
     if session.system {
         if let Some(capture) = st.capture.lock_unpoisoned().as_ref() {
@@ -529,6 +547,7 @@ fn transcribe_recording(app: &AppHandle) {
         }
     }
     if let Some(error) = failure {
+        session.trace.finish(Some(error.code));
         return finish_transcription(app, Err(error));
     }
     let recorded = Arc::new(RecordedAudio {
@@ -543,9 +562,10 @@ fn transcribe_recording(app: &AppHandle) {
     let streams = std::mem::take(&mut session.streams);
     let engine = Arc::clone(&session.engine);
     let cancel = register_transcription(&st);
+    let trace = session.trace.clone();
     let app = app.clone();
     tauri::async_runtime::spawn(async move {
-        run_transcription(app, recorded, engine, streams, cancel).await;
+        run_transcription(app, recorded, engine, streams, cancel, trace).await;
     });
 }
 
@@ -576,13 +596,21 @@ async fn run_transcription(
     engine: Arc<dyn stt::SttEngine>,
     streams: Vec<(AudioSource, SttStream)>,
     cancel: CancellationToken,
+    trace: Trace,
 ) {
+    let started = std::time::Instant::now();
     let _streams = StreamCancellation(streams.iter().map(|(_, s)| s.cancel.clone()).collect());
     let outcome = tokio::select! {
         biased;
-        () = cancel.cancelled() => return,
-        result = supervise_transcription(recorded.recognize(engine, streams)) => result.and_then(std::convert::identity),
+        () = cancel.cancelled() => {
+            trace.processing_duration(started.elapsed());
+            trace.finish(Some(ErrorCode::Cancelled));
+            return;
+        },
+        result = trace.scope(supervise_transcription(recorded.recognize(engine, streams))) => result.and_then(std::convert::identity),
     };
+    trace.processing_duration(started.elapsed());
+    trace.finish(outcome.as_ref().err().map(|e| e.code));
     let st = app.state::<App>();
     let mut recorder = st.recorder.lock_unpoisoned();
     if cancel.is_cancelled() || !st.recording_enabled.load(Ordering::Acquire) {
@@ -616,6 +644,14 @@ fn stream_verdict(outcome: Result<String, stt::SttError>) -> StreamVerdict {
     match outcome {
         Ok(text) => StreamVerdict::Deliver(text),
         Err(e @ (stt::SttError::BadApiKey(_) | stt::SttError::BadAccessCode(_))) => {
+            StreamVerdict::Fail(e)
+        }
+        Err(e @ stt::SttError::Http(_))
+            if !matches!(
+                crate::error::CodedError::code(&e),
+                ErrorCode::RateLimited | ErrorCode::ServiceUnavailable | ErrorCode::Timeout
+            ) =>
+        {
             StreamVerdict::Fail(e)
         }
         Err(_) => StreamVerdict::FallBack,
@@ -707,7 +743,9 @@ pub async fn retry_transcription(app: AppHandle) {
     };
     events::state_changed(&app, state::RecorderState::Transcribing);
     let engine = stt_engine(&app);
-    run_transcription(app.clone(), recorded, engine, Vec::new(), cancel).await;
+    let trace =
+        diagnostics::transcription_trace(&current_settings(&app), DiagnosticOrigin::Session);
+    run_transcription(app.clone(), recorded, engine, Vec::new(), cancel, trace).await;
 }
 
 /// COM-перечисление устройств и Core Audio ходят на blocking-пул: команда

@@ -4,9 +4,18 @@ use crate::stt::SttError;
 
 #[test]
 fn llm_errors_map_to_codes() {
-    assert_eq!(LlmError::BadApiKey("Anthropic").code(), ErrorCode::BadApiKey);
-    assert_eq!(LlmError::BadAccessCode("x".into()).code(), ErrorCode::BadAccessCode);
-    assert_eq!(LlmError::Retryable(503).code(), ErrorCode::Retryable);
+    assert_eq!(
+        LlmError::BadApiKey("Anthropic").code(),
+        ErrorCode::BadApiKey
+    );
+    assert_eq!(
+        LlmError::BadAccessCode("x".into()).code(),
+        ErrorCode::BadAccessCode
+    );
+    assert_eq!(
+        LlmError::Retryable(503).code(),
+        ErrorCode::ServiceUnavailable
+    );
     assert_eq!(LlmError::Network("x".into()).code(), ErrorCode::Network);
     assert_eq!(LlmError::Api("x".into()).code(), ErrorCode::Api);
     assert_eq!(LlmError::Cancelled.code(), ErrorCode::Cancelled);
@@ -19,7 +28,7 @@ fn stt_errors_map_to_codes() {
         SttError::BadAccessCode("x".into()).code(),
         ErrorCode::BadAccessCode
     );
-    assert_eq!(SttError::Retryable(429).code(), ErrorCode::Retryable);
+    assert_eq!(SttError::Retryable(429).code(), ErrorCode::RateLimited);
     assert_eq!(SttError::Network("x".into()).code(), ErrorCode::Network);
     assert_eq!(SttError::Cancelled.code(), ErrorCode::Cancelled);
     assert_eq!(SttError::Other("x".into()).code(), ErrorCode::Api);
@@ -28,7 +37,7 @@ fn stt_errors_map_to_codes() {
 #[test]
 fn app_error_carries_code_and_display_message() {
     let err = AppError::from(&SttError::Retryable(429));
-    assert_eq!(err.code, ErrorCode::Retryable);
+    assert_eq!(err.code, ErrorCode::RateLimited);
     assert!(err.message.contains("429"), "got: {}", err.message);
 }
 

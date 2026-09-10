@@ -20,6 +20,10 @@ const UI_LANGUAGES_CONSTANT: &str = "UI_LANGUAGES";
 pub fn builder() -> Builder<tauri::Wry> {
     Builder::<tauri::Wry>::new()
         .commands(collect_commands![
+            crate::diagnostics::get_diagnostics,
+            crate::diagnostics::clear_diagnostics,
+            crate::preflight::run_preflight,
+            crate::preflight::cancel_preflight,
             chat::send_to_claude,
             chat::cancel_stream,
             chat::count_chat_tokens,
@@ -59,6 +63,7 @@ pub fn builder() -> Builder<tauri::Wry> {
             system::get_app_version,
         ])
         .typ::<crate::error::AppError>()
+        .typ::<crate::preflight::PreflightProgress>()
         .typ::<crate::state::RecorderState>()
         .typ::<events::LlmDelta>()
         .typ::<events::LlmDone>()

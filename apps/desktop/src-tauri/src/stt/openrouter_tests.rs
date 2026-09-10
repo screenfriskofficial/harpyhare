@@ -125,10 +125,14 @@ async fn errors_identify_the_key_and_preserve_credit_and_retry_failures() {
             .await;
         let error = client(&server).transcribe(&[0.1], &[]).await.unwrap_err();
         match status {
-            401 | 403 => assert!(matches!(error, SttError::BadApiKey("OpenRouter"))),
+            401 => assert!(matches!(error, SttError::BadApiKey("OpenRouter"))),
+            403 => assert_eq!(
+                crate::error::CodedError::code(&error),
+                crate::error::ErrorCode::AccessDenied
+            ),
             429 | 503 => assert!(matches!(error, SttError::Retryable(code) if code == status)),
             402 => assert!(
-                matches!(error, SttError::Other(message) if message.contains("Insufficient credits"))
+                matches!(error, SttError::Http(ref failure) if failure.code == crate::error::ErrorCode::Billing)
             ),
             200 => assert!(matches!(error, SttError::Other(_))),
             _ => unreachable!(),

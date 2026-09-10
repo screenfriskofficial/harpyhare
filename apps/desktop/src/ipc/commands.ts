@@ -7,6 +7,10 @@ import { type ChatMessageDto, type Settings, type UpdateInfo } from "./types";
 const IDEMPOTENCY_STORAGE_PREFIX = "redeem-idem:";
 
 export const {
+  runPreflight,
+  cancelPreflight,
+  getDiagnostics,
+  clearDiagnostics,
   cancelStream,
   captureRegionScreenshot,
   collapseMainWindow,

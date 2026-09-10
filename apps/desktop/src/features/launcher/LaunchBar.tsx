@@ -26,16 +26,20 @@ function StatusLine({
   readiness,
   launching,
   saving,
+  checkingSession,
   onGoToBlocker,
 }: {
   readiness: LauncherReadiness;
   launching: boolean;
   saving: boolean;
+  checkingSession: boolean;
   onGoToBlocker: (blocker: LauncherBlocker) => void;
 }) {
   const blocker = readiness.blockers[0];
-  const busy = launching || readiness.checking || saving;
-  const text = statusText(readiness, launching, saving);
+  const busy = launching || readiness.checking || saving || checkingSession;
+  const text = checkingSession
+    ? t("launcher.status.checking")
+    : statusText(readiness, launching, saving);
   const dot = (
     <span
       className={cn(
@@ -83,6 +87,7 @@ export function LaunchBar({
   search,
   onGoToBlocker,
   onLaunch,
+  checkingSession = false,
 }: {
   readiness: LauncherReadiness;
   launching: boolean;
@@ -90,6 +95,7 @@ export function LaunchBar({
   search: ReactNode;
   onGoToBlocker: (blocker: LauncherBlocker) => void;
   onLaunch: () => void;
+  checkingSession?: boolean;
 }) {
   const { t } = useTranslation();
   const onDragMouseDown = useWindowDrag();
@@ -113,13 +119,16 @@ export function LaunchBar({
             readiness={readiness}
             launching={launching}
             saving={saving}
+            checkingSession={checkingSession}
             onGoToBlocker={onGoToBlocker}
           />
         </div>
         <Button
           size="compact"
           className="shrink-0 gap-1.5"
-          disabled={launching || readiness.checking || !readiness.ready}
+          disabled={
+            launching || checkingSession || saving || readiness.checking || !readiness.ready
+          }
           onClick={onLaunch}
         >
           <Play className="size-3" aria-hidden />

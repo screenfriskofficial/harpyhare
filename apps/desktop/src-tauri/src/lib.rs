@@ -7,14 +7,16 @@ pub mod chat;
 pub mod chats;
 pub mod clipboard;
 pub mod context_import;
+pub mod diagnostics;
 pub mod error;
 pub mod events;
 pub mod global_shortcuts;
 pub mod hotkeys;
 pub mod llm;
-pub mod platform;
 pub mod permissions;
+pub mod platform;
 pub mod preferences;
+pub mod preflight;
 pub mod preview_protocol;
 pub mod recording;
 pub mod remote_presets;
@@ -61,11 +63,17 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(specta_builder.invoke_handler())
+        .on_window_event(|window, event| {
+            if window.label() == "launcher" && matches!(event, tauri::WindowEvent::Destroyed) {
+                preflight::cancel_active(window.app_handle());
+            }
+        })
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
 
 fn setup_app(handle: &AppHandle) {
+    handle.manage(preflight::PreflightState::default());
     // Провайдер rustls нужен до первого TLS-клиента, а их здесь строит и
     // апдейтер (свой reqwest внутри плагина), который через `tls` не ходит.
     tls::ensure_crypto_provider();
