@@ -31,6 +31,10 @@ static HOOK_APP: OnceLock<AppHandle> = OnceLock::new();
 
 pub fn disable_cursor_autohide_on_typing() {}
 
+pub fn reset_screen_capture_access(_identifier: &str) -> Result<(), String> {
+    Err("Восстановление разрешения экрана доступно только на macOS".into())
+}
+
 pub fn merge_titlebar_into_content(_app: &AppHandle) {}
 
 fn set_dwm_attribute<T>(hwnd: HWND, attribute: DWMWINDOWATTRIBUTE, value: &T) {

@@ -1,8 +1,19 @@
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { PermissionsApi } from "@/hooks/usePermissions";
 import type { PermissionsStatus } from "@/ipc/bindings";
 import { PermissionsScreen } from "./PermissionsScreen";
+
+const resetScreenPermissionAndRestart = vi.fn<() => Promise<void>>();
+const notify = vi.fn<(input: unknown) => void>();
+vi.mock("@/ipc/commands", () => ({
+  resetScreenPermissionAndRestart: () => resetScreenPermissionAndRestart(),
+}));
+vi.mock("@/lib/notify", () => ({
+  notify: (input: unknown) => {
+    notify(input);
+  },
+}));
 
 function api(status: PermissionsStatus, overrides: Partial<PermissionsApi> = {}): PermissionsApi {
   return {
@@ -80,10 +91,55 @@ describe("PermissionsScreen", () => {
     expect(idle.disabled).toBe(true);
   });
 
+  it("после отказа микрофону ведёт в настройки с объяснением вместо повторного запроса", () => {
+    const permissions = api({ microphone: "denied", audio: "granted", screen: "granted" });
+    render(<PermissionsScreen permissions={permissions} />);
+    expect(screen.queryByText("Выдать")).toBeNull();
+    expect(screen.getByText(/macOS не запрашивает микрофон повторно/)).not.toBeNull();
+    fireEvent.click(screen.getByText("Настройки"));
+    expect(permissions.openSettings).toHaveBeenCalledWith("microphone");
+    expect(permissions.request).not.toHaveBeenCalled();
+  });
+
   it("«Проверить заново» перечитывает статусы", () => {
     const permissions = api({ microphone: "granted", audio: "denied", screen: "denied" });
     render(<PermissionsScreen permissions={permissions} />);
     fireEvent.click(screen.getByText("Проверить заново"));
     expect(permissions.refresh).toHaveBeenCalledTimes(1);
+  });
+
+  it("восстановление экрана доступно при устаревшем granted, но требует подтверждения", async () => {
+    resetScreenPermissionAndRestart.mockResolvedValue(undefined);
+    render(
+      <PermissionsScreen
+        permissions={api({ microphone: "granted", audio: "granted", screen: "granted" })}
+      />,
+    );
+    fireEvent.click(screen.getByText("Восстановить доступ к экрану"));
+    expect(resetScreenPermissionAndRestart).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByText("Отмена"));
+    expect(resetScreenPermissionAndRestart).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByText("Восстановить доступ к экрану"));
+    fireEvent.click(screen.getByText("Сбросить и перезапустить"));
+    await waitFor(() => {
+      expect(resetScreenPermissionAndRestart).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  it("ошибка восстановления показана и позволяет повторить действие", async () => {
+    resetScreenPermissionAndRestart.mockRejectedValueOnce(new Error("reset failed"));
+    render(
+      <PermissionsScreen
+        permissions={api({ microphone: "granted", audio: "granted", screen: "denied" })}
+      />,
+    );
+    fireEvent.click(screen.getByText("Восстановить доступ к экрану"));
+    fireEvent.click(screen.getByText("Сбросить и перезапустить"));
+    await waitFor(() => {
+      expect(notify).toHaveBeenCalledTimes(1);
+    });
+    expect(
+      screen.getByRole<HTMLButtonElement>("button", { name: "Сбросить и перезапустить" }).disabled,
+    ).toBe(false);
   });
 });

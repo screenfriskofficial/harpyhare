@@ -619,9 +619,24 @@ export const en: Dictionary = {
       dropFolderHint: "Empty — drop files here",
     },
     permissions: {
+      recoveryHint:
+        "Screen recording is enabled in macOS, but screenshots do not work? Restore access after an app update.",
+      recover: "Restore screen access",
+      recoveryConfirm:
+        "The app will reset only its own screen recording permission and restart. Then open Permissions and click Grant.",
+      recoveryRestart: "Reset and restart",
+      recovering: "Restarting…",
+      recoveryFailed:
+        "Could not restore access. Stop the working window and try again. If it still fails, remove Spotify from the macOS screen recording list and grant access again.",
       title: "macOS permissions",
       description:
-        "The system grants them only on request. Click “Grant” — macOS asks for confirmation; if no dialog appears, the permission is already decided and changes in System Settings. Changed something there — click “Check again”.",
+        "Click “Grant” and confirm the macOS prompt. If access was denied, enable it in System Settings. The status refreshes when you return to the app.",
+      microphoneDenied:
+        "macOS does not ask again after microphone access is denied. Open Settings and enable access for Spotify.",
+      checkFailed: "Could not check permissions. Click “Check again”.",
+      requestFailed: "Could not request access. Try again or open macOS settings.",
+      settingsFailed:
+        "Could not open settings. Open “System Settings → Privacy & Security” manually.",
       states: {
         granted: "granted",
         denied: "denied",

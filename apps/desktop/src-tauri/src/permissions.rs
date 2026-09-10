@@ -193,5 +193,32 @@ pub fn open_permission_settings(kind: PermissionKind) {
     }
 }
 
+/// Explicit recovery only: ad-hoc updates can leave a TCC grant tied to the
+/// previous cdhash. The OS switch stays enabled although preflight returns false.
+/// Restart after resetting our screen grant to discard CoreGraphics' cached state.
+#[tauri::command]
+#[specta::specta]
+pub async fn reset_screen_permission_and_restart(app: AppHandle) -> Result<(), String> {
+    if crate::window::main_window(&app).is_some() {
+        return Err("Сначала остановите рабочее окно и вернитесь в лаунчер".into());
+    }
+    let handle = app.clone();
+    tokio::task::spawn_blocking(move || {
+        platform::reset_screen_capture_access(&handle.config().identifier)?;
+        let st = handle.state::<App>();
+        let _edit = st.settings_edit.lock_unpoisoned();
+        let mut settings = st.settings.lock_unpoisoned().clone();
+        settings.screen_permission_requested = false;
+        settings
+            .save(&settings_path(&handle))
+            .map_err(|e| e.to_string())?;
+        *st.settings.lock_unpoisoned() = settings;
+        Ok::<_, String>(())
+    })
+    .await
+    .map_err(|e| e.to_string())??;
+    app.restart()
+}
+
 #[cfg(test)]
 mod tests;

@@ -173,6 +173,10 @@ pub fn request_screen_capture_access() -> bool {
     backend::request_screen_capture_access()
 }
 
+pub fn reset_screen_capture_access(identifier: &str) -> Result<(), String> {
+    backend::reset_screen_capture_access(identifier)
+}
+
 fn is_web_url(url: &str) -> bool {
     url.starts_with(HTTPS_URL_PREFIX) || url.starts_with(HTTP_URL_PREFIX)
 }

@@ -11,6 +11,7 @@ import {
   type PermissionRow,
 } from "../permission-rows";
 import { ScreenShell } from "../ScreenShell";
+import { ScreenPermissionRecovery } from "./ScreenPermissionRecovery";
 
 function StatusChip({ state }: { state: PermissionState }) {
   const { t } = useTranslation();
@@ -38,6 +39,7 @@ function PermissionRowView({
   const { t } = useTranslation();
   const state = permissions.status[row.kind];
   const granted = state === "granted";
+  const microphoneDenied = row.kind === "microphone" && state === "denied";
   return (
     <div className="grid grid-cols-[1.25rem_minmax(0,1fr)_14rem] items-center gap-x-3 px-3 py-2.5">
       <row.icon
@@ -54,6 +56,11 @@ function PermissionRowView({
           </span>
         </div>
         <p className="min-h-9 text-caption text-muted-foreground">{permissionPurpose(row.kind)}</p>
+        {microphoneDenied && (
+          <p className="text-caption text-muted-foreground">
+            {t("launcher.permissions.microphoneDenied")}
+          </p>
+        )}
       </div>
 
       <div className="flex items-center justify-end gap-1.5">
@@ -61,23 +68,25 @@ function PermissionRowView({
           <>
             <Button
               size="sm"
-              variant="ghost"
+              variant={microphoneDenied ? "default" : "ghost"}
               onClick={() => {
                 permissions.openSettings(row.kind);
               }}
             >
               {t("launcher.permissions.settings")}
             </Button>
-            <Button
-              size="sm"
-              className="min-w-18"
-              disabled={permissions.pending !== null}
-              onClick={() => void permissions.request(row.kind)}
-            >
-              {permissions.pending === row.kind
-                ? t("launcher.permissions.granting")
-                : t("launcher.permissions.grant")}
-            </Button>
+            {!microphoneDenied && (
+              <Button
+                size="sm"
+                className="min-w-18"
+                disabled={permissions.pending !== null}
+                onClick={() => void permissions.request(row.kind)}
+              >
+                {permissions.pending === row.kind
+                  ? t("launcher.permissions.granting")
+                  : t("launcher.permissions.grant")}
+              </Button>
+            )}
           </>
         )}
       </div>
@@ -104,6 +113,7 @@ export function PermissionsScreen({ permissions }: { permissions: PermissionsApi
           <PermissionRowView key={row.kind} row={row} permissions={permissions} />
         ))}
       </SettingGroup>
+      <ScreenPermissionRecovery disabled={permissions.pending !== null} />
     </ScreenShell>
   );
 }

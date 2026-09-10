@@ -55,6 +55,7 @@ pub fn builder() -> Builder<tauri::Wry> {
             permissions::permissions_status,
             permissions::request_permission,
             permissions::open_permission_settings,
+            permissions::reset_screen_permission_and_restart,
             clipboard::copy_image_to_clipboard,
             system::open_external,
             system::set_preview_html,

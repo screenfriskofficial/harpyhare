@@ -61,6 +61,12 @@ export const commands = {
 	permissionsStatus: () => __TAURI_INVOKE<PermissionsStatus>("permissions_status"),
 	requestPermission: (kind: PermissionKind) => __TAURI_INVOKE<PermissionState>("request_permission", { kind }),
 	openPermissionSettings: (kind: PermissionKind) => __TAURI_INVOKE<void>("open_permission_settings", { kind }),
+	/**
+	 *  Explicit recovery only: ad-hoc updates can leave a TCC grant tied to the
+	 *  previous cdhash. The OS switch stays enabled although preflight returns false.
+	 *  Restart after resetting our screen grant to discard CoreGraphics' cached state.
+	 */
+	resetScreenPermissionAndRestart: () => __TAURI_INVOKE<null>("reset_screen_permission_and_restart"),
 	copyImageToClipboard: (dataBase64: string) => __TAURI_INVOKE<null>("copy_image_to_clipboard", { dataBase64 }),
 	openExternal: (url: string) => __TAURI_INVOKE<void>("open_external", { url }),
 	setPreviewHtml: (html: string) => __TAURI_INVOKE<void>("set_preview_html", { html }),

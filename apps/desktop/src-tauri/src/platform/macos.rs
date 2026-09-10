@@ -152,6 +152,22 @@ pub fn request_screen_capture_access() -> bool {
     unsafe { CGRequestScreenCaptureAccess() }
 }
 
+pub fn reset_screen_capture_access(identifier: &str) -> Result<(), String> {
+    // Never reset all apps or accept a service name from the webview.
+    // An empty identifier would turn a targeted repair into a system-wide reset.
+    if identifier.is_empty() {
+        return Err("Не определён идентификатор приложения".into());
+    }
+    let output = std::process::Command::new("/usr/bin/tccutil")
+        .args(["reset", "ScreenCapture", identifier])
+        .output()
+        .map_err(|e| e.to_string())?;
+    if !output.status.success() {
+        return Err(String::from_utf8_lossy(&output.stderr).into_owned());
+    }
+    Ok(())
+}
+
 pub fn open_url(url: &str) {
     open_with_shell(url);
 }

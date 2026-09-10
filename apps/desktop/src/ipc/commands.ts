@@ -32,6 +32,7 @@ export const {
   readContextImportFile,
   readContextPdfBytes,
   requestPermission,
+  resetScreenPermissionAndRestart,
   retryTranscription,
   saveChats,
   saveContextLibrary,
