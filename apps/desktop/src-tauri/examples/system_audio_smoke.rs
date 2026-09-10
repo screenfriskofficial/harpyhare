@@ -48,7 +48,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // A narrow-band check distinguishes our signal from unrelated audio.
     let peak = captured
-        .chunks_exact(1600)
+        .as_chunks::<1600>()
+        .0
+        .iter()
         .map(|chunk| {
             let (re, im) = chunk
                 .iter()
