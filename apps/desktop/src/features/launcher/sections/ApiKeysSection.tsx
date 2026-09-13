@@ -28,6 +28,7 @@ const KEY_PLACEHOLDERS: Record<ApiKeyId, string> = {
   xai: "xai-…",
   deepgram: "…",
   xclis: "sk-…",
+  openrouter: "sk-or-v1-…",
 };
 
 const GROUP_TITLE = "Доступ к API";

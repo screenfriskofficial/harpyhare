@@ -1,5 +1,6 @@
 import {
   Download,
+  Activity,
   Library,
   MessageSquareText,
   ShieldCheck,
@@ -58,6 +59,13 @@ export const LAUNCHER_SCREENS = [
     label: "Обновления",
     description: "Версия приложения и установка новой.",
     icon: Download,
+    group: "system",
+  },
+  {
+    id: "diagnostics",
+    label: "Диагностика",
+    description: "История технических проверок без аудио, промптов и ключей.",
+    icon: Activity,
     group: "system",
   },
 ] as const satisfies readonly ScreenMeta[];

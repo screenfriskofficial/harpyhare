@@ -15,6 +15,9 @@ const CONTEXT_LIBRARY_FILE_NAME: &str = "context-library.json";
 
 pub struct App {
     pub settings: Mutex<settings::Settings>,
+    /// Serializes settings read-modify-write operations from the launcher and
+    /// access-code worker so an older snapshot cannot erase a newer token.
+    pub settings_edit: Mutex<()>,
     pub official_presets: Mutex<Vec<settings::PromptPreset>>,
     /// Version of the pool above — the refresh loop refuses to go below it.
     pub official_presets_version: Mutex<u32>,
@@ -58,7 +61,10 @@ pub struct SttStream {
 }
 
 pub fn app_data_file(app: &AppHandle, file_name: &str) -> std::path::PathBuf {
-    app.path().app_data_dir().expect("app_data_dir").join(file_name)
+    app.path()
+        .app_data_dir()
+        .expect("app_data_dir")
+        .join(file_name)
 }
 
 pub fn settings_path(app: &AppHandle) -> std::path::PathBuf {
@@ -113,7 +119,9 @@ pub fn build_capture(settings: &settings::Settings) -> Option<capture::SystemAud
     }
 }
 
-pub fn build_microphone_capture(settings: &settings::Settings) -> Option<capture::SystemAudioCapture> {
+pub fn build_microphone_capture(
+    settings: &settings::Settings,
+) -> Option<capture::SystemAudioCapture> {
     let uid = (!settings.microphone_device_uid.is_empty())
         .then_some(settings.microphone_device_uid.as_str());
     match capture::SystemAudioCapture::new_microphone(uid) {
@@ -159,7 +167,10 @@ pub fn build_stt_client(s: &settings::Settings) -> Arc<dyn stt::SttEngine> {
     // Deepgram не обслуживается общим multipart-клиентом: у него свой
     // транспорт. Прокси-ветки здесь нет намеренно — строка реестра несёт
     // `proxied: false`, поэтому план всегда приходит с личным ключом.
-    if matches!(stt::registry::resolve(plan.provider_id).wire, stt::registry::SttWire::Deepgram { .. }) {
+    if matches!(
+        stt::registry::resolve(plan.provider_id).wire,
+        stt::registry::SttWire::Deepgram { .. }
+    ) {
         return Arc::new(
             stt::deepgram::DeepgramStt::new(plan.api_key).with_language(s.stt_language.clone()),
         );
@@ -179,8 +190,13 @@ pub fn build_stt_client(s: &settings::Settings) -> Arc<dyn stt::SttEngine> {
 /// How a vendor is reached right now: the relay under an access code, the
 /// user's own key otherwise, or not at all.
 pub enum ProviderAccess {
-    Proxied { access_token: String, base_url: String },
-    Direct { api_key: String },
+    Proxied {
+        access_token: String,
+        base_url: String,
+    },
+    Direct {
+        api_key: String,
+    },
 }
 
 /// Resolves a registry row against the current settings. The rule is the same
@@ -201,7 +217,9 @@ pub fn provider_access(
     if api_key.is_empty() {
         return None;
     }
-    Some(ProviderAccess::Direct { api_key: api_key.to_string() })
+    Some(ProviderAccess::Direct {
+        api_key: api_key.to_string(),
+    })
 }
 
 /// Builds the client for a registry row.
@@ -218,17 +236,23 @@ fn build_provider(
     match spec.wire {
         llm::registry::LlmWire::Anthropic { .. } => {
             let client = match access {
-                ProviderAccess::Proxied { access_token, base_url } => {
-                    llm::AnthropicClient::for_proxy(access_token, base_url)
-                }
+                ProviderAccess::Proxied {
+                    access_token,
+                    base_url,
+                } => llm::AnthropicClient::for_proxy(access_token, base_url),
                 ProviderAccess::Direct { api_key } => llm::AnthropicClient::new(api_key),
             };
             Arc::new(client.with_catalog(Arc::clone(catalog)))
         }
         llm::registry::LlmWire::Responses { .. } => match access {
-            ProviderAccess::Proxied { access_token, base_url } => {
-                Arc::new(llm::responses::ResponsesClient::proxied(spec, access_token, base_url))
-            }
+            ProviderAccess::Proxied {
+                access_token,
+                base_url,
+            } => Arc::new(llm::responses::ResponsesClient::proxied(
+                spec,
+                access_token,
+                base_url,
+            )),
             ProviderAccess::Direct { api_key } => {
                 Arc::new(llm::responses::ResponsesClient::direct(spec, api_key))
             }
@@ -241,6 +265,14 @@ fn build_provider(
             }
             ProviderAccess::Proxied { .. } => {
                 unreachable!("Xclis не проксируется: у relay нет его роута")
+            }
+        },
+        llm::registry::LlmWire::OpenRouter { .. } => match access {
+            ProviderAccess::Direct { api_key } => {
+                Arc::new(llm::openrouter::OpenRouterClient::new(spec, api_key))
+            }
+            ProviderAccess::Proxied { .. } => {
+                unreachable!("OpenRouter не проксируется: нужен собственный API key")
             }
         },
     }
@@ -268,7 +300,6 @@ pub fn build_llm_client(
     }
     Arc::new(llm::router::ProviderRouter::new(providers, catalog))
 }
-
 
 pub fn note_connectivity_probe(app: &AppHandle, reachable: bool) {
     let st = app.state::<App>();
@@ -303,6 +334,7 @@ pub fn build_app_state(
 ) -> App {
     App {
         settings: Mutex::new(settings),
+        settings_edit: Mutex::new(()),
         official_presets_version: Mutex::new(official_presets.version),
         official_presets: Mutex::new(official_presets.presets),
         recorder: Mutex::new(state::RecorderState::Idle),

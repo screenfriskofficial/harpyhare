@@ -62,6 +62,7 @@ fn screen_state(app: &AppHandle) -> PermissionState {
 
 fn mark_requested(app: &AppHandle, kind: PermissionKind) -> Result<(), String> {
     let st = app.state::<App>();
+    let _edit = st.settings_edit.lock().unwrap();
     let mut settings = st.settings.lock().unwrap().clone();
     let flag = match kind {
         PermissionKind::Audio => &mut settings.audio_permission_requested,

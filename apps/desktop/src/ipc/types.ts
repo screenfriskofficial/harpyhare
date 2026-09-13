@@ -23,6 +23,7 @@ export interface Settings {
   xai_api_key: string;
   deepgram_api_key: string;
   xclis_api_key: string;
+  openrouter_api_key: string;
   access_token: string;
   prompt_presets: PromptPreset[];
   hotkeys: HotkeyBinding[];

@@ -12,6 +12,12 @@ fn unparseable_hotkey_error(hotkey: &str) -> String {
     format!("Не удалось разобрать хоткей: {hotkey:?}")
 }
 
+fn unregister_existing(app: &AppHandle, hotkey: &str) {
+    if let Some(shortcut) = parse_hotkey(hotkey) {
+        let _ = app.global_shortcut().unregister(shortcut);
+    }
+}
+
 fn defer(app: &AppHandle, work: fn(&AppHandle)) {
     let app = app.clone();
     tauri::async_runtime::spawn(async move { work(&app) });
@@ -26,6 +32,7 @@ fn register_ptt(
     released: PttHandler,
 ) -> Result<(), String> {
     let shortcut = parse_hotkey(hotkey).ok_or_else(|| unparseable_hotkey_error(hotkey))?;
+    unregister_existing(app, hotkey);
     app.global_shortcut()
         .on_shortcut(shortcut, move |app, _shortcut, event| match event.state {
             ShortcutState::Pressed => defer(app, pressed),
@@ -60,6 +67,7 @@ pub fn unregister_ptt(app: &AppHandle, hotkey: &str) {
 
 pub fn register_toggle(app: &AppHandle, hotkey: &str) -> Result<(), String> {
     let shortcut = parse_hotkey(hotkey).ok_or_else(|| unparseable_hotkey_error(hotkey))?;
+    unregister_existing(app, hotkey);
     app.global_shortcut()
         .on_shortcut(shortcut, |app, _shortcut, event| {
             if event.state == ShortcutState::Pressed {
@@ -77,6 +85,7 @@ pub fn unregister_toggle(app: &AppHandle, hotkey: &str) {
 
 pub fn register_teleprompter(app: &AppHandle, hotkey: &str) -> Result<(), String> {
     let shortcut = parse_hotkey(hotkey).ok_or_else(|| unparseable_hotkey_error(hotkey))?;
+    unregister_existing(app, hotkey);
     app.global_shortcut()
         .on_shortcut(shortcut, |app, _shortcut, event| {
             if event.state == ShortcutState::Pressed {
@@ -94,6 +103,7 @@ pub fn unregister_teleprompter(app: &AppHandle, hotkey: &str) {
 
 pub fn register_screenshot(app: &AppHandle, hotkey: &str) -> Result<(), String> {
     let shortcut = parse_hotkey(hotkey).ok_or_else(|| unparseable_hotkey_error(hotkey))?;
+    unregister_existing(app, hotkey);
     app.global_shortcut()
         .on_shortcut(shortcut, |app, _shortcut, event| {
             if event.state == ShortcutState::Pressed {
@@ -111,6 +121,7 @@ pub fn unregister_screenshot(app: &AppHandle, hotkey: &str) {
 
 pub fn register_focus_prompt(app: &AppHandle, hotkey: &str) -> Result<(), String> {
     let shortcut = parse_hotkey(hotkey).ok_or_else(|| unparseable_hotkey_error(hotkey))?;
+    unregister_existing(app, hotkey);
     app.global_shortcut()
         .on_shortcut(shortcut, |app, _shortcut, event| {
             if event.state == ShortcutState::Pressed {
@@ -128,6 +139,7 @@ pub fn unregister_focus_prompt(app: &AppHandle, hotkey: &str) {
 
 pub fn register_duplicate_chat(app: &AppHandle, hotkey: &str) -> Result<(), String> {
     let shortcut = parse_hotkey(hotkey).ok_or_else(|| unparseable_hotkey_error(hotkey))?;
+    unregister_existing(app, hotkey);
     app.global_shortcut()
         .on_shortcut(shortcut, |app, _shortcut, event| {
             if event.state == ShortcutState::Pressed {
@@ -145,6 +157,7 @@ pub fn unregister_duplicate_chat(app: &AppHandle, hotkey: &str) {
 
 pub fn register_panic(app: &AppHandle, hotkey: &str) -> Result<(), String> {
     let shortcut = parse_hotkey(hotkey).ok_or_else(|| unparseable_hotkey_error(hotkey))?;
+    unregister_existing(app, hotkey);
     app.global_shortcut()
         .on_shortcut(shortcut, |app, _shortcut, event| {
             if event.state == ShortcutState::Pressed {
@@ -161,6 +174,7 @@ pub fn unregister_panic(app: &AppHandle, hotkey: &str) {
 }
 
 pub fn register_cancel(app: &AppHandle, hotkey: &str) {
+    unregister_existing(app, hotkey);
     if let Some(shortcut) = parse_hotkey(hotkey) {
         let _ = app
             .global_shortcut()

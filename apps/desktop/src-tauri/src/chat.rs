@@ -74,7 +74,11 @@ fn spawn_llm_delta_flusher(app: AppHandle, chat_id: String, stream_id: String) -
             run_llm_delta_flusher(app, chat_id, stream_id, pending, stop).await;
         })
     };
-    LlmDeltaFlusher { pending, stop, task }
+    LlmDeltaFlusher {
+        pending,
+        stop,
+        task,
+    }
 }
 
 async fn run_llm_delta_flusher(
@@ -121,12 +125,14 @@ struct ChatStreamSink {
     pending: Arc<Mutex<String>>,
     started: std::time::Instant,
     got_first_delta: bool,
+    trace: crate::diagnostics::Trace,
 }
 
 impl llm::LlmStreamSink for ChatStreamSink {
     fn text_delta(&mut self, delta: &str) {
         if !self.got_first_delta {
             self.got_first_delta = true;
+            self.trace.first_text(delta);
             eprintln!(
                 "[perf] llm ttfb (первая текстовая дельта) {:?}",
                 self.started.elapsed()
@@ -152,6 +158,12 @@ pub async fn send_to_claude(
     options: llm::RequestOptions,
 ) {
     let provider = llm_provider(&app);
+    let trace = crate::diagnostics::Trace::new(
+        crate::diagnostics::DiagnosticKind::Answer,
+        crate::diagnostics::DiagnosticOrigin::Session,
+        provider.provider_id(),
+        &model,
+    );
     let cancel = register_llm_cancel(&app, &chat_id, &stream_id);
     let request = llm::LlmRequest {
         model,
@@ -169,11 +181,16 @@ pub async fn send_to_claude(
         pending: Arc::clone(&flusher.pending),
         started,
         got_first_delta: false,
+        trace: trace.clone(),
     };
-    let res = provider.stream(request, cancel, &mut sink).await;
+    let res = trace
+        .scope(provider.stream(request, cancel, &mut sink))
+        .await;
     flusher.stop_and_await_final_drain().await;
     eprintln!("[perf] llm stream total {:?}", started.elapsed());
     unregister_llm_cancel(&app, &chat_id, &stream_id);
+    let error_code = res.as_ref().err().map(crate::error::CodedError::code);
+    trace.finish(error_code);
     emit_llm_result(&app, chat_id, stream_id, res);
 }
 

@@ -57,6 +57,7 @@ const ANTHROPIC_KEY: &str = "anthropic-key";
 const XAI_KEY: &str = "xai-key";
 const DEEPGRAM_KEY: &str = "deepgram-key";
 const XCLIS_KEY: &str = "xclis-key";
+const OPENROUTER_KEY: &str = "openrouter-key";
 
 fn keyed_settings(anthropic: &str, openai: &str, access_token: &str) -> settings::Settings {
     settings::Settings {
@@ -137,6 +138,7 @@ fn all_keys_filled() -> settings::Settings {
         xai_api_key: XAI_KEY.into(),
         deepgram_api_key: DEEPGRAM_KEY.into(),
         xclis_api_key: XCLIS_KEY.into(),
+        openrouter_api_key: OPENROUTER_KEY.into(),
         ..settings::Settings::default()
     }
 }

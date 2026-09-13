@@ -3,7 +3,7 @@ use std::path::Path;
 
 #[cfg(unix)]
 const OWNER_ONLY_FILE_MODE: u32 = 0o600;
-const TMP_FILE_EXTENSION: &str = "tmp";
+pub const QUARANTINE_SUFFIX: &str = "broken";
 
 pub const THEME_GRAY: &str = "gray";
 pub const THEME_BLACK: &str = "black";
@@ -16,6 +16,7 @@ pub const API_KEY_OPENAI: &str = "openai";
 pub const API_KEY_XAI: &str = "xai";
 pub const API_KEY_DEEPGRAM: &str = "deepgram";
 pub const API_KEY_XCLIS: &str = "xclis";
+pub const API_KEY_OPENROUTER: &str = "openrouter";
 
 /// The key a registry row asks for, or `""` when it names one that does not
 /// exist — which the pickers render as a permanent lock rather than a crash.
@@ -27,13 +28,16 @@ pub fn api_key_for<'a>(s: &'a Settings, key_id: &str) -> &'a str {
         API_KEY_XAI => &s.xai_api_key,
         API_KEY_DEEPGRAM => &s.deepgram_api_key,
         API_KEY_XCLIS => &s.xclis_api_key,
+        API_KEY_OPENROUTER => &s.openrouter_api_key,
         _ => "",
     }
 }
 
 /// Re-exported from the STT registry, which owns the list. Kept as names so
 /// call sites read as intent rather than as string literals.
-pub use crate::stt::registry::{PROVIDER_GROQ as STT_PROVIDER_GROQ, PROVIDER_OPENAI as STT_PROVIDER_OPENAI};
+pub use crate::stt::registry::{
+    PROVIDER_GROQ as STT_PROVIDER_GROQ, PROVIDER_OPENAI as STT_PROVIDER_OPENAI,
+};
 
 pub const QUICK_ACTION_LIMIT: usize = 9;
 
@@ -103,28 +107,68 @@ pub mod limits {
 
     pub mod window {
         use super::Bounds;
-        pub const WIDTH: Bounds<f64> = Bounds { default: 960.0, min: 300.0, max: 1600.0 };
-        pub const HEIGHT: Bounds<f64> = Bounds { default: 680.0, min: 520.0, max: 1100.0 };
-        pub const OPACITY: Bounds<f64> = Bounds { default: 0.9, min: 0.2, max: 1.0 };
-        pub const MOVE_STEP: Bounds<u32> = Bounds { default: 20, min: 1, max: 200 };
-        pub const RESIZE_STEP: Bounds<u32> = Bounds { default: 20, min: 1, max: 200 };
+        pub const WIDTH: Bounds<f64> = Bounds {
+            default: 960.0,
+            min: 300.0,
+            max: 1600.0,
+        };
+        pub const HEIGHT: Bounds<f64> = Bounds {
+            default: 680.0,
+            min: 520.0,
+            max: 1100.0,
+        };
+        pub const OPACITY: Bounds<f64> = Bounds {
+            default: 0.9,
+            min: 0.2,
+            max: 1.0,
+        };
+        pub const MOVE_STEP: Bounds<u32> = Bounds {
+            default: 20,
+            min: 1,
+            max: 200,
+        };
+        pub const RESIZE_STEP: Bounds<u32> = Bounds {
+            default: 20,
+            min: 1,
+            max: 200,
+        };
     }
 
     pub mod chat {
         use super::Bounds;
-        pub const FONT_SIZE: Bounds<f64> = Bounds { default: 13.5, min: 10.0, max: 20.0 };
-        pub const SCROLL_STEP: Bounds<u32> = Bounds { default: 120, min: 10, max: 1000 };
+        pub const FONT_SIZE: Bounds<f64> = Bounds {
+            default: 13.5,
+            min: 10.0,
+            max: 20.0,
+        };
+        pub const SCROLL_STEP: Bounds<u32> = Bounds {
+            default: 120,
+            min: 10,
+            max: 1000,
+        };
     }
 
     pub mod teleprompter {
         use super::Bounds;
-        pub const SPEED: Bounds<f64> = Bounds { default: 40.0, min: 10.0, max: 150.0 };
-        pub const FONT_SIZE: Bounds<f64> = Bounds { default: 28.0, min: 20.0, max: 48.0 };
+        pub const SPEED: Bounds<f64> = Bounds {
+            default: 40.0,
+            min: 10.0,
+            max: 150.0,
+        };
+        pub const FONT_SIZE: Bounds<f64> = Bounds {
+            default: 28.0,
+            min: 20.0,
+            max: 48.0,
+        };
     }
 
     pub mod capture {
         use super::Bounds;
-        pub const BUFFER_SECONDS: Bounds<u32> = Bounds { default: 4, min: 1, max: 10 };
+        pub const BUFFER_SECONDS: Bounds<u32> = Bounds {
+            default: 4,
+            min: 1,
+            max: 10,
+        };
     }
 }
 
@@ -149,9 +193,21 @@ struct QuickActionSeed {
 }
 
 const QUICK_ACTION_SEEDS: &[QuickActionSeed] = &[
-    QuickActionSeed { id: "detail", title: "Подробнее", prompt: "Расскажи более подробно." },
-    QuickActionSeed { id: "brief", title: "Короче", prompt: "Ответь короче, только суть." },
-    QuickActionSeed { id: "code", title: "Пример кода", prompt: "Покажи пример кода." },
+    QuickActionSeed {
+        id: "detail",
+        title: "Подробнее",
+        prompt: "Расскажи более подробно.",
+    },
+    QuickActionSeed {
+        id: "brief",
+        title: "Короче",
+        prompt: "Ответь короче, только суть.",
+    },
+    QuickActionSeed {
+        id: "code",
+        title: "Пример кода",
+        prompt: "Покажи пример кода.",
+    },
 ];
 
 fn seeded_quick_actions() -> Vec<QuickAction> {
@@ -174,6 +230,7 @@ pub struct Settings {
     pub xai_api_key: String,
     pub deepgram_api_key: String,
     pub xclis_api_key: String,
+    pub openrouter_api_key: String,
     pub access_token: String,
     pub prompt_presets: Vec<PromptPreset>,
     pub hotkeys: Vec<crate::hotkeys::HotkeyBinding>,
@@ -214,6 +271,7 @@ impl Default for Settings {
             xai_api_key: String::new(),
             deepgram_api_key: String::new(),
             xclis_api_key: String::new(),
+            openrouter_api_key: String::new(),
             access_token: String::new(),
             prompt_presets: Vec::new(),
             hotkeys: Vec::new(),
@@ -273,11 +331,21 @@ impl Settings {
     pub fn load(path: &Path) -> std::io::Result<Self> {
         let mut settings = match std::fs::read_to_string(path) {
             Ok(raw) => {
-                let mut value: serde_json::Value = serde_json::from_str(&raw)
-                    .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
+                let mut value: serde_json::Value = match serde_json::from_str(&raw) {
+                    Ok(value) => value,
+                    Err(error) => {
+                        quarantine_broken_file(path);
+                        return Err(std::io::Error::new(std::io::ErrorKind::InvalidData, error));
+                    }
+                };
                 crate::hotkeys::migrate_legacy_fields(&mut value);
-                serde_json::from_value::<Settings>(value)
-                    .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?
+                match serde_json::from_value::<Settings>(value) {
+                    Ok(settings) => settings,
+                    Err(error) => {
+                        quarantine_broken_file(path);
+                        return Err(std::io::Error::new(std::io::ErrorKind::InvalidData, error));
+                    }
+                }
             }
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => Settings::default(),
             Err(e) => return Err(e),
@@ -294,6 +362,7 @@ impl Settings {
         xai: Option<String>,
         deepgram: Option<String>,
         xclis: Option<String>,
+        openrouter: Option<String>,
     ) {
         fn fill_if_empty(target: &mut String, candidate: Option<String>) {
             if !target.is_empty() {
@@ -313,6 +382,7 @@ impl Settings {
         fill_if_empty(&mut self.xai_api_key, xai);
         fill_if_empty(&mut self.deepgram_api_key, deepgram);
         fill_if_empty(&mut self.xclis_api_key, xclis);
+        fill_if_empty(&mut self.openrouter_api_key, openrouter);
         if !self.access_token.is_empty() {
             return;
         }
@@ -328,15 +398,24 @@ impl Settings {
     }
 }
 
-fn create_owner_only(path: &Path) -> std::io::Result<std::fs::File> {
-    let mut options = std::fs::OpenOptions::new();
-    options.write(true).create(true).truncate(true);
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt;
-        options.mode(OWNER_ONLY_FILE_MODE);
+fn quarantine_broken_file(path: &Path) {
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    let name = path
+        .file_name()
+        .map(|name| name.to_string_lossy())
+        .unwrap_or_default();
+    let quarantined = path.with_file_name(format!("{name}.{QUARANTINE_SUFFIX}-{stamp}"));
+    if let Err(error) = std::fs::rename(path, &quarantined) {
+        eprintln!("не удалось сохранить повреждённые настройки: {error}");
+    } else {
+        eprintln!(
+            "повреждённые настройки отложены в {}",
+            quarantined.display()
+        );
     }
-    options.open(path)
 }
 
 pub(crate) fn write_atomic_owner_only(path: &Path, contents: &str) -> std::io::Result<()> {
@@ -344,12 +423,18 @@ pub(crate) fn write_atomic_owner_only(path: &Path, contents: &str) -> std::io::R
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
     }
-    let tmp = path.with_extension(TMP_FILE_EXTENSION);
+    let parent = path.parent().unwrap_or_else(|| Path::new("."));
+    let mut tmp = tempfile::NamedTempFile::new_in(parent)?;
+    #[cfg(unix)]
     {
-        let mut f = create_owner_only(&tmp)?;
-        f.write_all(contents.as_bytes())?;
+        use std::os::unix::fs::PermissionsExt;
+        tmp.as_file()
+            .set_permissions(std::fs::Permissions::from_mode(OWNER_ONLY_FILE_MODE))?;
     }
-    std::fs::rename(&tmp, path)
+    tmp.write_all(contents.as_bytes())?;
+    tmp.as_file().sync_all()?;
+    tmp.persist(path).map_err(|error| error.error)?;
+    Ok(())
 }
 
 #[cfg(test)]

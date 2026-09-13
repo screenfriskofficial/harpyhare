@@ -34,6 +34,11 @@ impl ProviderRouter {
                 .flat_map(|p| p.known_models())
                 .find(|m| m.id == model_id)
                 .map(|m| m.provider)
+        }).or_else(|| {
+            self.providers
+                .iter()
+                .find(|p| p.owns_model(model_id))
+                .map(|p| p.provider_id().to_string())
         })
     }
 

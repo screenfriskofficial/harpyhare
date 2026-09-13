@@ -270,10 +270,12 @@ fn env_fallback_fills_only_empty_keys() {
         Some("env-xai".into()),
         Some("env-dg".into()),
         Some("env-xclis".into()),
+        Some("env-openrouter".into()),
     );
     assert_eq!(s.anthropic_api_key, "env-ant");
     assert_eq!(s.groq_api_key, "env-groq");
     assert_eq!(s.openai_api_key, "env-oai");
+    assert_eq!(s.openrouter_api_key, "env-openrouter");
 }
 
 #[test]
@@ -286,6 +288,7 @@ fn env_fallback_skipped_entirely_when_access_token_set() {
         Some("env-xai".into()),
         Some("env-dg".into()),
         Some("env-xclis".into()),
+        Some("env-openrouter".into()),
     );
     assert_eq!(s.anthropic_api_key, "");
     assert_eq!(s.groq_api_key, "");
@@ -296,6 +299,7 @@ fn env_fallback_skipped_entirely_when_access_token_set() {
     assert_eq!(s.xai_api_key, "env-xai");
     assert_eq!(s.deepgram_api_key, "env-dg");
     assert_eq!(s.xclis_api_key, "env-xclis");
+    assert_eq!(s.openrouter_api_key, "env-openrouter");
 }
 
 #[test]
@@ -317,19 +321,33 @@ fn env_fallback_does_not_override_saved_keys() {
         Some("env-xai".into()),
         Some("env-dg".into()),
         Some("env-xclis".into()),
+        Some("env-openrouter".into()),
     );
     assert_eq!(s.anthropic_api_key, "saved");
     assert_eq!(s.groq_api_key, "env-groq");
     assert_eq!(s.openai_api_key, "env-oai");
+    assert_eq!(s.openrouter_api_key, "env-openrouter");
 }
 
 #[test]
 fn env_fallback_ignores_none_and_blank() {
     let mut s = Settings::default();
-    s.apply_key_fallback(None, Some("   ".into()), None, None, None, None);
+    s.apply_key_fallback(None, Some("   ".into()), None, None, None, None, None);
     assert_eq!(s.anthropic_api_key, "");
     assert_eq!(s.groq_api_key, "");
     assert_eq!(s.openai_api_key, "");
+}
+
+#[test]
+fn openrouter_key_survives_serialization() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("settings.json");
+    let settings = Settings {
+        openrouter_api_key: "sk-or-test".into(),
+        ..Default::default()
+    };
+    settings.save(&path).unwrap();
+    assert_eq!(Settings::load(&path).unwrap().openrouter_api_key, "sk-or-test");
 }
 
 #[test]

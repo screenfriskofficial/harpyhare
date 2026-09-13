@@ -111,7 +111,10 @@ impl SttHttpClient {
     /// applies to the stored value.
     pub fn for_provider(provider_id: &str, api_key: String) -> Self {
         debug_assert!(
-            !matches!(registry::resolve(provider_id).wire, registry::SttWire::Deepgram { .. }),
+            !matches!(
+                registry::resolve(provider_id).wire,
+                registry::SttWire::Deepgram { .. }
+            ),
             "у Deepgram свой транспорт — общий multipart-клиент его не обслуживает",
         );
         Self::over(registry::resolve(provider_id), api_key)
@@ -188,11 +191,24 @@ impl SttHttpClient {
         }
     }
 
-    fn form_with(&self, part: reqwest::multipart::Part, keyterms: Keyterms<'_>) -> reqwest::multipart::Form {
+    fn form_with(
+        &self,
+        part: reqwest::multipart::Part,
+        keyterms: Keyterms<'_>,
+    ) -> reqwest::multipart::Form {
         let file = part.file_name(WAV_FILE_NAME);
         match self.spec.wire {
-            registry::SttWire::OpenAiMultipart { transcribe_model, translate_model, temperature, .. } => {
-                let model = if self.translate() { translate_model } else { transcribe_model };
+            registry::SttWire::OpenAiMultipart {
+                transcribe_model,
+                translate_model,
+                temperature,
+                ..
+            } => {
+                let model = if self.translate() {
+                    translate_model
+                } else {
+                    transcribe_model
+                };
                 let mut form = reqwest::multipart::Form::new()
                     .part("file", file)
                     .text("model", model)
@@ -233,40 +249,46 @@ impl SttHttpClient {
         timeout: std::time::Duration,
     ) -> reqwest::RequestBuilder {
         self.client
-            .post(format!("{}{}", self.base_url, self.spec.wire.path(self.translate())))
+            .post(format!(
+                "{}{}",
+                self.base_url,
+                self.spec.wire.path(self.translate())
+            ))
             .bearer_auth(&self.api_key)
             .multipart(self.form_with(part, keyterms))
             .timeout(timeout)
     }
 
     async fn parse_response(&self, resp: reqwest::Response) -> Result<String, SttError> {
+        crate::diagnostics::observe_response(resp.status().as_u16(), resp.headers());
         match resp.status().as_u16() {
             200 => Self::text_from_success(resp).await,
-            code @ (401 | 403) if self.proxy => {
-                Err(SttError::BadAccessCode(Self::message_from_body(code, resp).await))
+            _ => {
+                let (code, body, message) = crate::error::http::read_body(resp).await;
+                match crate::error::http::classify(code, &body, self.proxy) {
+                    crate::error::http::HttpClass::BadAccessCode => {
+                        Err(SttError::BadAccessCode(message))
+                    }
+                    crate::error::http::HttpClass::BadApiKey => {
+                        Err(SttError::BadApiKey(self.spec.key_label))
+                    }
+                    crate::error::http::HttpClass::Retryable => Err(SttError::Retryable(code)),
+                    crate::error::http::HttpClass::Api => Err(SttError::Other(message)),
+                }
             }
-            401 | 403 => Err(SttError::BadApiKey(self.spec.key_label)),
-            code @ (429 | 500..=599) => Err(SttError::Retryable(code)),
-            code => Err(SttError::Other(Self::message_from_body(code, resp).await)),
         }
     }
 
     async fn text_from_success(resp: reqwest::Response) -> Result<String, SttError> {
-        let v: serde_json::Value = resp.json().await.map_err(|e| SttError::Other(e.to_string()))?;
+        let v: serde_json::Value = resp
+            .json()
+            .await
+            .map_err(|e| SttError::Other(e.to_string()))?;
         Ok(v["text"]
             .as_str()
             .ok_or_else(|| SttError::Other("ответ распознавания без поля text".into()))?
             .trim()
             .to_string())
-    }
-
-    async fn message_from_body(code: u16, resp: reqwest::Response) -> String {
-        let body = resp.text().await.unwrap_or_default();
-        serde_json::from_str::<serde_json::Value>(&body)
-            .ok()
-            .and_then(|v| v["error"]["message"].as_str().map(str::to_string))
-            .filter(|m| !m.trim().is_empty())
-            .unwrap_or_else(|| format!("распознавание: HTTP {code}"))
     }
 }
 
@@ -281,7 +303,9 @@ impl SttEngine for SttHttpClient {
         let part = reqwest::multipart::Part::stream(reqwest::Body::wrap_stream(chunks))
             .mime_str(WAV_MIME)
             .map_err(|e| SttError::Other(e.to_string()))?;
-        let send = self.request_with(part, keyterms, STREAM_REQUEST_TIMEOUT).send();
+        let send = self
+            .request_with(part, keyterms, STREAM_REQUEST_TIMEOUT)
+            .send();
         let resp = tokio::select! {
             r = send => r.map_err(|e| SttError::Network(e.to_string()))?,
             _ = cancel.cancelled() => return Err(SttError::Other(CANCELLED_MESSAGE.into())),
@@ -292,7 +316,11 @@ impl SttEngine for SttHttpClient {
     async fn warm_up(&self) {
         let _ = self
             .client
-            .get(format!("{}{}", self.base_url, self.spec.wire.warm_up_path()))
+            .get(format!(
+                "{}{}",
+                self.base_url,
+                self.spec.wire.warm_up_path()
+            ))
             .timeout(WARM_UP_TIMEOUT)
             .send()
             .await;
@@ -303,7 +331,8 @@ impl SttEngine for SttHttpClient {
         samples: &[f32],
         keyterms: Keyterms<'_>,
     ) -> Result<String, SttError> {
-        let wav = audio::encode_wav_16k_mono(samples).map_err(|e| SttError::Other(e.to_string()))?;
+        let wav =
+            audio::encode_wav_16k_mono(samples).map_err(|e| SttError::Other(e.to_string()))?;
         let part = reqwest::multipart::Part::bytes(wav)
             .mime_str(WAV_MIME)
             .map_err(|e| SttError::Other(e.to_string()))?;

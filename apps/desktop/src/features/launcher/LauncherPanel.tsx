@@ -10,6 +10,7 @@ import type { LauncherPanelProps, SetSetting } from "./contract";
 import { LaunchBar } from "./LaunchBar";
 import { LauncherSearch } from "./LauncherSearch";
 import { DEFAULT_SCREEN, type ScreenId } from "./screens";
+import { DiagnosticsScreen } from "./screens/DiagnosticsScreen";
 import { PermissionsScreen } from "./screens/PermissionsScreen";
 import { SettingsScreen } from "./screens/SettingsScreen";
 import { UpdatesScreen, type CheckState } from "./screens/UpdatesScreen";
@@ -176,6 +177,7 @@ export function LauncherPanel({
             {screen === "updates" && (
               <UpdatesScreen updater={updater} checkState={checkState} onCheck={checkUpdates} />
             )}
+            {screen === "diagnostics" && <DiagnosticsScreen settings={draft} />}
             {screen === "contexts" && (
               <ScreenShell screen="contexts">
                 <ContextLibraryPanel api={contextLibrary} />

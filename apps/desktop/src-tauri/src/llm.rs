@@ -16,10 +16,11 @@ use http::{Credential, LlmHttp};
 
 /// Transport shared by every vendor: pool, auth, status mapping, SSE pumping.
 pub mod http;
-/// The OpenAI Responses dialect, shared by more than one vendor.
-pub mod responses;
+pub mod openrouter;
 /// The one table a new vendor is declared in; exported to the frontend.
 pub mod registry;
+/// The OpenAI Responses dialect, shared by more than one vendor.
+pub mod responses;
 /// Dispatches each request to the vendor that owns the requested model.
 pub mod router;
 
@@ -129,6 +130,9 @@ pub trait LlmStreamSink: Send {
 pub trait LlmProvider: Send + Sync {
     fn provider_id(&self) -> &'static str;
     fn known_models(&self) -> Vec<ModelInfo>;
+    fn owns_model(&self, _model_id: &str) -> bool {
+        false
+    }
     async fn stream(
         &self,
         request: LlmRequest,
@@ -216,7 +220,11 @@ pub fn thinking_value(info: Option<&ModelInfo>, model_id: &str, requested: bool)
     }
 }
 
-pub fn web_search_value(info: Option<&ModelInfo>, model_id: &str, requested: bool) -> Option<Value> {
+pub fn web_search_value(
+    info: Option<&ModelInfo>,
+    model_id: &str,
+    requested: bool,
+) -> Option<Value> {
     if !requested {
         return None;
     }
@@ -233,14 +241,17 @@ pub fn web_search_value(info: Option<&ModelInfo>, model_id: &str, requested: boo
 }
 
 pub(crate) fn build_http_client(read_timeout: Duration) -> reqwest::Client {
-    reqwest::Client::builder()
+    let builder = reqwest::Client::builder()
         .user_agent(APP_USER_AGENT)
         .connect_timeout(CONNECT_TIMEOUT)
         .read_timeout(read_timeout)
         .pool_idle_timeout(None)
         .http2_keep_alive_interval(HTTP2_KEEP_ALIVE_INTERVAL)
         .http2_keep_alive_timeout(HTTP2_KEEP_ALIVE_TIMEOUT)
-        .http2_keep_alive_while_idle(true)
+        .http2_keep_alive_while_idle(true);
+    #[cfg(test)]
+    let builder = builder.no_proxy();
+    builder
         .build()
         .expect("reqwest client")
 }
@@ -263,28 +274,16 @@ pub(crate) async fn require_ok_status(
 ) -> Result<reqwest::Response, LlmError> {
     match resp.status().as_u16() {
         200 => Ok(resp),
-        code @ (401 | 403) if proxy => Err(LlmError::Api(api_error_message(resp, code).await)),
-        401 | 403 => Err(LlmError::BadApiKey(key_label)),
-        code @ (429 | 500..=599) => Err(LlmError::Retryable(code)),
-        code => Err(LlmError::Api(api_error_message(resp, code).await)),
-    }
-}
-
-const ERROR_BODY_SNIPPET_CHARS: usize = 120;
-
-pub(crate) async fn api_error_message(resp: reqwest::Response, code: u16) -> String {
-    let body = resp.text().await.unwrap_or_default();
-    serde_json::from_str::<Value>(&body)
-        .ok()
-        .and_then(|v| v["error"]["message"].as_str().map(str::to_string))
-        .unwrap_or_else(|| {
-            let snippet: String = body.trim().chars().take(ERROR_BODY_SNIPPET_CHARS).collect();
-            if snippet.is_empty() {
-                format!("HTTP {code}")
-            } else {
-                format!("HTTP {code}: {snippet}")
+        _ => {
+            let (code, body, message) = crate::error::http::read_body(resp).await;
+            match crate::error::http::classify(code, &body, proxy) {
+                crate::error::http::HttpClass::BadAccessCode => Err(LlmError::Api(message)),
+                crate::error::http::HttpClass::BadApiKey => Err(LlmError::BadApiKey(key_label)),
+                crate::error::http::HttpClass::Retryable => Err(LlmError::Retryable(code)),
+                crate::error::http::HttpClass::Api => Err(LlmError::Api(message)),
             }
-        })
+        }
+    }
 }
 
 pub(crate) async fn pump_sse_stream(
@@ -313,6 +312,7 @@ pub(crate) async fn pump_sse_stream(
                     }
                     return Ok(());
                 }
+                SseOut::Retryable(code, _message) => return Err(LlmError::Retryable(code)),
                 SseOut::ApiError(m) => return Err(LlmError::Api(m)),
             }
         }
@@ -321,21 +321,29 @@ pub(crate) async fn pump_sse_stream(
 
 impl AnthropicClient {
     pub fn new(api_key: String) -> Self {
-        Self::over(
-            LlmHttp::direct(
-                ANTHROPIC_BASE_URL,
-                Credential::ApiKeyHeader { header: API_KEY_HEADER, key: api_key },
-                ANTHROPIC_KEY_LABEL,
-            ),
-        )
+        Self::over(LlmHttp::direct(
+            ANTHROPIC_BASE_URL,
+            Credential::ApiKeyHeader {
+                header: API_KEY_HEADER,
+                key: api_key,
+            },
+            ANTHROPIC_KEY_LABEL,
+        ))
     }
 
     pub fn for_proxy(access_token: String, base_url: String) -> Self {
-        Self::over(LlmHttp::proxied(base_url, access_token, ANTHROPIC_KEY_LABEL))
+        Self::over(LlmHttp::proxied(
+            base_url,
+            access_token,
+            ANTHROPIC_KEY_LABEL,
+        ))
     }
 
     fn over(http: LlmHttp) -> Self {
-        Self { http: http.with_headers(ANTHROPIC_HEADERS), catalog: ModelCatalog::default() }
+        Self {
+            http: http.with_headers(ANTHROPIC_HEADERS),
+            catalog: ModelCatalog::default(),
+        }
     }
 
     pub fn with_catalog(mut self, catalog: ModelCatalog) -> Self {
@@ -562,6 +570,7 @@ pub enum SseOut {
     TextDelta(String),
     InputTokens(u32),
     Done(Option<u32>),
+    Retryable(u16, String),
     ApiError(String),
 }
 
@@ -584,7 +593,11 @@ impl SseParser {
     }
 
     pub fn with_block_parser(parse_block: SseBlockParser) -> Self {
-        Self { buf: String::new(), tail: Vec::new(), parse_block }
+        Self {
+            buf: String::new(),
+            tail: Vec::new(),
+            parse_block,
+        }
     }
 
     pub fn feed(&mut self, chunk: &str) -> Vec<SseOut> {
@@ -649,7 +662,10 @@ fn parse_anthropic_block(block: &str) -> Option<SseOut> {
         }
         "message_stop" => Some(SseOut::Done(None)),
         "error" => Some(SseOut::ApiError(
-            v["error"]["message"].as_str().unwrap_or(UNKNOWN_API_ERROR).to_string(),
+            v["error"]["message"]
+                .as_str()
+                .unwrap_or(UNKNOWN_API_ERROR)
+                .to_string(),
         )),
         _ => None,
     }

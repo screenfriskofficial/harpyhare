@@ -51,6 +51,9 @@ export const commands = {
 } | null>("check_for_update"),
 	installUpdate: () => __TAURI_INVOKE<null>("install_update"),
 	getAppVersion: () => __TAURI_INVOKE<string>("get_app_version"),
+	getDiagnostics: () => __TAURI_INVOKE<DiagnosticReport>("get_diagnostics"),
+	clearDiagnostics: () => __TAURI_INVOKE<void>("clear_diagnostics"),
+	runPreflight: (model: string) => __TAURI_INVOKE<PreflightReport>("run_preflight", { model }),
 };
 
 /* Constants */
@@ -58,13 +61,13 @@ export const DEFAULT_MODEL = "claude-haiku-4-5-20251001" as const;
 
 export const HOTKEY_ACTIONS = [{"defaultCombo":{"macos":"Cmd+R","windows":"Ctrl+R"},"group":"Запись","hint":"Удерживайте, пока говорит собеседник.","id":"record","kind":"combo","label":"Записать системный звук","scope":"global"},{"defaultCombo":{"macos":"Cmd+Q","windows":"Ctrl+Q"},"group":"Запись","hint":"Удерживайте, пока говорите вы.","id":"record_microphone","kind":"combo","label":"Записать микрофон","scope":"global"},{"defaultCombo":{"macos":"Escape","windows":"Escape"},"group":"Запись","hint":"Слушается только пока идёт запись.","id":"cancel_recording","kind":"combo","label":"Отменить запись","scope":"recording"},{"defaultCombo":{"macos":"Cmd+Enter","windows":"Ctrl+Enter"},"group":"Отправка","hint":"Работает из любого места окна, не только из поля ввода.","id":"send","kind":"combo","label":"Отправить","scope":"hud"},{"defaultCombo":{"macos":"Escape","windows":"Escape"},"group":"Отправка","hint":"Слушается, только пока пишется ответ.","id":"cancel_stream","kind":"combo","label":"Остановить ответ","scope":"streaming"},{"defaultCombo":{"macos":"Cmd+Shift+S","windows":"Ctrl+Shift+S"},"group":"Отправка","hint":"Выделенная область уходит вложением в чат.","id":"screenshot","kind":"combo","label":"Снимок области экрана","scope":"global"},{"defaultCombo":{"macos":"Cmd","windows":"Ctrl"},"group":"Отправка","hint":"Модификатор с цифрой: 1…9 по порядку кнопок.","id":"quick_action","kind":"modifier_digits","label":"Быстрое действие","scope":"hud"},{"defaultCombo":{"macos":"Cmd+Shift+D","windows":"Ctrl+Shift+D"},"group":"Отправка","hint":"Поднимает окно и ставит каретку в конец текста.","id":"focus_prompt","kind":"combo","label":"Сфокусировать поле ввода","scope":"global"},{"defaultCombo":{"macos":"Cmd+Shift+H","windows":"Ctrl+Shift+H"},"group":"Окно","hint":"Сжимает окно в компактный статус и обратно, работает из любого приложения.","id":"toggle_window","kind":"combo","label":"Свернуть или развернуть","scope":"global"},{"defaultCombo":{"macos":"F12","windows":"F12"},"group":"Окно","hint":"Мгновенно сворачивает окно в mini-режим. Повторное нажатие — разворачивает обратно.","id":"panic","kind":"combo","label":"Клавиша паники","scope":"global"},{"defaultCombo":{"macos":"Cmd","windows":"Ctrl"},"group":"Окно","hint":"Модификатор со стрелками.","id":"move_window","kind":"modifier_arrows","label":"Передвинуть","scope":"hud"},{"defaultCombo":{"macos":"Cmd+Shift","windows":"Ctrl+Shift"},"group":"Окно","hint":"Модификатор со стрелками.","id":"resize_window","kind":"modifier_arrows","label":"Изменить размер","scope":"hud"},{"defaultCombo":{"macos":"Cmd+Shift","windows":"Ctrl+Shift"},"group":"Окно","hint":"Модификатор с плюсом и минусом.","id":"opacity","kind":"modifier_plus_minus","label":"Прозрачность","scope":"hud"},{"defaultCombo":{"macos":"Cmd","windows":"Ctrl"},"group":"Чат","hint":"Модификатор с квадратными скобками.","id":"chat_font_size","kind":"modifier_brackets","label":"Размер шрифта","scope":"hud"},{"defaultCombo":{"macos":"Alt","windows":"Alt"},"group":"Чат","hint":"Модификатор со стрелками вверх и вниз.","id":"scroll_chat","kind":"modifier_arrows","label":"Скролл переписки","scope":"hud"},{"defaultCombo":{"macos":"Cmd+Shift+N","windows":"Ctrl+Shift+N"},"group":"Чат","hint":"Новый чат с параметрами текущего, работает из любого приложения.","id":"duplicate_chat","kind":"combo","label":"Дубликат чата","scope":"global"},{"defaultCombo":{"macos":"Cmd+Shift+M","windows":"Ctrl+Shift+M"},"group":"Чат","hint":"Выбор голосовой модели и модели ответа.","id":"model_menu","kind":"combo","label":"Меню моделей","scope":"hud"},{"defaultCombo":{"macos":"Cmd+T","windows":"Ctrl+T"},"group":"Чат","hint":"Крупный текст ответа поверх экрана.","id":"teleprompter","kind":"combo","label":"Суфлёр","scope":"global"},{"defaultCombo":{"macos":"Cmd+Shift+L","windows":"Ctrl+Shift+L"},"group":"Заметки","hint":"Переключает окно между чатом и заметками.","id":"toggle_mode","kind":"combo","label":"Режим заметок","scope":"hud"},{"defaultCombo":{"macos":"Escape","windows":"Escape"},"group":"Суфлёр","hint":"Слушается только пока суфлёр открыт.","id":"teleprompter_close","kind":"combo","label":"Закрыть суфлёр","scope":"teleprompter"},{"defaultCombo":{"macos":"Space","windows":"Space"},"group":"Суфлёр","hint":"Останавливает автопрокрутку.","id":"teleprompter_pause","kind":"combo","label":"Пауза суфлёра","scope":"teleprompter"}] as const;
 
-export const LLM_PROVIDERS = [{"catalog":[{"adaptive":true,"alwaysThinks":false,"codeExec":true,"displayName":"Claude Opus 4.8","id":"claude-opus-4-8"},{"adaptive":true,"alwaysThinks":false,"codeExec":true,"displayName":"Claude Sonnet 5","id":"claude-sonnet-5"},{"adaptive":false,"alwaysThinks":false,"codeExec":false,"displayName":"Claude Haiku 4.5","id":"claude-haiku-4-5-20251001"}],"defaultModel":"claude-haiku-4-5-20251001","families":["opus","sonnet","haiku"],"id":"anthropic","keyId":"anthropic","label":"Claude","proxied":true},{"catalog":[{"adaptive":true,"alwaysThinks":false,"codeExec":true,"displayName":"GPT-5.6 Terra","id":"gpt-5.6-terra"},{"adaptive":true,"alwaysThinks":false,"codeExec":true,"displayName":"GPT-5.6 Sol","id":"gpt-5.6-sol"},{"adaptive":true,"alwaysThinks":false,"codeExec":true,"displayName":"GPT-5.6 Luna","id":"gpt-5.6-luna"},{"adaptive":true,"alwaysThinks":true,"codeExec":true,"displayName":"GPT-5.5 Pro","id":"gpt-5.5-pro"},{"adaptive":true,"alwaysThinks":false,"codeExec":true,"displayName":"GPT-5.4 mini","id":"gpt-5.4-mini"}],"defaultModel":"gpt-5.4-mini","families":[],"id":"openai","keyId":"openai","label":"OpenAI","proxied":true},{"catalog":[{"adaptive":true,"alwaysThinks":false,"codeExec":true,"displayName":"Grok 4.6","id":"grok-4.6"},{"adaptive":true,"alwaysThinks":false,"codeExec":true,"displayName":"Grok 4.5","id":"grok-4.5"},{"adaptive":true,"alwaysThinks":false,"codeExec":true,"displayName":"Grok 4.3","id":"grok-4.3"}],"defaultModel":"grok-4.3","families":[],"id":"xai","keyId":"xai","label":"Grok","proxied":true},{"catalog":[],"defaultModel":"","families":[],"id":"xclis","keyId":"xclis","label":"Xclis","proxied":false}] as const;
+export const LLM_PROVIDERS = [{"catalog":[{"adaptive":true,"alwaysThinks":false,"codeExec":true,"displayName":"Claude Opus 4.8","id":"claude-opus-4-8"},{"adaptive":true,"alwaysThinks":false,"codeExec":true,"displayName":"Claude Sonnet 5","id":"claude-sonnet-5"},{"adaptive":false,"alwaysThinks":false,"codeExec":false,"displayName":"Claude Haiku 4.5","id":"claude-haiku-4-5-20251001"}],"defaultModel":"claude-haiku-4-5-20251001","families":["opus","sonnet","haiku"],"id":"anthropic","keyId":"anthropic","label":"Claude","proxied":true},{"catalog":[{"adaptive":true,"alwaysThinks":false,"codeExec":true,"displayName":"GPT-5.6 Terra","id":"gpt-5.6-terra"},{"adaptive":true,"alwaysThinks":false,"codeExec":true,"displayName":"GPT-5.6 Sol","id":"gpt-5.6-sol"},{"adaptive":true,"alwaysThinks":false,"codeExec":true,"displayName":"GPT-5.6 Luna","id":"gpt-5.6-luna"},{"adaptive":true,"alwaysThinks":true,"codeExec":true,"displayName":"GPT-5.5 Pro","id":"gpt-5.5-pro"},{"adaptive":true,"alwaysThinks":false,"codeExec":true,"displayName":"GPT-5.4 mini","id":"gpt-5.4-mini"}],"defaultModel":"gpt-5.4-mini","families":[],"id":"openai","keyId":"openai","label":"OpenAI","proxied":true},{"catalog":[{"adaptive":true,"alwaysThinks":false,"codeExec":true,"displayName":"Grok 4.6","id":"grok-4.6"},{"adaptive":true,"alwaysThinks":false,"codeExec":true,"displayName":"Grok 4.5","id":"grok-4.5"},{"adaptive":true,"alwaysThinks":false,"codeExec":true,"displayName":"Grok 4.3","id":"grok-4.3"}],"defaultModel":"grok-4.3","families":[],"id":"xai","keyId":"xai","label":"Grok","proxied":true},{"catalog":[],"defaultModel":"","families":[],"id":"xclis","keyId":"xclis","label":"Xclis","proxied":false},{"catalog":[{"adaptive":true,"alwaysThinks":false,"codeExec":false,"displayName":"Anthropic: Claude Haiku 4.5","id":"openrouter/anthropic/claude-haiku-4.5"},{"adaptive":true,"alwaysThinks":false,"codeExec":false,"displayName":"Anthropic: Claude Sonnet 4.5","id":"openrouter/anthropic/claude-sonnet-4.5"},{"adaptive":true,"alwaysThinks":false,"codeExec":false,"displayName":"Anthropic: Claude Sonnet 5","id":"openrouter/anthropic/claude-sonnet-5"}],"defaultModel":"openrouter/anthropic/claude-haiku-4.5","families":[],"id":"openrouter","keyId":"openrouter","label":"OpenRouter","proxied":false}] as const;
 
 export const MODIFIER_COMBOS = {"macos":["Cmd","Ctrl","Alt","Cmd+Shift","Ctrl+Shift","Alt+Shift"],"windows":["Ctrl","Alt","Ctrl+Shift","Alt+Shift"]} as const;
 
 export const QUICK_ACTION_LIMIT = 9 as const;
 
-export const SETTINGS_DEFAULTS = {"access_token":"","anthropic_api_key":"","audio_permission_requested":false,"auto_preview_html":true,"auto_send":false,"buffer_enabled":true,"buffer_seconds":4,"capture_device_uid":"","chat_font_size":13.5,"deepgram_api_key":"","groq_api_key":"","hotkeys":[],"microphone_device_uid":"","move_step":20,"openai_api_key":"","prompt_presets":[],"quick_action_attachments":false,"quick_actions":[{"id":"detail","prompt":"Расскажи более подробно.","title":"Подробнее"},{"id":"brief","prompt":"Ответь короче, только суть.","title":"Короче"},{"id":"code","prompt":"Покажи пример кода.","title":"Пример кода"}],"resize_step":20,"screen_permission_requested":false,"screen_share_visible":false,"scroll_step":120,"skipped_version":"","stt_language":"ru","stt_provider":"groq","stt_translate":false,"teleprompter_font_size":28.0,"teleprompter_resume":true,"teleprompter_speed":40.0,"theme":"gray","window_height":680.0,"window_opacity":0.9,"window_width":960.0,"xai_api_key":"","xclis_api_key":""} as const;
+export const SETTINGS_DEFAULTS = {"access_token":"","anthropic_api_key":"","audio_permission_requested":false,"auto_preview_html":true,"auto_send":false,"buffer_enabled":true,"buffer_seconds":4,"capture_device_uid":"","chat_font_size":13.5,"deepgram_api_key":"","groq_api_key":"","hotkeys":[],"microphone_device_uid":"","move_step":20,"openai_api_key":"","openrouter_api_key":"","prompt_presets":[],"quick_action_attachments":false,"quick_actions":[{"id":"detail","prompt":"Расскажи более подробно.","title":"Подробнее"},{"id":"brief","prompt":"Ответь короче, только суть.","title":"Короче"},{"id":"code","prompt":"Покажи пример кода.","title":"Пример кода"}],"resize_step":20,"screen_permission_requested":false,"screen_share_visible":false,"scroll_step":120,"skipped_version":"","stt_language":"ru","stt_provider":"groq","stt_translate":false,"teleprompter_font_size":28.0,"teleprompter_resume":true,"teleprompter_speed":40.0,"theme":"gray","window_height":680.0,"window_opacity":0.9,"window_width":960.0,"xai_api_key":"","xclis_api_key":""} as const;
 
 export const SETTINGS_LIMITS = {"bufferSeconds":{"default":4,"max":10,"min":1},"chatFontSize":{"default":13.5,"max":20.0,"min":10.0},"moveStep":{"default":20,"max":200,"min":1},"resizeStep":{"default":20,"max":200,"min":1},"scrollStep":{"default":120,"max":1000,"min":10},"teleprompterFontSize":{"default":28.0,"max":48.0,"min":20.0},"teleprompterSpeed":{"default":40.0,"max":150.0,"min":10.0},"windowHeight":{"default":680.0,"max":1100.0,"min":520.0},"windowOpacity":{"default":0.9,"max":1.0,"min":0.2},"windowWidth":{"default":960.0,"max":1600.0,"min":300.0}} as const;
 
@@ -87,6 +90,42 @@ export type ChatMessage = {
 	images?: ImageAttachment[],
 };
 
+export type CheckResult = {
+	step: CheckStep,
+	status: CheckStatus,
+	durationMs: number,
+	errorCode: ErrorCode | null,
+	detail: string,
+};
+
+export type CheckStatus = "passed" | "failed" | "skipped";
+
+export type CheckStep = "systemAudio" | "microphone" | "transcription" | "answer";
+
+export type DiagnosticKind = "capture" | "transcription" | "answer";
+
+export type DiagnosticOrigin = "session" | "preflight";
+
+export type DiagnosticRecord = {
+	id: string,
+	startedAt: number | null,
+	kind: DiagnosticKind,
+	origin: DiagnosticOrigin,
+	provider: string,
+	model: string,
+	totalMs: number,
+	firstTextMs: number | null,
+	errorCode: ErrorCode | null,
+	requests: HttpObservation[],
+};
+
+export type DiagnosticReport = {
+	schemaVersion: number,
+	appVersion: string,
+	platform: string,
+	records: DiagnosticRecord[],
+};
+
 export type ErrorCode = "network" | "badApiKey" | "badAccessCode" | "retryable" | "api" | "cancelled" | "permission" | "silence" | "internal";
 
 export type HotkeyAction = {
@@ -107,6 +146,13 @@ export type HotkeyBinding = {
 export type HotkeyKind = "combo" | "modifier_arrows" | "modifier_plus_minus" | "modifier_digits" | "modifier_brackets";
 
 export type HotkeyScope = "global" | "recording" | "hud" | "teleprompter" | "streaming";
+
+export type HttpObservation = {
+	status: number,
+	requestId: string | null,
+	retryAfterSeconds: number | null,
+	elapsedMs: number,
+};
 
 export type ImageAttachment = {
 	media_type: string,
@@ -161,6 +207,10 @@ export type PlatformCombo = {
 	windows: string,
 };
 
+export type PreflightReport = {
+	checks: CheckResult[],
+};
+
 export type PromptPreset = {
 	id: string,
 	name: string,
@@ -199,6 +249,7 @@ export type Settings = {
 	xai_api_key?: string,
 	deepgram_api_key?: string,
 	xclis_api_key?: string,
+	openrouter_api_key?: string,
 	access_token?: string,
 	prompt_presets?: PromptPreset[],
 	hotkeys?: HotkeyBinding[],

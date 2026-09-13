@@ -14,6 +14,7 @@ const OPENAI_API_KEY_ENV: &str = "OPENAI_API_KEY";
 const XAI_API_KEY_ENV: &str = "XAI_API_KEY";
 const DEEPGRAM_API_KEY_ENV: &str = "DEEPGRAM_API_KEY";
 const XCLIS_API_KEY_ENV: &str = "XCLIS_API_KEY";
+const OPENROUTER_API_KEY_ENV: &str = "OPENROUTER_API_KEY";
 
 pub fn load_dotenv_files() {
     let _ = dotenvy::dotenv();
@@ -35,6 +36,7 @@ pub fn load_settings_with_env_key_fallback(app: &AppHandle) -> settings::Setting
         std::env::var(XAI_API_KEY_ENV).ok(),
         std::env::var(DEEPGRAM_API_KEY_ENV).ok(),
         std::env::var(XCLIS_API_KEY_ENV).ok(),
+        std::env::var(OPENROUTER_API_KEY_ENV).ok(),
     );
     settings
 }
@@ -59,6 +61,7 @@ pub fn set_settings(
 ) -> Result<settings::Settings, String> {
     new_settings.clamp();
     let st = app.state::<App>();
+    let _edit = st.settings_edit.lock().unwrap();
     let old = st.settings.lock().unwrap().clone();
     let capture_device_changed = old.capture_device_uid != new_settings.capture_device_uid;
     let hotkeys_changed = old.hotkeys != new_settings.hotkeys;
@@ -121,6 +124,7 @@ pub async fn redeem_access_code(
 
 fn apply_access_token(app: &AppHandle, token: String) -> Result<(), String> {
     let st = app.state::<App>();
+    let _edit = st.settings_edit.lock().unwrap();
     let old = st.settings.lock().unwrap().clone();
     let mut new_settings = old.clone();
     new_settings.access_token = token;

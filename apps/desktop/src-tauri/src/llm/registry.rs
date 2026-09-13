@@ -3,6 +3,7 @@ use serde::Serialize;
 use super::{
     ModelInfo, PROVIDER_ANTHROPIC, PROVIDER_OPENAI, PROVIDER_XAI, UNKNOWN_MAX_INPUT_TOKENS,
 };
+use crate::llm::openrouter;
 
 /// Клиент Xclis: OpenAI-совместимый Chat Completions, свой SSE-разбор и
 /// собственная кодировка рассуждения суффиксом модели.
@@ -101,6 +102,10 @@ pub enum LlmWire {
         base_url: &'static str,
         key_label: &'static str,
     },
+    OpenRouter {
+        base_url: &'static str,
+        key_label: &'static str,
+    },
 }
 
 impl LlmWire {
@@ -108,7 +113,8 @@ impl LlmWire {
         match self {
             LlmWire::Anthropic { base_url, .. }
             | LlmWire::Responses { base_url, .. }
-            | LlmWire::Xclis { base_url, .. } => base_url,
+            | LlmWire::Xclis { base_url, .. }
+            | LlmWire::OpenRouter { base_url, .. } => base_url,
         }
     }
 
@@ -116,7 +122,8 @@ impl LlmWire {
         match self {
             LlmWire::Anthropic { key_label, .. }
             | LlmWire::Responses { key_label, .. }
-            | LlmWire::Xclis { key_label, .. } => key_label,
+            | LlmWire::Xclis { key_label, .. }
+            | LlmWire::OpenRouter { key_label, .. } => key_label,
         }
     }
 }
@@ -133,6 +140,30 @@ impl LlmWire {
 /// сюда любую модель значит обещать то, чего у конкретной группы может не быть,
 /// — ровно так дефолт `claude-sonnet-5` и оказался несуществующим.
 const XCLIS_MODELS: &[CatalogModel] = &[];
+
+const OPENROUTER_MODELS: &[CatalogModel] = &[
+    CatalogModel {
+        id: "openrouter/anthropic/claude-haiku-4.5",
+        display_name: "Anthropic: Claude Haiku 4.5",
+        adaptive: true,
+        always_thinks: false,
+        code_exec: false,
+    },
+    CatalogModel {
+        id: "openrouter/anthropic/claude-sonnet-4.5",
+        display_name: "Anthropic: Claude Sonnet 4.5",
+        adaptive: true,
+        always_thinks: false,
+        code_exec: false,
+    },
+    CatalogModel {
+        id: "openrouter/anthropic/claude-sonnet-5",
+        display_name: "Anthropic: Claude Sonnet 5",
+        adaptive: true,
+        always_thinks: false,
+        code_exec: false,
+    },
+];
 
 const CLAUDE_MODELS: &[CatalogModel] = &[
     CatalogModel {
@@ -296,6 +327,19 @@ pub const PROVIDERS: &[LlmProviderSpec] = &[
         wire: LlmWire::Xclis {
             base_url: "https://jp.xclis.ai",
             key_label: "Xclis",
+        },
+    },
+    LlmProviderSpec {
+        id: openrouter::PROVIDER_OPENROUTER,
+        label: "OpenRouter",
+        key_id: "openrouter",
+        families: &[],
+        catalog: OPENROUTER_MODELS,
+        default_model: "openrouter/anthropic/claude-haiku-4.5",
+        proxied: false,
+        wire: LlmWire::OpenRouter {
+            base_url: "https://openrouter.ai/api",
+            key_label: "OpenRouter",
         },
     },
 ];

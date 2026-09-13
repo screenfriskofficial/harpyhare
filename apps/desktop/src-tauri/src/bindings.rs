@@ -2,8 +2,8 @@ use tauri_specta::{collect_commands, Builder, ErrorHandlingMode};
 
 use crate::settings::{self, SettingsLimits};
 use crate::{
-    chat, clipboard, events, hotkeys, llm, permissions, preferences, recording, screenshot,
-    storage, stt, system, window,
+    chat, clipboard, diagnostics, events, hotkeys, llm, permissions, preferences, preflight,
+    recording, screenshot, storage, stt, system, window,
 };
 
 pub const BINDINGS_OUTPUT_PATH: &str = "../src/ipc/bindings.ts";
@@ -55,8 +55,18 @@ pub fn builder() -> Builder<tauri::Wry> {
             system::check_for_update,
             system::install_update,
             system::get_app_version,
+            diagnostics::get_diagnostics,
+            diagnostics::clear_diagnostics,
+            preflight::run_preflight,
         ])
         .typ::<crate::error::AppError>()
+        .typ::<diagnostics::DiagnosticRecord>()
+        .typ::<diagnostics::DiagnosticReport>()
+        .typ::<diagnostics::HttpObservation>()
+        .typ::<preflight::CheckResult>()
+        .typ::<preflight::PreflightReport>()
+        .typ::<preflight::CheckStatus>()
+        .typ::<preflight::CheckStep>()
         .typ::<crate::state::RecorderState>()
         .typ::<events::LlmDelta>()
         .typ::<events::LlmDone>()
@@ -78,7 +88,10 @@ pub fn builder() -> Builder<tauri::Wry> {
         .constant(SETTINGS_DEFAULTS_CONSTANT, settings::Settings::default())
         .constant(MODIFIER_COMBOS_CONSTANT, hotkeys::MODIFIER_COMBOS)
         .constant(HOTKEY_ACTIONS_CONSTANT, hotkeys::HOTKEY_ACTIONS)
-        .constant(QUICK_ACTION_LIMIT_CONSTANT, settings::QUICK_ACTION_LIMIT as u32)
+        .constant(
+            QUICK_ACTION_LIMIT_CONSTANT,
+            settings::QUICK_ACTION_LIMIT as u32,
+        )
         .constant(LLM_PROVIDERS_CONSTANT, llm::registry::PROVIDERS)
         .constant(STT_PROVIDERS_CONSTANT, stt::registry::PROVIDERS)
         .constant(DEFAULT_MODEL_CONSTANT, llm::DEFAULT_MODEL)

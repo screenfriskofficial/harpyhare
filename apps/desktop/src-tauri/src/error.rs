@@ -1,5 +1,7 @@
 use serde::Serialize;
 
+pub mod http;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub enum ErrorCode {

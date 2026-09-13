@@ -1,7 +1,8 @@
 import { MODEL_PROVIDERS } from "./models";
 import { STT_PROVIDERS, sttProviderKeyId } from "./stt-providers";
 
-export type ApiKeyId = "anthropic" | "groq" | "openai" | "xai" | "deepgram" | "xclis";
+export type ApiKeyId =
+  "anthropic" | "groq" | "openai" | "xai" | "deepgram" | "xclis" | "openrouter";
 
 export interface ApiKeyInfo {
   id: ApiKeyId;
@@ -47,6 +48,12 @@ const API_KEYS = [
     purpose: "ответов через агрегатор Xclis",
     consoleUrl: "https://jp.xclis.ai/",
   },
+  {
+    id: "openrouter",
+    name: "OpenRouter",
+    purpose: "ответов Claude через OpenRouter",
+    consoleUrl: "https://openrouter.ai/settings/keys",
+  },
 ] as const satisfies readonly ApiKeyInfo[];
 
 export const API_KEY_IDS: readonly ApiKeyId[] = API_KEYS.map((k) => k.id);
@@ -62,6 +69,7 @@ export interface ApiKeySettings {
   xai_api_key: string;
   deepgram_api_key: string;
   xclis_api_key: string;
+  openrouter_api_key: string;
   access_token: string;
   stt_provider: string;
 }

@@ -8,7 +8,8 @@ Built with Tauri 2, Rust, React 19, TypeScript, Vite, and Nx.
 
 - System audio capture with push-to-talk
 - Speech-to-text via Deepgram, Groq Whisper, or OpenAI
-- Streaming answers from Anthropic
+- Streaming answers from Anthropic, OpenAI, xAI, Xclis, or OpenRouter
+- OpenRouter Claude Haiku and Sonnet models
 - Context library and reusable presets
 - Screenshot attachments
 - Configurable global shortcuts
@@ -49,6 +50,10 @@ npm install
 ```
 
 API keys and application settings can be entered in the launcher UI.
+
+OpenRouter uses a personal API key. In the launcher, enter it under API access
+and then choose an OpenRouter Claude Haiku or Sonnet model in the HUD model menu.
+The optional environment variable for local development is `OPENROUTER_API_KEY`.
 
 For local development, API keys may also be placed in a root `.env` file. Environment files are ignored by Git and must never be committed.
 

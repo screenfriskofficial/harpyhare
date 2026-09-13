@@ -51,8 +51,13 @@ pub fn install_default_output_device_listener(app: &AppHandle) {
 }
 
 fn handle_default_output_device_changed(app: &AppHandle) {
-    let follows_system_default =
-        app.state::<App>().settings.lock().unwrap().capture_device_uid.is_empty();
+    let follows_system_default = app
+        .state::<App>()
+        .settings
+        .lock()
+        .unwrap()
+        .capture_device_uid
+        .is_empty();
     if follows_system_default {
         request_capture_rebuild(app);
     }
@@ -140,8 +145,11 @@ fn on_ptt_pressed(app: &AppHandle, source: state::RecordingSource) {
     }
     *st.recording_source.lock().unwrap() = Some(source);
     let sink = start_streaming_transcription(app);
-    let started = with_capture_mut(&st, source, |c| c.start(Some(sink)))
-        .unwrap_or_else(|| Err(capture::CaptureError::Audio(ERR_NO_AUDIO_BUFFER.to_string())));
+    let started = with_capture_mut(&st, source, |c| c.start(Some(sink))).unwrap_or_else(|| {
+        Err(capture::CaptureError::Audio(
+            ERR_NO_AUDIO_BUFFER.to_string(),
+        ))
+    });
     if let Err(e) = started {
         st.microphone_capture.lock().unwrap().take();
         cancel_stt_stream(app);
@@ -165,17 +173,18 @@ fn start_streaming_transcription(app: &AppHandle) -> capture::ChunkSink {
     let broken = Arc::new(AtomicBool::new(false));
     let (tx, rx) = tokio::sync::mpsc::channel::<SttBodyChunk>(STT_STREAM_CHANNEL_CAPACITY);
     let header: SttBodyChunk = Ok(audio::wav_header_streaming().to_vec());
-    let body_stream: stt::AudioChunkStream = Box::pin(
-        futures_util::stream::iter([header]).chain(futures_util::stream::unfold(
-            rx,
-            |mut rx| async move { rx.recv().await.map(|item| (item, rx)) },
-        )),
-    );
+    let body_stream: stt::AudioChunkStream = Box::pin(futures_util::stream::iter([header]).chain(
+        futures_util::stream::unfold(rx, |mut rx| async move {
+            rx.recv().await.map(|item| (item, rx))
+        }),
+    ));
     let handle = {
         let cancel = cancel.clone();
-        tauri::async_runtime::spawn(
-            async move { stt_client.transcribe_stream(body_stream, &keyterms, cancel).await },
-        )
+        tauri::async_runtime::spawn(async move {
+            stt_client
+                .transcribe_stream(body_stream, &keyterms, cancel)
+                .await
+        })
     };
     if let Some(old) = st.stt_stream.lock().unwrap().replace(SttStream {
         handle,
@@ -236,9 +245,12 @@ fn stop_capture(
         state::RecordingSource::System => with_capture_mut(st, source, |c| c.stop()),
         // Release the native stream on stop, discard and error. The next PTT
         // resolves the saved UID (or the current default) anew, without preroll.
-        state::RecordingSource::Microphone => {
-            st.microphone_capture.lock().unwrap().take().map(|mut c| c.stop())
-        }
+        state::RecordingSource::Microphone => st
+            .microphone_capture
+            .lock()
+            .unwrap()
+            .take()
+            .map(|mut c| c.stop()),
     }
 }
 
@@ -256,11 +268,9 @@ fn on_ptt_released(app: &AppHandle, source: state::RecordingSource) {
         return;
     }
     let secs = current_recording_secs(&st);
-    let action = st
-        .recorder
-        .lock()
-        .unwrap()
-        .on(state::Event::PttReleased { duration_secs: secs });
+    let action = st.recorder.lock().unwrap().on(state::Event::PttReleased {
+        duration_secs: secs,
+    });
     hotkey::unregister_cancel(app, &hotkey::cancel_combo(app));
     finish_recording(app, action);
 }
@@ -367,9 +377,22 @@ fn deliver_transcript(app: &AppHandle, text: String) {
 async fn transcribe_and_emit(app: AppHandle, samples: Vec<f32>) {
     let stt_client = stt_engine(&app);
     let keyterms = stt_keyterms(&app);
+    let settings = current_settings(&app);
+    let trace = crate::diagnostics::Trace::new(
+        crate::diagnostics::DiagnosticKind::Transcription,
+        crate::diagnostics::DiagnosticOrigin::Session,
+        &settings.stt_provider,
+        "",
+    );
     let t = std::time::Instant::now();
-    let res = stt_client.transcribe(&samples, &keyterms).await;
-    eprintln!("[perf] stt transcribe (wav+upload+inference) {:?}", t.elapsed());
+    let res = trace
+        .scope(stt_client.transcribe(&samples, &keyterms))
+        .await;
+    eprintln!(
+        "[perf] stt transcribe (wav+upload+inference) {:?}",
+        t.elapsed()
+    );
+    trace.finish(res.as_ref().err().map(crate::error::CodedError::code));
     match res {
         Ok(text) => deliver_transcript(&app, text),
         Err(e) => finish_transcription(&app, Err(AppError::from(&e))),
