@@ -142,6 +142,7 @@ describe("hotkeyGroups на macOS", () => {
       .map((h) => h.combo);
     expect(combos).toContain("⌘R");
     expect(combos).toContain("⌘⇧H");
+    expect(combos).toContain("F12");
     expect(combos).toContain("⌘ ←→↑↓");
     expect(combos).toContain("⌘⇧ + −");
     expect(combos).toContain("⌘ 1…9");
@@ -165,6 +166,7 @@ describe("hotkeyGroups на Windows", () => {
       .map((h) => h.combo);
     expect(combos).toContain("Ctrl+R");
     expect(combos).toContain("Ctrl+Shift+H");
+    expect(combos).toContain("F12");
     expect(combos).toContain("Ctrl ←→↑↓");
     expect(combos).toContain("Ctrl+Shift + −");
     expect(combos).toContain("Ctrl 1…9");

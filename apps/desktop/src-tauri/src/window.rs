@@ -22,6 +22,8 @@ const RESIZE_EPSILON_LOGICAL_PX: f64 = 1.0;
 
 const MINI_WINDOW_WIDTH_LOGICAL_PX: f64 = 168.0;
 const MINI_WINDOW_HEIGHT_LOGICAL_PX: f64 = 48.0;
+/// Gap between the mini capsule and the work-area edges after the panic key.
+const PANIC_CORNER_MARGIN_LOGICAL_PX: f64 = 10.0;
 const MINI_MIN_SIZE_RESTORE_DELAY: Duration =
     RESIZE_TWEEN_FRAME_INTERVAL.saturating_mul(RESIZE_TWEEN_STEPS * 2);
 
@@ -83,7 +85,9 @@ fn create_main_window(app: &AppHandle, settings: &settings::Settings) -> Result<
     if main_window(app).is_some() {
         return Ok(());
     }
-    tauri::WebviewWindowBuilder::new(
+    // Built hidden: the shell registers the taskbar button when the window
+    // first becomes visible, so the switcher exclusion must land before `show`.
+    let w = tauri::WebviewWindowBuilder::new(
         app,
         MAIN_WINDOW_LABEL,
         tauri::WebviewUrl::App(MAIN_WINDOW_URL.into()),
@@ -98,6 +102,7 @@ fn create_main_window(app: &AppHandle, settings: &settings::Settings) -> Result<
     .decorations(false)
     .always_on_top(true)
     .visible_on_all_workspaces(true)
+    .visible(false)
     .shadow(false)
     .content_protected(!settings.screen_share_visible)
     .center()
@@ -106,7 +111,10 @@ fn create_main_window(app: &AppHandle, settings: &settings::Settings) -> Result<
     app.state::<App>()
         .window_mini
         .store(false, Ordering::SeqCst);
+    platform::hide_from_window_switcher(app);
     platform::clip_native_window_corners(app);
+    let _ = w.show();
+    let _ = w.set_focus();
     Ok(())
 }
 
@@ -120,6 +128,7 @@ const GLOBAL_HOTKEYS: &[(&str, GlobalRegistrar)] = &[
         hotkeys::ACTION_TOGGLE_WINDOW,
         global_shortcuts::register_toggle,
     ),
+    (hotkeys::ACTION_PANIC, global_shortcuts::register_panic),
     (
         hotkeys::ACTION_TELEPROMPTER,
         global_shortcuts::register_teleprompter,
@@ -199,6 +208,34 @@ pub fn on_toggle_mini(app: &AppHandle) {
         }
         events::toggle_mini(app);
     }
+}
+
+/// Panic key: the same collapse as `toggle_window`, but the capsule ends up
+/// in the top-right corner of the work area — out of the way in one press.
+/// The move happens before the event: the frontend answers `toggle-mini` with
+/// `collapse_main_window`, whose tween is anchored at the current x, so the
+/// window shrinks already in the corner. A second press expands it there.
+pub fn on_panic(app: &AppHandle) {
+    let Some(w) = main_window(app) else {
+        return;
+    };
+    if !app.state::<App>().window_mini.load(Ordering::SeqCst) {
+        move_to_top_right_corner(&w);
+    }
+    on_toggle_mini(app);
+}
+
+fn move_to_top_right_corner(w: &WebviewWindow) {
+    let Ok(Some(monitor)) = w.current_monitor() else {
+        return;
+    };
+    let scale = w.scale_factor().unwrap_or(1.0);
+    let area = monitor.work_area();
+    let margin = (PANIC_CORNER_MARGIN_LOGICAL_PX * scale).round() as i32;
+    let capsule_width = (MINI_WINDOW_WIDTH_LOGICAL_PX * scale).round() as i32;
+    let x = area.position.x + area.size.width as i32 - capsule_width - margin;
+    let y = area.position.y + margin;
+    let _ = w.set_position(tauri::PhysicalPosition::new(x, y));
 }
 
 pub fn on_duplicate_chat(app: &AppHandle) {
@@ -401,15 +438,24 @@ fn clamped_to_work_area(w: &WebviewWindow, scale: f64, width: f64, height: f64) 
     )
 }
 
+/// The clamp works on the OUTER width: `from_x` is an outer position, and on
+/// Windows a resizable frameless window keeps an invisible `WS_THICKFRAME`,
+/// so clamping by the inner width let the frame hang past the screen edge.
 fn anchored_target_x(w: &WebviewWindow, from_x: i32, width: f64, scale: f64) -> i32 {
-    let target_phys_w = (width * scale).round() as u32;
+    let target_inner_w = (width * scale).round() as u32;
+    let target_outer_w = match (w.inner_size(), w.outer_size()) {
+        (Ok(inner), Ok(outer)) => {
+            window_geom::target_outer_width(target_inner_w, inner.width, outer.width)
+        }
+        _ => target_inner_w,
+    };
     let (mon_x, mon_w) = w
         .current_monitor()
         .ok()
         .flatten()
         .map(|m| (m.position().x, m.size().width))
-        .unwrap_or((from_x, target_phys_w));
-    window_geom::clamp_window_x(from_x, target_phys_w, mon_x, mon_w)
+        .unwrap_or((from_x, target_outer_w));
+    window_geom::clamp_window_x(from_x, target_outer_w, mon_x, mon_w)
 }
 
 fn ease_out_cubic(t: f64) -> f64 {

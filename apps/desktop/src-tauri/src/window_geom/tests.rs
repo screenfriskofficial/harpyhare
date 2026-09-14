@@ -34,3 +34,13 @@ fn trims_window_to_the_work_area_on_both_axes() {
 fn leaves_the_mini_capsule_alone() {
     assert_eq!(clamp_window_size(168.0, 48.0, 1512.0, 944.0), (168.0, 48.0));
 }
+
+#[test]
+fn target_outer_width_keeps_the_invisible_windows_frame() {
+    assert_eq!(target_outer_width(960, 960, 976), 976);
+}
+
+#[test]
+fn target_outer_width_does_not_underflow_when_outer_is_smaller() {
+    assert_eq!(target_outer_width(960, 976, 960), 960);
+}

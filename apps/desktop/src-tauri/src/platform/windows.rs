@@ -12,10 +12,15 @@ use windows::Win32::UI::Input::KeyboardAndMouse::{
     GetAsyncKeyState, VIRTUAL_KEY, VK_CONTROL, VK_DOWN, VK_LEFT, VK_LWIN, VK_MENU, VK_RIGHT,
     VK_RWIN, VK_SHIFT, VK_UP,
 };
-use windows::Win32::UI::Shell::ShellExecuteW;
+use windows::Win32::UI::Shell::{
+    DefSubclassProc, RemoveWindowSubclass, SetWindowSubclass, ShellExecuteW,
+};
 use windows::Win32::UI::WindowsAndMessaging::{
-    CallNextHookEx, GetAncestor, GetForegroundWindow, SetWindowsHookExW, GA_ROOTOWNER, HC_ACTION,
-    KBDLLHOOKSTRUCT, SW_SHOWNORMAL, WH_KEYBOARD_LL, WM_KEYDOWN, WM_SYSKEYDOWN,
+    CallNextHookEx, GetAncestor, GetForegroundWindow, GetWindowLongPtrW, SetWindowLongPtrW,
+    SetWindowPos, SetWindowsHookExW, GA_ROOTOWNER, GWL_EXSTYLE, HC_ACTION, KBDLLHOOKSTRUCT,
+    STYLESTRUCT, SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER,
+    SW_SHOWNORMAL, WH_KEYBOARD_LL, WM_KEYDOWN, WM_NCDESTROY, WM_STYLECHANGING, WM_SYSKEYDOWN,
+    WS_EX_APPWINDOW, WS_EX_TOOLWINDOW,
 };
 
 use super::{handle_arrow_key, ModifierMask};
@@ -46,6 +51,79 @@ fn set_dwm_attribute<T>(hwnd: HWND, attribute: DWMWINDOWATTRIBUTE, value: &T) {
             std::mem::size_of::<T>() as u32,
         )
     };
+}
+
+/// Subclass id for the HUD window: comctl32 tells subclasses apart by the
+/// (procedure, id) pair, and the HUD installs exactly one.
+const WINDOW_SWITCHER_SUBCLASS_ID: usize = 1;
+
+/// A tool window has no taskbar button and is skipped by Alt+Tab; the app
+/// window bit forces both back, so it goes together with the tool bit.
+fn switcher_hidden_ex_style(ex_style: u32) -> u32 {
+    (ex_style | WS_EX_TOOLWINDOW.0) & !WS_EX_APPWINDOW.0
+}
+
+/// Rewrites every incoming `GWL_EXSTYLE` so the HUD stays a tool window.
+/// tao recomputes the extended style from its own `WindowFlags` on any
+/// `show`/`hide`/`set_resizable` (`WindowState::apply_diff`), so a style set
+/// once would be undone by the first collapse to mini mode. `WM_STYLECHANGING`
+/// is the documented hook for amending a style change before it lands.
+unsafe extern "system" fn window_switcher_subclass_proc(
+    hwnd: HWND,
+    msg: u32,
+    wparam: WPARAM,
+    lparam: LPARAM,
+    id: usize,
+    _data: usize,
+) -> LRESULT {
+    match msg {
+        WM_STYLECHANGING if wparam.0 as i32 == GWL_EXSTYLE.0 => {
+            // SAFETY: for WM_STYLECHANGING lParam points at a STYLESTRUCT owned
+            // by the caller for the duration of the message.
+            if let Some(style) = unsafe { (lparam.0 as *mut STYLESTRUCT).as_mut() } {
+                style.styleNew = switcher_hidden_ex_style(style.styleNew);
+            }
+        }
+        WM_NCDESTROY => {
+            let _ = unsafe { RemoveWindowSubclass(hwnd, Some(window_switcher_subclass_proc), id) };
+        }
+        _ => {}
+    }
+    unsafe { DefSubclassProc(hwnd, msg, wparam, lparam) }
+}
+
+/// Main thread only: comctl32 subclassing works from the window's own thread,
+/// and `create_main_window` already runs there. Called before the window is
+/// first shown — the shell decides on the taskbar button when the window
+/// becomes visible, and changing the style afterwards leaves a stale button.
+pub fn hide_from_window_switcher(app: &AppHandle) {
+    let Some(w) = main_window(app) else {
+        return;
+    };
+    let Ok(hwnd) = w.hwnd() else {
+        return;
+    };
+    unsafe {
+        let _ = SetWindowSubclass(
+            hwnd,
+            Some(window_switcher_subclass_proc),
+            WINDOW_SWITCHER_SUBCLASS_ID,
+            0,
+        );
+        let current = GetWindowLongPtrW(hwnd, GWL_EXSTYLE) as u32;
+        SetWindowLongPtrW(hwnd, GWL_EXSTYLE, switcher_hidden_ex_style(current) as isize);
+        // The new frame style is applied only once the window is told the
+        // frame changed.
+        let _ = SetWindowPos(
+            hwnd,
+            None,
+            0,
+            0,
+            0,
+            0,
+            SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE,
+        );
+    }
 }
 
 pub fn clip_native_window_corners(app: &AppHandle) {

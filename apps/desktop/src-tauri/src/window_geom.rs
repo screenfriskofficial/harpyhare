@@ -12,5 +12,15 @@ pub fn clamp_window_size(
     (width.min(available_width), height.min(available_height))
 }
 
+/// Outer width the window will have at `target_inner_width`, carrying over
+/// the current frame allowance (`outer - inner`, zero for frameless macOS).
+pub fn target_outer_width(
+    target_inner_width: u32,
+    current_inner_width: u32,
+    current_outer_width: u32,
+) -> u32 {
+    target_inner_width.saturating_add(current_outer_width.saturating_sub(current_inner_width))
+}
+
 #[cfg(test)]
 mod tests;

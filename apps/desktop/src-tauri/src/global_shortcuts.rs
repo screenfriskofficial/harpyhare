@@ -101,6 +101,10 @@ pub fn register_toggle(app: &AppHandle, hotkey: &str) -> Result<(), String> {
     register(app, hotkey, window::on_toggle_mini)
 }
 
+pub fn register_panic(app: &AppHandle, hotkey: &str) -> Result<(), String> {
+    register(app, hotkey, window::on_panic)
+}
+
 pub fn register_teleprompter(app: &AppHandle, hotkey: &str) -> Result<(), String> {
     register(app, hotkey, window::on_toggle_teleprompter)
 }

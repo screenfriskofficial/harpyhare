@@ -149,6 +149,14 @@ pub fn clip_native_window_corners(app: &AppHandle) {
     backend::clip_native_window_corners(app);
 }
 
+/// Keeps the HUD out of the OS window switcher and taskbar (Windows: Alt+Tab
+/// and the taskbar button). Main thread only, right after the window is
+/// built and before it is first shown — see `platform/windows.rs` for why a
+/// one-off style change would not survive.
+pub fn hide_from_window_switcher(app: &AppHandle) {
+    backend::hide_from_window_switcher(app);
+}
+
 pub fn merge_titlebar_into_content(app: &AppHandle) {
     backend::merge_titlebar_into_content(app);
 }

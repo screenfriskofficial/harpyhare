@@ -38,6 +38,10 @@ pub fn disable_cursor_autohide_on_typing() {
 const STYLE_MASK_FULL_SIZE_CONTENT_VIEW: usize = 1 << 15;
 const TITLE_VISIBILITY_HIDDEN: isize = 1;
 
+/// No-op: Cmd+Tab lists applications, not windows, so hiding a single window
+/// would need an app-level activation policy — out of scope for the HUD.
+pub fn hide_from_window_switcher(_app: &AppHandle) {}
+
 pub fn merge_titlebar_into_content(app: &AppHandle) {
     use objc2::{msg_send, runtime::AnyObject};
     let Some(w) = launcher_window(app) else {

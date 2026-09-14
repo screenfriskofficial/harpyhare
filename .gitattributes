@@ -1,0 +1,2 @@
+# Shell hooks must keep Unix line endings on Windows too.
+.husky/* text eol=lf

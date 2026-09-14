@@ -105,6 +105,10 @@ export const en: Dictionary = {
         label: "Collapse or expand",
         hint: "Shrinks the window to a compact status and back, works from any app.",
       },
+      panic: {
+        label: "Panic key",
+        hint: "Shrinks the window to a compact status in the top-right corner of the screen, press again to expand.",
+      },
       move_window: {
         label: "Move",
         hint: "Modifier plus arrow keys.",
