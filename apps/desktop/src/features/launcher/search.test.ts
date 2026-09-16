@@ -8,6 +8,7 @@ const SOURCES: SearchSources = {
   quickActions: [{ id: "quick-1", title: "Короче" }],
   contextDocs: [{ id: "doc-1", name: "Резюме" }],
   apiKeys: API_KEY_IDS,
+  recordToggle: true,
 };
 
 function titles(hits: SearchHit[]): string[] {

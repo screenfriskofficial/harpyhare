@@ -114,3 +114,33 @@ fn dropping_a_transcription_job_cancels_all_of_its_channel_transports() {
     assert!(system.is_cancelled());
     assert!(microphone.is_cancelled());
 }
+
+#[test]
+fn toggle_mode_turns_the_second_press_into_a_release_and_ignores_the_key_release() {
+    assert!(matches!(
+        record_key_event(true, false, PttEvent::Pressed),
+        Some(PttEvent::Pressed)
+    ));
+    assert!(matches!(
+        record_key_event(true, true, PttEvent::Pressed),
+        Some(PttEvent::Released)
+    ));
+    assert!(record_key_event(true, false, PttEvent::Released).is_none());
+    assert!(record_key_event(true, true, PttEvent::Released).is_none());
+}
+
+#[test]
+fn hold_mode_keeps_both_phases_of_the_record_key() {
+    assert!(matches!(
+        record_key_event(false, false, PttEvent::Pressed),
+        Some(PttEvent::Pressed)
+    ));
+    assert!(matches!(
+        record_key_event(false, true, PttEvent::Pressed),
+        Some(PttEvent::Pressed)
+    ));
+    assert!(matches!(
+        record_key_event(false, true, PttEvent::Released),
+        Some(PttEvent::Released)
+    ));
+}

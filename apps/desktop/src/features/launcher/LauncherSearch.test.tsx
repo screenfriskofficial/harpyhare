@@ -12,6 +12,7 @@ const SOURCES: SearchSources = {
   quickActions: [],
   contextDocs: [],
   apiKeys: API_KEY_IDS,
+  recordToggle: true,
 };
 
 function field(): HTMLInputElement {
@@ -64,6 +65,7 @@ describe("LauncherSearch", () => {
       quickActions: [],
       contextDocs: [],
       apiKeys: API_KEY_IDS,
+      recordToggle: true,
     };
     render(<LauncherSearch sources={presetsOnly} onNavigate={onNavigate} />);
     type("Ремарка");

@@ -79,7 +79,7 @@ export const en: Dictionary = {
     actions: {
       record: {
         label: "Record system audio",
-        hint: "Hold while the other person is talking.",
+        hint: "Press to start recording, press again to stop.",
       },
       cancel_recording: {
         label: "Cancel recording",
@@ -168,6 +168,10 @@ export const en: Dictionary = {
     },
     unassigned: "Not assigned",
     unassignedHint: "Not assigned — the action is unavailable right now.",
+    recordHoldHint: "Hold while the other person is talking.",
+    recordToggle: "Toggle recording",
+    recordToggleHint:
+      "Press to start, press again to stop. Turn off to record only while the key is held.",
     waiting: "Press a shortcut · Esc cancels",
     restoreDefault: "Restore {{combo}}",
     stolen: "{{combo}} was taken from “{{action}}” — that action has no shortcut now.",

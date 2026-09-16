@@ -28,6 +28,7 @@ export interface Settings {
   access_token: string;
   prompt_presets: PromptPreset[];
   hotkeys: HotkeyBinding[];
+  record_toggle: boolean;
   auto_send: boolean;
   window_opacity: number;
   move_step: number;

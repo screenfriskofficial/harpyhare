@@ -292,6 +292,9 @@ pub struct Settings {
     pub access_token: String,
     pub prompt_presets: Vec<PromptPreset>,
     pub hotkeys: Vec<crate::hotkeys::HotkeyBinding>,
+    /// The record key toggles: one press starts, the next one stops. Off means
+    /// push-to-talk — recording lasts while the key is held.
+    pub record_toggle: bool,
     pub auto_send: bool,
     pub window_opacity: f64,
     pub move_step: u32,
@@ -338,6 +341,7 @@ impl Default for Settings {
             access_token: String::new(),
             prompt_presets: Vec::new(),
             hotkeys: Vec::new(),
+            record_toggle: true,
             auto_send: false,
             window_opacity: limits::window::OPACITY.default,
             move_step: limits::window::MOVE_STEP.default,

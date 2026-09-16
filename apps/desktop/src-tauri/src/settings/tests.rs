@@ -4,6 +4,7 @@ use super::*;
 fn defaults_match_spec() {
     let s = Settings::default();
     assert!(s.hotkeys.is_empty());
+    assert!(s.record_toggle);
     assert!(!s.auto_send);
     assert_eq!(s.window_opacity, 0.9);
     assert_eq!(s.move_step, 20);

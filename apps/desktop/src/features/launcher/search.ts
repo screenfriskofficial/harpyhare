@@ -1,7 +1,13 @@
 import { t, type TranslationKey } from "@/i18n";
 import { HOTKEY_ACTIONS, type HotkeyKind } from "@/ipc/bindings";
 import { apiKeyInfo, type ApiKeyId } from "@/lib/api-keys";
-import { actionLabel, actionHint, type HotkeyActionId } from "@/lib/hotkeys";
+import {
+  actionLabel,
+  actionHint,
+  type HotkeyActionId,
+  RECORD_ACTION,
+  recordActionHint,
+} from "@/lib/hotkeys";
 import { foldForSearch } from "@/lib/notes-search";
 import { PLATFORM, type Platform } from "@/lib/platform";
 import { PERMISSION_ROWS, permissionTitle, permissionPurpose } from "./permission-rows";
@@ -33,6 +39,8 @@ export interface SearchSources {
   quickActions: { id: string; title: string }[];
   contextDocs: { id: string; name: string }[];
   apiKeys: readonly ApiKeyId[];
+  /** The record key's hint depends on its mode; the index must show the same words as the row. */
+  recordToggle: boolean;
 }
 
 interface SettingsRow {
@@ -86,6 +94,7 @@ const SETTINGS_ROWS = [
     hint: "launcher.speech.microphoneSourceHint",
     tab: "speech",
   },
+  { title: "hotkeys.recordToggle", hint: "hotkeys.recordToggleHint", tab: "hotkeys" },
   { title: "launcher.access.code", hint: "launcher.access.codeHint", tab: "access" },
   { title: "launcher.access.codeActive", hint: "launcher.access.unlinkHint", tab: "access" },
   { title: "launcher.speech.device", hint: "launcher.speech.deviceHint", tab: "speech" },
@@ -164,14 +173,14 @@ function screenHits(platform: Platform): SearchHit[] {
   );
 }
 
-function hotkeyHits(): SearchHit[] {
+function hotkeyHits(recordToggle: boolean): SearchHit[] {
   return HOTKEY_ACTIONS.filter((action) => !HOTKEYS_WITHOUT_SETTINGS_ROW.has(action.id)).map(
     (action) => {
       const tab = TAB_BY_HOTKEY_KIND[action.kind];
       return {
         id: hitId(HOTKEY_HIT, action.id),
         title: actionLabel(action.id),
-        hint: actionHint(action.id),
+        hint: action.id === RECORD_ACTION ? recordActionHint(recordToggle) : actionHint(action.id),
         screen: SETTINGS_SCREEN,
         tab,
         breadcrumb: breadcrumbOf(SETTINGS_SCREEN, tab),
@@ -292,7 +301,7 @@ function launcherIndex(sources: SearchSources, platform: Platform): SearchHit[] 
   return [
     ...screenHits(platform),
     ...tabHits(),
-    ...hotkeyHits(),
+    ...hotkeyHits(sources.recordToggle),
     ...settingsRowHits(sources.apiKeys),
     ...permissionHits(platform),
     ...presetHits(sources.presets),

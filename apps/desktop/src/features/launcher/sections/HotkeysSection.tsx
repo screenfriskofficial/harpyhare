@@ -10,15 +10,26 @@ import {
   formatCombo,
   groupTitle,
   hotkeyAction,
+  RECORD_ACTION,
+  recordActionHint,
   type HotkeyAction,
   type HotkeyGroupId,
 } from "@/lib/hotkeys";
 import type { SectionProps } from "../contract";
-import { SettingGroup, SettingRow } from "../fields";
+import { SettingGroup, SettingRow, SettingSwitch } from "../fields";
 import { HotkeyCapture } from "../HotkeyCapture";
 import { useHotkeyEditor, type HotkeyEditor } from "../useHotkeyEditor";
 
-export function HotkeyRow({ action, editor }: { action: HotkeyAction; editor: HotkeyEditor }) {
+export function HotkeyRow({
+  action,
+  editor,
+  hint = actionHint(action.id),
+}: {
+  action: HotkeyAction;
+  editor: HotkeyEditor;
+  /** The row's explanation when a combo is assigned; the registry hint unless the caller knows better. */
+  hint?: string;
+}) {
   const { t } = useTranslation();
   const combo = effectiveCombo(editor.bindings, action.id);
   const fallback = defaultCombo(action.id);
@@ -26,7 +37,7 @@ export function HotkeyRow({ action, editor }: { action: HotkeyAction; editor: Ho
   return (
     <SettingRow
       label={actionLabel(action.id)}
-      hint={combo.trim() === "" ? t("hotkeys.unassignedHint") : actionHint(action.id)}
+      hint={combo.trim() === "" ? t("hotkeys.unassignedHint") : hint}
     >
       <div className="flex w-full items-center gap-1.5">
         <div className="min-w-0 flex-1">
@@ -69,6 +80,23 @@ export function StolenNote({ editor, group }: { editor: HotkeyEditor; group?: Ho
   );
 }
 
+/** The record key's mode lives in its own row, right under the key it changes. */
+function RecordModeRow({ draft, set }: SectionProps) {
+  const { t } = useTranslation();
+  const label = t("hotkeys.recordToggle");
+  return (
+    <SettingRow label={label} hint={t("hotkeys.recordToggleHint")}>
+      <SettingSwitch
+        ariaLabel={label}
+        checked={draft.record_toggle}
+        onCheckedChange={(value) => {
+          set("record_toggle", value);
+        }}
+      />
+    </SettingRow>
+  );
+}
+
 export function HotkeysSection({ draft, set }: SectionProps) {
   useTranslation();
   const editor = useHotkeyEditor(draft, set);
@@ -76,6 +104,9 @@ export function HotkeysSection({ draft, set }: SectionProps) {
   const groups = comboActions
     .map((a) => a.group)
     .filter((group, index, all) => all.indexOf(group) === index);
+  const recordGroup = hotkeyAction(RECORD_ACTION).group;
+  const hintFor = (action: HotkeyAction) =>
+    action.id === RECORD_ACTION ? recordActionHint(draft.record_toggle) : actionHint(action.id);
 
   return (
     <>
@@ -84,8 +115,9 @@ export function HotkeysSection({ draft, set }: SectionProps) {
           {comboActions
             .filter((a) => a.group === group)
             .map((action) => (
-              <HotkeyRow key={action.id} action={action} editor={editor} />
+              <HotkeyRow key={action.id} action={action} editor={editor} hint={hintFor(action)} />
             ))}
+          {group === recordGroup && <RecordModeRow draft={draft} set={set} />}
           <StolenNote editor={editor} group={group} />
         </SettingGroup>
       ))}

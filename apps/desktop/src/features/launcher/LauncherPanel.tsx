@@ -87,6 +87,7 @@ export function LauncherPanel({
       quickActions: draft.quick_actions.map((a) => ({ id: a.id, title: a.title })),
       contextDocs: contextLibrary.library.docs.map((d) => ({ id: d.id, name: d.name })),
       apiKeys: visibleApiKeys(draft),
+      recordToggle: draft.record_toggle,
     }),
     [presets, draft, contextLibrary.library.docs],
   );

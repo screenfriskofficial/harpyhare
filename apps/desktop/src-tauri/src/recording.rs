@@ -120,7 +120,34 @@ pub fn enqueue_ptt(app: &AppHandle, event: PttEvent) {
     }
 }
 
+/// What a phase of the record key means. In toggle mode the second press ends
+/// the recording and the key's release means nothing; in hold mode both phases
+/// keep their meaning. The recorder FSM speaks in presses and releases either
+/// way, so a toggle's second press becomes a release before it reaches the
+/// handlers.
+fn record_key_event(toggle: bool, recording: bool, event: PttEvent) -> Option<PttEvent> {
+    match event {
+        PttEvent::Pressed if toggle && recording => Some(PttEvent::Released),
+        PttEvent::Released if toggle => None,
+        other => Some(other),
+    }
+}
+
+fn is_recording(app: &AppHandle) -> bool {
+    *app.state::<App>().recorder.lock_unpoisoned() == state::RecorderState::Recording
+}
+
 fn handle_ptt_event(app: &AppHandle, event: PttEvent) {
+    let event = match event {
+        PttEvent::Pressed | PttEvent::Released => {
+            let toggle = with_settings(app, |s| s.record_toggle);
+            match record_key_event(toggle, is_recording(app), event) {
+                Some(event) => event,
+                None => return,
+            }
+        }
+        other => other,
+    };
     match event {
         PttEvent::Pressed => on_ptt_pressed(app),
         PttEvent::Released => on_ptt_released(app),

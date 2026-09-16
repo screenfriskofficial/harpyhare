@@ -1,7 +1,14 @@
 import { describe, expect, it } from "vitest";
 import { HOTKEY_ACTIONS } from "@/ipc/bindings";
 import type { HotkeyBinding } from "@/ipc/types";
-import { comboTokens, defaultCombo, effectiveCombo, formatCombo, hotkeyGroups } from "./hotkeys";
+import {
+  comboTokens,
+  defaultCombo,
+  effectiveCombo,
+  formatCombo,
+  hotkeyGroups,
+  recordActionHint,
+} from "./hotkeys";
 import { PLATFORMS } from "./platform";
 
 const NO_BINDINGS: HotkeyBinding[] = [];
@@ -259,5 +266,14 @@ describe("comboTokens на Windows", () => {
       { type: "text", text: "Ctrl+" },
       { type: "icon", icon: "enter" },
     ]);
+  });
+});
+
+describe("recordActionHint", () => {
+  it("подсказка клавиши записи следует режиму: переключатель из реестра, удержание из словаря", () => {
+    expect(recordActionHint(true)).toBe(
+      "Нажмите, чтобы начать запись, и ещё раз, чтобы закончить.",
+    );
+    expect(recordActionHint(false)).toBe("Удерживайте, пока говорит собеседник.");
   });
 });

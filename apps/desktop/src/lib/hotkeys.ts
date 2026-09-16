@@ -20,6 +20,18 @@ export function actionHint(id: HotkeyActionId): string {
   return t(`hotkeys.actions.${id}.hint`);
 }
 
+export const RECORD_ACTION: HotkeyActionId = "record";
+
+/**
+ * The record key's hint follows `Settings.record_toggle`: the registry wording
+ * describes the toggle (the default), the hold wording lives beside it in the
+ * dictionary. Every place that shows the record row uses this, so the launcher
+ * row and the search hit cannot disagree.
+ */
+export function recordActionHint(recordToggle: boolean): string {
+  return recordToggle ? actionHint(RECORD_ACTION) : t("hotkeys.recordHoldHint");
+}
+
 export function groupTitle(group: HotkeyGroupId): string {
   return t(`hotkeys.groups.${group}`);
 }

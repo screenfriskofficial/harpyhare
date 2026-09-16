@@ -208,7 +208,7 @@ pub const HOTKEY_ACTIONS: &[HotkeyAction] = &[
         id: ACTION_RECORD,
         group: GROUP_RECORD,
         label: "Записать системный звук",
-        hint: "Удерживайте, пока говорит собеседник.",
+        hint: "Нажмите, чтобы начать запись, и ещё раз, чтобы закончить.",
         kind: HotkeyKind::Combo,
         scope: HotkeyScope::Global,
         default_combo: primary_combo!("R"),
