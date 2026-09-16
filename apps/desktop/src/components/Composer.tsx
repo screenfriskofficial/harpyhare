@@ -1,21 +1,16 @@
-import { ArrowUp, Crop, Eraser, NotebookText, RotateCcw, Square } from "lucide-react";
-import { memo, useCallback, useState, type RefObject } from "react";
-import { useTranslation } from "react-i18next";
+import { memo, useCallback, useRef, useState, type RefObject } from "react";
 import { ChatContextDialog } from "@/components/ChatContextDialog";
-import { PROMPT_SEND_KEY, PromptTextarea } from "@/components/PromptTextarea";
-import {
-  RequestParamsPopover,
-  type RequestParamsPopoverProps,
-} from "@/components/RequestParamsPopover";
-import { ShortcutTooltip } from "@/components/ShortcutTooltip";
-import { Button } from "@/components/ui/button";
+import { ActionGroup } from "@/components/composer/ActionGroup";
+import { AttachmentList } from "@/components/composer/AttachmentList";
+import { ComposerToolbar } from "@/components/composer/ComposerToolbar";
+import { PROMPT_ROW_HEIGHT_PX, PromptTextarea } from "@/components/PromptTextarea";
+import { useComposerEngagement } from "@/hooks/useComposerEngagement";
+import { useComposerZone } from "@/hooks/useComposerZone";
 import type { QuickAction } from "@/ipc/types";
 import type { Chat, ChatPatch } from "@/lib/chats";
-import type { Attachment } from "@/lib/composer";
-import type { ContextLibrary } from "@/lib/context-library";
-import { formatCombo } from "@/lib/hotkeys";
 import { selectableModels, thinkingLocked, type ModelInfo } from "@/lib/models";
-import { AttachmentChip } from "./AttachmentChip";
+import type { Pipeline } from "@/lib/pipeline-types";
+import { cn } from "@/lib/utils";
 import { QuickActionsBar } from "./QuickActionsBar";
 
 export interface ComposerProps {
@@ -28,11 +23,14 @@ export interface ComposerProps {
   onClearHistory: () => void;
   onRetry: () => void;
   onRestoreFocus: () => void;
+  /** How far the open card reaches above the composer's slot; the chat ledger pads by it. */
+  onOverflowChange: (px: number) => void;
   retryLabel: string;
   streaming: boolean;
   showRetry: boolean;
   presets: { id: string; name: string }[];
-  library: ContextLibrary;
+  pipelines: Pipeline[];
+  pipelinesReady: boolean;
   models: ModelInfo[];
   modelProvidersMissingKey: readonly string[];
   onCaptureRegion: () => void;
@@ -42,137 +40,70 @@ export interface ComposerProps {
   onQuickAction: (action: QuickAction) => void;
 }
 
-interface AttachmentListProps {
-  attachments: Attachment[];
-  onRemove: (index: number) => void;
-}
-
-function AttachmentList({ attachments, onRemove }: AttachmentListProps) {
-  if (attachments.length === 0) return null;
-  return (
-    <div className="flex flex-wrap gap-1.5 px-2.5 pb-2">
-      {attachments.map((att, i) => (
-        // Ключ — позиция: у вложений нет id, а превью двух одинаковых вставок
-        // совпадает буква в букву; список короткий и не переупорядочивается.
-        <AttachmentChip
-          key={i}
-          attachment={att}
-          onRemove={() => {
-            onRemove(i);
-          }}
-        />
-      ))}
-    </div>
-  );
-}
-
-type ComposerToolbarProps = RequestParamsPopoverProps &
-  Pick<
-    ComposerProps,
-    | "onClearHistory"
-    | "showRetry"
-    | "onRetry"
-    | "retryLabel"
-    | "streaming"
-    | "onStop"
-    | "onSend"
-    | "onCaptureRegion"
-  > & {
-    hasContext: boolean;
-    onOpenContext: () => void;
-  };
-
-function ComposerToolbar(props: ComposerToolbarProps) {
-  const { t } = useTranslation();
-  const sendLabel = t("hud.composer.send");
-  return (
-    <div className="flex items-center gap-1 px-1.5 pb-1.5">
-      <Button
-        variant="ghost"
-        size="icon-compact"
-        disabled={props.streaming}
-        onClick={props.onClearHistory}
-        title={t("hud.composer.clearHistory")}
-        aria-label={t("hud.composer.clearHistory")}
-      >
-        <Eraser />
-      </Button>
-      <Button
-        variant="ghost"
-        size="icon-compact"
-        className="relative"
-        onClick={props.onOpenContext}
-        title={t("hud.composer.context")}
-        aria-label={t("hud.composer.context")}
-      >
-        <NotebookText />
-        {props.hasContext && (
-          <span
-            className="absolute top-0.5 right-0.5 size-1.5 rounded-full bg-primary"
-            aria-hidden
-          />
-        )}
-      </Button>
-      <Button
-        variant="ghost"
-        size="icon-compact"
-        onClick={props.onCaptureRegion}
-        title={t("hud.composer.screenshot")}
-        aria-label={t("hud.composer.screenshot")}
-      >
-        <Crop />
-      </Button>
-      <RequestParamsPopover
-        chat={props.chat}
-        onPatch={props.onPatch}
-        modelOptions={props.modelOptions}
-        modelProvidersMissingKey={props.modelProvidersMissingKey}
-        thinkingDisabled={props.thinkingDisabled}
-        presets={props.presets}
-      />
-      <div className="flex-1" />
-      {props.showRetry && (
-        <Button
-          variant="ghost"
-          size="icon-compact"
-          onClick={props.onRetry}
-          title={props.retryLabel}
-          aria-label={props.retryLabel}
-        >
-          <RotateCcw />
-        </Button>
-      )}
-      {props.streaming ? (
-        <Button
-          variant="destructive"
-          size="icon-compact"
-          onClick={props.onStop}
-          title={t("hud.composer.stop")}
-          aria-label={t("hud.composer.stop")}
-        >
-          <Square className="size-3.5 fill-current" />
-        </Button>
-      ) : (
-        <ShortcutTooltip label={sendLabel} shortcut={formatCombo(PROMPT_SEND_KEY)}>
-          <Button size="icon-compact" onClick={props.onSend} aria-label={sendLabel}>
-            <ArrowUp />
-          </Button>
-        </ShortcutTooltip>
-      )}
-    </div>
-  );
-}
+/** One line of the field: the card's collapsed height, and the source of its corner radius. */
+const PILL_HEIGHT_PX = PROMPT_ROW_HEIGHT_PX;
+/**
+ * The same radius in both states — the pill is round only because it is as
+ * tall as two radii. A radius that switched with the state read as a bigger
+ * border on the pill and had to be animated between two shapes.
+ */
+const CARD_RADIUS_PX = PILL_HEIGHT_PX / 2;
+/** Between the quick actions and the card, when the actions are there. */
+const BAR_GAP_PX = 6;
+/** Opening and closing overshoot a little, like a sheet; typing grows the card plainly. */
+const OPEN_CLOSE_TRANSITION = "height 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275)";
+const GROW_TRANSITION = "height 0.15s ease-out";
+/** Room the field and the toolbar leave for the buttons pinned into the card's corner. */
+const ACTION_ROOM_CLASS = "pr-12";
+const ACTION_ROOM_WITH_RETRY_CLASS = "pr-20";
 
 /**
+ * A compact pill while the draft is empty and the field is not in use; a card
+ * with the toolbar once the field is focused or clicked, or once there is
+ * something in it (`useComposerEngagement`). The card opens upward over the
+ * chat ledger instead of pushing it: the composer keeps a slot of its
+ * collapsed height in the column, measures how far the open card reaches
+ * above that slot (`useComposerZone`) and reports it, so the ledger only pads
+ * its bottom by that much and never changes size itself. The toolbar stays
+ * mounted in both states — the card's animated height clips it, exactly as in
+ * the original — so opening and closing are the same motion played both ways.
+ *
  * `memo`: во время стрима `App` рендерится на каждый rAF-кадр раскрытия, а
  * входы композера при этом не меняются. Работает, пока App передаёт
  * стабильные колбэки — inline-стрелка в пропсах сведёт мемоизацию на нет.
  */
 export const Composer = memo(function Composer(props: ComposerProps) {
-  const { chat, onPatch, onRestoreFocus } = props;
+  const { chat, onPatch, onRestoreFocus, onSend, promptRef } = props;
   const modelOptions = selectableModels(props.models, chat.model);
   const thinkingDisabled = thinkingLocked(modelOptions, chat.model);
   const [contextOpen, setContextOpen] = useState(false);
+  const hasContent = chat.draft !== "" || chat.draftAttachments.length > 0;
+  const { expanded, switching, send, onCardFocus, onCardMouseDown, onCardBlur, disengage } =
+    useComposerEngagement({ promptRef, onRestoreFocus, onSend, hasContent });
+
+  const cardRef = useRef<HTMLDivElement>(null);
+  const rowRef = useRef<HTMLDivElement>(null);
+  const contentRef = useRef<HTMLDivElement>(null);
+  const barRef = useRef<HTMLDivElement>(null);
+  const { slot, cardHeight } = useComposerZone(
+    { card: cardRef, row: rowRef, content: contentRef, bar: barRef },
+    expanded,
+    BAR_GAP_PX,
+    props.onOverflowChange,
+  );
+  const transition = switching ? OPEN_CLOSE_TRANSITION : GROW_TRANSITION;
+  const onParamsClosed = useCallback(
+    (pressedOutside: Element | null) => {
+      // The keyboard, the trigger or a press on the card itself: the caret
+      // comes back to the field. A press elsewhere chose its own focus — or
+      // started a text selection in the ledger that a jumping caret would cut —
+      // and the card treats it as the caret leaving.
+      if (pressedOutside === null || cardRef.current?.contains(pressedOutside)) onRestoreFocus();
+      else disengage();
+    },
+    [onRestoreFocus, disengage],
+  );
+
   const openContextDialog = useCallback(() => {
     setContextOpen(true);
   }, []);
@@ -186,46 +117,83 @@ export const Composer = memo(function Composer(props: ComposerProps) {
     },
     [onPatch, chat.id],
   );
+
+  const actionRoom = props.showRetry ? ACTION_ROOM_WITH_RETRY_CLASS : ACTION_ROOM_CLASS;
   return (
-    <section>
-      <QuickActionsBar
-        actions={props.quickActions}
-        combo={props.quickActionCombo}
-        disabled={props.streaming}
-        onRun={props.onQuickAction}
-      />
-      <div className="rounded-xl bg-card/70 shadow-raise ring-1 ring-border transition-[box-shadow] ring-inset focus-within:ring-ring/60">
-        <PromptTextarea
-          fieldRef={props.promptRef}
-          value={chat.draft}
-          onChange={onDraftChange}
-          onPaste={props.onPaste}
-          onSend={props.onSend}
-        />
-        <AttachmentList attachments={chat.draftAttachments} onRemove={props.onRemoveAttachment} />
-        <ComposerToolbar
-          chat={chat}
-          onPatch={onPatch}
-          onClearHistory={props.onClearHistory}
-          hasContext={chat.context.trim() !== "" || chat.libraryDocIds.length > 0}
-          onOpenContext={openContextDialog}
-          showRetry={props.showRetry}
-          onRetry={props.onRetry}
-          retryLabel={props.retryLabel}
-          modelOptions={modelOptions}
-          modelProvidersMissingKey={props.modelProvidersMissingKey}
-          thinkingDisabled={thinkingDisabled}
-          presets={props.presets}
-          streaming={props.streaming}
-          onStop={props.onStop}
-          onSend={props.onSend}
-          onCaptureRegion={props.onCaptureRegion}
-        />
+    <section className="relative shrink-0" style={{ height: slot ?? undefined }}>
+      <div
+        className={cn(
+          "z-10 flex flex-col",
+          // In the flow until the first measurement, then anchored to the slot's bottom edge.
+          slot !== null && "absolute inset-x-0 bottom-0",
+        )}
+        style={{ gap: BAR_GAP_PX }}
+      >
+        <div ref={barRef} className="empty:hidden">
+          <QuickActionsBar
+            actions={props.quickActions}
+            combo={props.quickActionCombo}
+            disabled={props.streaming}
+            onRun={props.onQuickAction}
+          />
+        </div>
+        <div
+          ref={cardRef}
+          data-expanded={expanded}
+          className="relative overflow-hidden bg-card/70 shadow-raise ring-1 ring-border ring-inset focus-within:ring-ring/60 motion-reduce:transition-none"
+          style={{ height: cardHeight ?? undefined, borderRadius: CARD_RADIUS_PX, transition }}
+          onMouseDown={onCardMouseDown}
+          onFocus={onCardFocus}
+          onBlur={onCardBlur}
+        >
+          <div ref={contentRef}>
+            <div ref={rowRef} className="flex">
+              <PromptTextarea
+                fieldRef={promptRef}
+                value={chat.draft}
+                onChange={onDraftChange}
+                onPaste={props.onPaste}
+                onSend={send}
+                className={actionRoom}
+              />
+            </div>
+            <AttachmentList
+              attachments={chat.draftAttachments}
+              onRemove={props.onRemoveAttachment}
+            />
+            <ComposerToolbar
+              shown={expanded}
+              className={actionRoom}
+              chat={chat}
+              onPatch={onPatch}
+              onClearHistory={props.onClearHistory}
+              hasContext={chat.context.trim() !== ""}
+              onOpenContext={openContextDialog}
+              modelOptions={modelOptions}
+              modelProvidersMissingKey={props.modelProvidersMissingKey}
+              thinkingDisabled={thinkingDisabled}
+              presets={props.presets}
+              pipelines={props.pipelines}
+              pipelinesReady={props.pipelinesReady}
+              streaming={props.streaming}
+              onCaptureRegion={props.onCaptureRegion}
+              onClosed={onParamsClosed}
+            />
+          </div>
+          <ActionGroup
+            streaming={props.streaming}
+            showRetry={props.showRetry}
+            retryLabel={props.retryLabel}
+            canSend={hasContent}
+            onStop={props.onStop}
+            onRetry={props.onRetry}
+            onSend={send}
+          />
+        </div>
       </div>
       <ChatContextDialog
         open={contextOpen}
         chat={chat}
-        library={props.library}
         onPatch={onPatch}
         onClose={closeContextDialog}
         onRestoreFocus={onRestoreFocus}

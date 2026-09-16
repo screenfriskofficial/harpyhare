@@ -85,12 +85,6 @@ pub fn registry_key_ids() -> Vec<(&'static str, bool)> {
     ids
 }
 
-/// Re-exported from the STT registry, which owns the list. Kept as names so
-/// call sites read as intent rather than as string literals.
-pub use crate::stt::registry::{
-    PROVIDER_GROQ as STT_PROVIDER_GROQ, PROVIDER_OPENAI as STT_PROVIDER_OPENAI,
-};
-
 pub const QUICK_ACTION_LIMIT: usize = 9;
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, specta::Type)]
@@ -121,6 +115,7 @@ impl Bounds<u32> {
 pub struct SettingsLimits {
     pub window_width: Bounds<f64>,
     pub window_height: Bounds<f64>,
+    pub preview_width: Bounds<f64>,
     pub window_opacity: Bounds<f64>,
     pub move_step: Bounds<u32>,
     pub resize_step: Bounds<u32>,
@@ -136,6 +131,7 @@ impl SettingsLimits {
         Self {
             window_width: limits::window::WIDTH,
             window_height: limits::window::HEIGHT,
+            preview_width: limits::window::PREVIEW_WIDTH,
             window_opacity: limits::window::OPACITY,
             move_step: limits::window::MOVE_STEP,
             resize_step: limits::window::RESIZE_STEP,
@@ -185,6 +181,14 @@ pub mod limits {
             default: 20,
             min: 1,
             max: 200,
+        };
+        /// Width of the preview column in the HUD; the window grows by the
+        /// default when a preview opens, dragging the column's edge trades the
+        /// rest with the chat column.
+        pub const PREVIEW_WIDTH: Bounds<f64> = Bounds {
+            default: 570.0,
+            min: 260.0,
+            max: 1600.0,
         };
     }
 
@@ -306,6 +310,7 @@ pub struct Settings {
     pub screen_permission_requested: bool,
     pub window_width: f64,
     pub window_height: f64,
+    pub preview_width: f64,
     pub resize_step: u32,
     pub capture_device_uid: String,
     pub microphone_device_uid: String,
@@ -351,6 +356,7 @@ impl Default for Settings {
             screen_permission_requested: false,
             window_width: limits::window::WIDTH.default,
             window_height: limits::window::HEIGHT.default,
+            preview_width: limits::window::PREVIEW_WIDTH.default,
             resize_step: limits::window::RESIZE_STEP.default,
             capture_device_uid: String::new(),
             microphone_device_uid: String::new(),
@@ -401,6 +407,7 @@ impl Settings {
         self.window_opacity = limits::window::OPACITY.clamp(self.window_opacity);
         self.window_width = limits::window::WIDTH.clamp(self.window_width);
         self.window_height = limits::window::HEIGHT.clamp(self.window_height);
+        self.preview_width = limits::window::PREVIEW_WIDTH.clamp(self.preview_width);
         self.move_step = limits::window::MOVE_STEP.clamp(self.move_step);
         self.resize_step = limits::window::RESIZE_STEP.clamp(self.resize_step);
         self.chat_font_size = limits::chat::FONT_SIZE.clamp(self.chat_font_size);

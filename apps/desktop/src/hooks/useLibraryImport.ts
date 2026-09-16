@@ -3,16 +3,13 @@ import type { ContextLibraryApi } from "@/hooks/useContextLibrary";
 import { readContextImportFile, readContextPdfBytes } from "@/ipc/commands";
 import { arrayBufferToBase64 } from "@/lib/base64";
 import { docNameFromFileName, isPdfFileName } from "@/lib/context-library";
+import { errorMessage } from "@/lib/errors";
 
 export interface LibraryImportApi {
   error: string | null;
   clearError: () => void;
   importPaths: (paths: string[], folderId: string) => void;
   importFiles: (files: FileList, folderId: string) => void;
-}
-
-function importErrorText(e: unknown): string {
-  return e instanceof Error ? e.message : String(e);
 }
 
 async function pickedFileText(file: File): Promise<string> {
@@ -36,7 +33,7 @@ export function useLibraryImport(addDoc: ContextLibraryApi["addDoc"]): LibraryIm
             addDoc({ name: docNameFromFileName(path), text, folderId });
           })
           .catch((e: unknown) => {
-            setError(importErrorText(e));
+            setError(errorMessage(e));
           });
       }
     },
@@ -52,7 +49,7 @@ export function useLibraryImport(addDoc: ContextLibraryApi["addDoc"]): LibraryIm
             addDoc({ name: docNameFromFileName(file.name), text, folderId });
           })
           .catch((e: unknown) => {
-            setError(importErrorText(e));
+            setError(errorMessage(e));
           });
       }
     },

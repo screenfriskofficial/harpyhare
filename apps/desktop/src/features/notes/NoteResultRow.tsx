@@ -1,13 +1,8 @@
-import { Check, FileText, Plus } from "lucide-react";
+import { FileText } from "lucide-react";
 import { useEffect, useMemo, useRef } from "react";
-import { useTranslation } from "react-i18next";
-import { IconButton } from "@/components/IconButton";
 import type { ContextDoc } from "@/lib/context-library";
 import { noteExcerpt, type ExcerptPart } from "@/lib/notes-excerpt";
 import { cn } from "@/lib/utils";
-
-const HIDDEN_UNTIL_HOVER_CLASS =
-  "pointer-events-none opacity-0 group-hover:pointer-events-auto group-hover:opacity-100 focus-within:pointer-events-auto focus-within:opacity-100";
 
 function ExcerptText({ parts }: { parts: ExcerptPart[] }) {
   return (
@@ -30,9 +25,7 @@ export interface NoteResultRowProps {
   terms: string[];
   folderName: string | null;
   selected: boolean;
-  inContext: boolean;
   onOpen: () => void;
-  onToggleContext?: () => void;
   option?: boolean;
 }
 
@@ -41,12 +34,9 @@ export function NoteResultRow({
   terms,
   folderName,
   selected,
-  inContext,
   onOpen,
-  onToggleContext,
   option = false,
 }: NoteResultRowProps) {
-  const { t } = useTranslation();
   const rowRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -59,7 +49,7 @@ export function NoteResultRow({
     <div
       ref={rowRef}
       className={cn(
-        "group flex items-center gap-2 rounded-md px-1.5 py-1 transition-colors",
+        "flex items-center gap-2 rounded-md px-1.5 py-1 transition-colors",
         selected ? "bg-surface-active" : "hover:bg-surface",
       )}
     >
@@ -78,18 +68,6 @@ export function NoteResultRow({
         </span>
         {showExcerpt && <ExcerptText parts={excerpt} />}
       </button>
-      {onToggleContext && (
-        <IconButton
-          title={inContext ? t("hud.notes.removeFromContext") : t("hud.notes.addToContext")}
-          className={cn(
-            "size-6 shrink-0",
-            inContext ? "text-foreground" : HIDDEN_UNTIL_HOVER_CLASS,
-          )}
-          onClick={onToggleContext}
-        >
-          {inContext ? <Check className="size-3.5" /> : <Plus className="size-3.5" />}
-        </IconButton>
-      )}
     </div>
   );
 }

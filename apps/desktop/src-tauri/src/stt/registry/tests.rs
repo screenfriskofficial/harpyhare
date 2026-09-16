@@ -17,11 +17,23 @@ fn every_provider_is_well_formed() {
 #[test]
 fn every_wire_profile_is_absolute_and_rooted() {
     for p in PROVIDERS {
-        assert!(p.wire.base_url().starts_with("https://"), "{} обязан ходить по https", p.id);
+        assert!(
+            p.wire.base_url().starts_with("https://"),
+            "{} обязан ходить по https",
+            p.id
+        );
         let paths = [p.wire.path(false), p.wire.path(true), p.wire.warm_up_path()];
         for path in paths {
-            assert!(path.starts_with('/'), "путь {path} у {} не начинается со слэша", p.id);
-            assert!(!path.ends_with('/'), "путь {path} у {} с хвостовым слэшем", p.id);
+            assert!(
+                path.starts_with('/'),
+                "путь {path} у {} не начинается со слэша",
+                p.id
+            );
+            assert!(
+                !path.ends_with('/'),
+                "путь {path} у {} с хвостовым слэшем",
+                p.id
+            );
         }
     }
 }
@@ -38,9 +50,17 @@ fn every_openai_dialect_row_names_a_model_and_valid_optional_translation() {
         else {
             continue;
         };
-        assert!(!transcribe_model.is_empty(), "у {} пустая модель распознавания", p.id);
+        assert!(
+            !transcribe_model.is_empty(),
+            "у {} пустая модель распознавания",
+            p.id
+        );
         if let Some(translation) = translation {
-            assert!(!translation.model.is_empty(), "у {} пустая модель перевода", p.id);
+            assert!(
+                !translation.model.is_empty(),
+                "у {} пустая модель перевода",
+                p.id
+            );
             assert_ne!(
                 transcribe_path, translation.path,
                 "у {} распознавание и перевод не могут делить эндпоинт",
@@ -77,10 +97,18 @@ fn only_a_vendor_with_a_second_endpoint_claims_translation() {
 fn translation_is_dropped_for_a_vendor_that_cannot_do_it() {
     for p in PROVIDERS {
         assert!(!effective_translate(p, false), "{}", p.id);
-        assert_eq!(effective_translate(p, true), p.supports_translate, "{}", p.id);
+        assert_eq!(
+            effective_translate(p, true),
+            p.supports_translate,
+            "{}",
+            p.id
+        );
     }
     let xai = spec(PROVIDER_XAI).expect("xai объявлен");
-    assert!(!effective_translate(xai, true), "у xAI нет перевода — запрос обязан деградировать");
+    assert!(
+        !effective_translate(xai, true),
+        "у xAI нет перевода — запрос обязан деградировать"
+    );
 }
 
 #[test]
@@ -101,7 +129,10 @@ fn a_dialect_shared_by_several_vendors_needs_no_code_per_vendor() {
         .filter(|p| matches!(p.wire, SttWire::OpenAiMultipart { .. }))
         .map(|p| p.id)
         .collect();
-    assert!(shared.len() >= 2, "диалект OpenAI обслуживает больше одного вендора");
+    assert!(
+        shared.len() >= 2,
+        "диалект OpenAI обслуживает больше одного вендора"
+    );
     assert!(shared.contains(&PROVIDER_GROQ));
     assert!(shared.contains(&PROVIDER_OPENAI));
 }
@@ -124,7 +155,13 @@ fn a_known_id_resolves_to_itself() {
 
 #[test]
 fn lookup_finds_declared_vendors_and_nothing_else() {
-    for id in [PROVIDER_GROQ, PROVIDER_OPENAI, PROVIDER_XAI, PROVIDER_DEEPGRAM, PROVIDER_OPENROUTER] {
+    for id in [
+        PROVIDER_GROQ,
+        PROVIDER_OPENAI,
+        PROVIDER_XAI,
+        PROVIDER_DEEPGRAM,
+        PROVIDER_OPENROUTER,
+    ] {
         assert_eq!(spec(id).map(|p| p.id), Some(id));
     }
     assert!(spec("нет такого").is_none());
@@ -147,6 +184,7 @@ fn a_row_needs_nothing_but_data_to_be_well_formed() {
             transcribe_path: "/v1/speech-to-text",
             warm_up_path: "/v1/models",
             transcribe_model: "scribe-v2",
+            selectable_model: false,
             translation: Some(SttTranslation {
                 path: "/v1/speech-to-text/translate",
                 model: "scribe-v2",

@@ -1,5 +1,5 @@
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
-import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ContextLibrary } from "@/lib/context-library";
 import { buildNotesIndex } from "@/lib/notes-search";
 import { NotesPanel } from "./NotesPanel";
@@ -10,10 +10,6 @@ vi.mock("@/ipc/commands", () => ({
   readContextPdfBytes: vi.fn(),
   openExternal: vi.fn(),
 }));
-
-beforeAll(() => {
-  Element.prototype.scrollIntoView = vi.fn();
-});
 
 afterEach(() => {
   cleanup();
@@ -44,8 +40,6 @@ function renderPanel(overrides: Partial<Parameters<typeof NotesPanel>[0]> = {}) 
     library: LIBRARY,
     index: buildNotesIndex(LIBRARY.docs),
     addDoc: vi.fn(),
-    selectedDocIds: [] as string[],
-    onToggleDoc: vi.fn(),
     onLeave: vi.fn(),
     ...overrides,
   };
@@ -153,24 +147,6 @@ describe("NotesPanel", () => {
 
     fireEvent.keyDown(document, { key: "Escape" });
     expect(onLeave).toHaveBeenCalled();
-  });
-
-  it("кнопка контекста в списке переключает заметку в контексте чата", () => {
-    const { onToggleDoc } = renderPanel();
-    const [firstToggle] = screen.getAllByTitle("Добавить в контекст чата");
-    if (firstToggle) fireEvent.click(firstToggle);
-    expect(onToggleDoc).toHaveBeenCalledWith("react");
-  });
-
-  it("уже добавленная заметка предлагает убрать себя из контекста", () => {
-    renderPanel({ selectedDocIds: ["react"] });
-    expect(screen.getByTitle("Убрать из контекста чата")).toBeTruthy();
-  });
-
-  it("подсказки не предлагают контекст — они только про переход", () => {
-    renderPanel();
-    typeQuery("заимствование");
-    expect(suggestions().queryByTitle("Добавить в контекст чата")).toBeNull();
   });
 
   it("пустая библиотека зовёт добавить файлы", () => {

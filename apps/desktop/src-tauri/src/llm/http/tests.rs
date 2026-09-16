@@ -6,7 +6,10 @@ const BASE: &str = "https://api.example.test";
 fn direct_key_header() -> LlmHttp {
     LlmHttp::direct(
         BASE,
-        Credential::ApiKeyHeader { header: "x-api-key", key: "secret".into() },
+        Credential::ApiKeyHeader {
+            header: "x-api-key",
+            key: "secret".into(),
+        },
         KEY_LABEL,
     )
 }
@@ -54,5 +57,8 @@ fn builders_do_not_flip_proxy_mode() {
         .with_headers(&[("anthropic-version", "2023-06-01")])
         .with_read_timeout(Duration::from_secs(5))
         .with_base_url("https://relay.test".into());
-    assert!(http.is_proxy(), "прокси-режим обязан пережить любую настройку");
+    assert!(
+        http.is_proxy(),
+        "прокси-режим обязан пережить любую настройку"
+    );
 }

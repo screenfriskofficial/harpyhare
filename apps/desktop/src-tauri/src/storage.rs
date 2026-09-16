@@ -2,7 +2,7 @@ use std::time::Duration;
 
 use tauri::AppHandle;
 
-use crate::app_state::{chats_path, context_library_path};
+use crate::app_state::{chats_path, context_library_path, pipelines_path};
 use crate::{chats, context_import};
 
 /// Патологический PDF может занять blocking-поток надолго; команда отвечает
@@ -41,6 +41,21 @@ pub fn load_context_library(app: AppHandle) -> Result<String, String> {
 #[specta::specta]
 pub fn save_context_library(app: AppHandle, json: String) -> Result<(), String> {
     chats::save(&context_library_path(&app), &json).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn load_pipelines(app: AppHandle) -> Result<String, String> {
+    chats::load(&pipelines_path(&app)).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn save_pipelines(app: AppHandle, json: String) -> Result<(), String> {
+    // The graph schema belongs to the domain runner, like chats and context
+    // documents. Refuse malformed transport data before touching its disk copy.
+    serde_json::from_str::<serde_json::Value>(&json).map_err(|e| e.to_string())?;
+    chats::save(&pipelines_path(&app), &json).map_err(|e| e.to_string())
 }
 
 #[tauri::command]

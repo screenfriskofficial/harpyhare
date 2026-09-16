@@ -9,6 +9,10 @@ const IDEMPOTENCY_STORAGE_PREFIX = "redeem-idem:";
 export const {
   runPreflight,
   cancelPreflight,
+  cancelPipelineRun,
+  runPipelineStep,
+  loadPipelines,
+  savePipelines,
   getDiagnostics,
   clearDiagnostics,
   cancelStream,
@@ -56,15 +60,6 @@ export async function sendToClaude(
   options: RequestOptions,
 ): Promise<void> {
   await commands.sendToClaude(messages, chatId, streamId, system, model, options);
-}
-
-export async function countChatTokens(
-  messages: ChatMessageDto[],
-  system: string,
-  model: string,
-  options: RequestOptions,
-): Promise<number> {
-  return commands.countChatTokens(messages, system, model, options);
 }
 
 export async function getSettings(): Promise<Settings> {

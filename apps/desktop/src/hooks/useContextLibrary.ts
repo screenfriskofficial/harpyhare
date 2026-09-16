@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback } from "react";
 import { loadContextLibrary, saveContextLibrary } from "@/ipc/commands";
 import {
   addDoc,
@@ -15,7 +15,7 @@ import {
   type ContextLibrary,
 } from "@/lib/context-library";
 import { LIBRARY_SUBJECT } from "@/lib/persist-errors";
-import { useDebouncedPersist } from "./useDebouncedPersist";
+import { useLoadedJsonStore } from "./useLoadedJsonStore";
 
 export interface ContextLibraryApi {
   library: ContextLibrary;
@@ -29,51 +29,67 @@ export interface ContextLibraryApi {
   flush: () => Promise<void>;
 }
 
-export function useContextLibrary(): ContextLibraryApi {
-  const [library, setLibrary] = useState<ContextLibrary>(EMPTY_LIBRARY);
-  const { markLoaded, flush } = useDebouncedPersist(
-    library,
-    serializeLibrary,
-    saveContextLibrary,
-    LIBRARY_SUBJECT,
-  );
+const emptyLibrary = (): ContextLibrary => EMPTY_LIBRARY;
 
-  useEffect(() => {
-    let live = true;
-    void loadContextLibrary().then((json) => {
-      if (!live) return;
-      const initial = deserializeLibrary(json) ?? EMPTY_LIBRARY;
-      setLibrary(initial);
-      markLoaded(initial);
-    });
-    return () => {
-      live = false;
-    };
-  }, [markLoaded]);
+export function useContextLibrary(): ContextLibraryApi {
+  const {
+    value: library,
+    setValue: setLibrary,
+    flush,
+  } = useLoadedJsonStore<ContextLibrary>({
+    load: loadContextLibrary,
+    save: saveContextLibrary,
+    deserialize: deserializeLibrary,
+    serialize: serializeLibrary,
+    subject: LIBRARY_SUBJECT,
+    initial: EMPTY_LIBRARY,
+    fallback: emptyLibrary,
+  });
 
   return {
     library,
-    addFolder: useCallback((name) => {
-      setLibrary((lib) => addFolder(lib, name));
-    }, []),
-    renameFolder: useCallback((id, name) => {
-      setLibrary((lib) => renameFolder(lib, id, name));
-    }, []),
-    removeFolder: useCallback((id) => {
-      setLibrary((lib) => removeFolder(lib, id));
-    }, []),
-    addDoc: useCallback((doc) => {
-      setLibrary((lib) => addDoc(lib, doc));
-    }, []),
-    updateDoc: useCallback((id, patch) => {
-      setLibrary((lib) => updateDoc(lib, id, patch));
-    }, []),
-    removeDoc: useCallback((id) => {
-      setLibrary((lib) => removeDoc(lib, id));
-    }, []),
-    moveDoc: useCallback((id, folderId) => {
-      setLibrary((lib) => moveDoc(lib, id, folderId));
-    }, []),
+    addFolder: useCallback(
+      (name) => {
+        setLibrary((lib) => addFolder(lib, name));
+      },
+      [setLibrary],
+    ),
+    renameFolder: useCallback(
+      (id, name) => {
+        setLibrary((lib) => renameFolder(lib, id, name));
+      },
+      [setLibrary],
+    ),
+    removeFolder: useCallback(
+      (id) => {
+        setLibrary((lib) => removeFolder(lib, id));
+      },
+      [setLibrary],
+    ),
+    addDoc: useCallback(
+      (doc) => {
+        setLibrary((lib) => addDoc(lib, doc));
+      },
+      [setLibrary],
+    ),
+    updateDoc: useCallback(
+      (id, patch) => {
+        setLibrary((lib) => updateDoc(lib, id, patch));
+      },
+      [setLibrary],
+    ),
+    removeDoc: useCallback(
+      (id) => {
+        setLibrary((lib) => removeDoc(lib, id));
+      },
+      [setLibrary],
+    ),
+    moveDoc: useCallback(
+      (id, folderId) => {
+        setLibrary((lib) => moveDoc(lib, id, folderId));
+      },
+      [setLibrary],
+    ),
     flush,
   };
 }

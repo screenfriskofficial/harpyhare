@@ -1,7 +1,10 @@
 //! OpenRouter's dedicated transcription catalog, not the text/audio chat list.
 use serde::{Deserialize, Serialize};
+use std::sync::OnceLock;
 
-use super::{network_error, registry, warm_pooled_client, SttError};
+use super::{network_error, registry, SttError};
+use crate::error::http::provider_error;
+use crate::net::pooled_client;
 
 const CATALOG_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(15);
 const CATALOG_PATH: &str = "/api/v1/models";
@@ -45,9 +48,10 @@ async fn fetch_models(
         .await
         .map_err(network_error)?;
     if !response.status().is_success() {
-        let code = response.status().as_u16();
-        return Err(SttError::Other(
-            crate::llm::api_error_message(response, code).await,
+        let spec = registry::resolve(registry::PROVIDER_OPENROUTER);
+        return Err(provider_error(
+            crate::error::http::failure(response, false).await,
+            spec.key_label,
         ));
     }
     let catalog: Catalog = response
@@ -82,11 +86,19 @@ async fn fetch_models(
     Ok(models)
 }
 
+/// One pooled client for the catalogue for the life of the process: building
+/// a `reqwest::Client` per call means a fresh TLS config and connection pool
+/// on every menu open.
+fn catalog_client() -> &'static reqwest::Client {
+    static CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
+    CLIENT.get_or_init(pooled_client)
+}
+
 #[tauri::command]
 #[specta::specta]
 pub async fn list_openrouter_stt_models() -> Result<Vec<SttModelInfo>, String> {
     let spec = registry::resolve(registry::PROVIDER_OPENROUTER);
-    fetch_models(&warm_pooled_client(), spec.wire.base_url())
+    fetch_models(catalog_client(), spec.wire.base_url())
         .await
         .map_err(|e| e.to_string())
 }

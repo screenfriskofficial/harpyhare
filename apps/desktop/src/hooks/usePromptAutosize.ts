@@ -28,15 +28,22 @@ export function usePromptAutosize(
     const el = ref.current;
     const parent = el?.parentElement;
     if (!el || !parent) return;
+    let frame = 0;
     const observer = new ResizeObserver((entries) => {
       const width = entries[0]?.contentRect.width ?? null;
       if (width === lastWidth.current) return;
       lastWidth.current = width;
-      fit();
+      // On the next frame, not inside the observer's callback: the composer
+      // observes the ancestors of this field, and a synchronous height change
+      // here would be a size change above the depth just delivered — the
+      // «loop completed with undelivered notifications» error.
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(fit);
     });
     observer.observe(parent);
     return () => {
       observer.disconnect();
+      cancelAnimationFrame(frame);
     };
   }, [ref, fit]);
 }

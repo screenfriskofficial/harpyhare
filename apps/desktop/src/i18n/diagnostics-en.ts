@@ -29,6 +29,7 @@ export const diagnosticsEn = {
   success: "Successful",
   session: "App session",
   preflight: "Pre-interview check",
+  pipeline: "Prompt or answer pipeline",
   retryAfter: "The service recommends waiting {{seconds}} s",
   noRequestId: "The service did not return a request ID",
   kind: { capture: "Audio capture", transcription: "Transcription", answer: "Model response" },
@@ -103,6 +104,11 @@ export const diagnosticsEn = {
         "Wait for the current operation to finish, then retry. Copy a report if this persists.",
     },
     cancelled: { title: "Cancelled", action: "You can run the check again when ready." },
+    incomplete: {
+      title: "Answer not completed",
+      action:
+        "The model stopped before finishing: length limit, context overflow or a refusal. Shorten the context or retry the request.",
+    },
     internal: {
       title: "App or device error",
       action:

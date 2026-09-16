@@ -30,7 +30,9 @@ pub async fn check(app: &AppHandle) -> Result<Option<UpdateInfo>, String> {
     if let Some(i) = &info {
         eprintln!("{LOG_TAG} найдена версия {}", i.version);
     }
-    *app.state::<crate::app_state::App>().pending_update.lock_unpoisoned() = update;
+    *app.state::<crate::app_state::App>()
+        .pending_update
+        .lock_unpoisoned() = update;
     Ok(info)
 }
 
@@ -135,11 +137,7 @@ async fn notify_if_update_found(app: &AppHandle) {
 }
 
 fn skipped_version(app: &AppHandle) -> String {
-    app.state::<crate::app_state::App>()
-        .settings
-        .lock_unpoisoned()
-        .skipped_version
-        .clone()
+    crate::app_state::with_settings(app, |s| s.skipped_version.clone())
 }
 
 pub fn should_notify(found_version: &str, skipped_version: &str) -> bool {

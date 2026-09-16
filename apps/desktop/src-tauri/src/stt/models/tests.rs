@@ -27,9 +27,7 @@ async fn fetches_only_transcription_models_without_credentials_and_deduplicates(
         .expect(1)
         .mount(&server)
         .await;
-    let models = fetch_models(&warm_pooled_client(), &server.uri())
-        .await
-        .unwrap();
+    let models = fetch_models(&pooled_client(), &server.uri()).await.unwrap();
     assert_eq!(
         models.iter().map(|m| m.id.as_str()).collect::<Vec<_>>(),
         ["vendor/a", "vendor/z"]
@@ -50,8 +48,6 @@ async fn failed_or_malformed_catalog_does_not_pretend_to_be_a_successful_empty_l
             .respond_with(ResponseTemplate::new(status).set_body_string(body))
             .mount(&server)
             .await;
-        assert!(fetch_models(&warm_pooled_client(), &server.uri())
-            .await
-            .is_err());
+        assert!(fetch_models(&pooled_client(), &server.uri()).await.is_err());
     }
 }

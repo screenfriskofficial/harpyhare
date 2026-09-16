@@ -58,10 +58,7 @@ pub fn on_capture_region(app: &AppHandle) {
     if !platform::screen_capture_access() {
         events::screenshot_error(
             app,
-            AppError {
-                code: ErrorCode::Permission,
-                message: NO_PERMISSION_MESSAGE.to_string(),
-            },
+            AppError::new(ErrorCode::Permission, NO_PERMISSION_MESSAGE),
         );
         return;
     }
@@ -81,13 +78,7 @@ pub fn on_capture_region(app: &AppHandle) {
             Ok(None) => {}
             Err(message) => {
                 eprintln!("{LOG_TAG} {message}");
-                events::screenshot_error(
-                    &app,
-                    AppError {
-                        code: ErrorCode::Internal,
-                        message,
-                    },
-                );
+                events::screenshot_error(&app, AppError::new(ErrorCode::Internal, message));
             }
         }
     });

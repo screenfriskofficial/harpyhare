@@ -14,6 +14,11 @@ const AUDIO_CAPTURE_PRIVACY_PANE_URL: &str =
     "x-apple.systempreferences:com.apple.preference.security?Privacy_AudioCapture";
 const SCREEN_CAPTURE_PRIVACY_PANE_URL: &str =
     "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture";
+const MICROPHONE_PRIVACY_PANE_URL: &str =
+    "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone";
+const TCCUTIL_PATH: &str = "/usr/bin/tccutil";
+const TCCUTIL_RESET_VERB: &str = "reset";
+const TCC_SCREEN_CAPTURE_SERVICE: &str = "ScreenCapture";
 
 pub fn disable_cursor_autohide_on_typing() {
     unsafe extern "C-unwind" fn keep_cursor_visible() {}
@@ -162,8 +167,8 @@ pub fn reset_screen_capture_access(identifier: &str) -> Result<(), String> {
     if identifier.is_empty() {
         return Err("Не определён идентификатор приложения".into());
     }
-    let output = std::process::Command::new("/usr/bin/tccutil")
-        .args(["reset", "ScreenCapture", identifier])
+    let output = std::process::Command::new(TCCUTIL_PATH)
+        .args([TCCUTIL_RESET_VERB, TCC_SCREEN_CAPTURE_SERVICE, identifier])
         .output()
         .map_err(|e| e.to_string())?;
     if !output.status.success() {
@@ -177,5 +182,31 @@ pub fn open_url(url: &str) {
 }
 
 pub fn open_microphone_privacy_pane() {
-    open_with_shell("x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone");
+    open_with_shell(MICROPHONE_PRIVACY_PANE_URL);
+}
+
+/// TCC status read through AVFoundation; the read itself never prompts.
+pub fn microphone_capture_access() -> Option<bool> {
+    use cidre::av;
+    match av::CaptureDevice::authorization_status_for_media_type(av::MediaType::audio()) {
+        Ok(av::AuthorizationStatus::Authorized) => Some(true),
+        Ok(av::AuthorizationStatus::NotDetermined) => None,
+        _ => Some(false),
+    }
+}
+
+/// The system prompt answers through a block on an AVFoundation queue; a
+/// oneshot carries the verdict back to the async caller.
+pub async fn request_microphone_capture_access() -> Result<bool, String> {
+    use cidre::av;
+    let (sender, receiver) = tokio::sync::oneshot::channel();
+    let mut sender = Some(sender);
+    let mut callback = cidre::blocks::SendBlock::new1(move |granted: bool| {
+        if let Some(sender) = sender.take() {
+            let _ = sender.send(granted);
+        }
+    });
+    av::CaptureDevice::request_access_for_media_type_ch(av::MediaType::audio(), &mut callback)
+        .map_err(|e| format!("Не удалось запросить микрофон: {e:?}"))?;
+    receiver.await.map_err(|e| e.to_string())
 }

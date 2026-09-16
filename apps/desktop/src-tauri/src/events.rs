@@ -11,7 +11,6 @@ const EVENT_STT_ERROR: &str = "stt-error";
 const EVENT_LLM_DELTA: &str = "llm-delta";
 const EVENT_LLM_DONE: &str = "llm-done";
 const EVENT_LLM_ERROR: &str = "llm-error";
-const EVENT_LLM_USAGE: &str = "llm-usage";
 const EVENT_TOGGLE_TELEPROMPTER: &str = "toggle-teleprompter";
 const EVENT_TOGGLE_MINI: &str = "toggle-mini";
 const EVENT_RESIZE_KEY: &str = "resize-key";
@@ -24,10 +23,7 @@ const EVENT_SCREENSHOT_ERROR: &str = "screenshot-error";
 const EVENT_FOCUS_PROMPT: &str = "focus-prompt";
 const EVENT_DUPLICATE_CHAT: &str = "duplicate-chat";
 const EVENT_HOTKEY_ERROR: &str = "hotkey-error";
-
-pub fn preflight_progress(app: &AppHandle, progress: crate::preflight::PreflightProgress) {
-    let _ = app.emit("preflight-progress", progress);
-}
+const EVENT_PREFLIGHT_PROGRESS: &str = "preflight-progress";
 
 #[derive(Clone, serde::Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
@@ -49,14 +45,6 @@ pub struct LlmDelta {
 pub struct LlmDone {
     pub chat_id: String,
     pub stream_id: String,
-}
-
-#[derive(Clone, serde::Serialize, specta::Type)]
-#[serde(rename_all = "camelCase")]
-pub struct LlmUsage {
-    pub chat_id: String,
-    pub stream_id: String,
-    pub input_tokens: u32,
 }
 
 #[derive(Clone, serde::Serialize, specta::Type)]
@@ -135,17 +123,6 @@ pub fn llm_error(app: &AppHandle, chat_id: String, stream_id: String, error: App
     );
 }
 
-pub fn llm_usage(app: &AppHandle, chat_id: &str, stream_id: &str, input_tokens: u32) {
-    let _ = app.emit(
-        EVENT_LLM_USAGE,
-        LlmUsage {
-            chat_id: chat_id.to_string(),
-            stream_id: stream_id.to_string(),
-            input_tokens,
-        },
-    );
-}
-
 pub fn screenshot_ready(app: &AppHandle, payload: ScreenshotReady) {
     let _ = app.emit(EVENT_SCREENSHOT_READY, payload);
 }
@@ -200,4 +177,8 @@ pub fn update_done(app: &AppHandle, version: String) {
 
 pub fn official_presets_updated(app: &AppHandle, presets: Vec<PromptPreset>) {
     let _ = app.emit(EVENT_OFFICIAL_PRESETS_UPDATED, presets);
+}
+
+pub fn preflight_progress(app: &AppHandle, progress: crate::preflight::PreflightProgress) {
+    let _ = app.emit(EVENT_PREFLIGHT_PROGRESS, progress);
 }

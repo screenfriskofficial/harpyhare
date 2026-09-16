@@ -49,9 +49,14 @@ pub enum SttKeyterms {
     /// One field repeated per term, capped by the vendor. Where the repetition
     /// lands is the transport's business: xAI repeats a multipart field,
     /// Deepgram repeats a query parameter — the shape is the same either way.
-    Repeated { field: &'static str, max: usize },
+    Repeated {
+        field: &'static str,
+        max: usize,
+    },
     /// Whisper-style biasing: all terms in one free-text field.
-    Prompt { field: &'static str },
+    Prompt {
+        field: &'static str,
+    },
 }
 
 /// The upload protocol a vendor speaks.
@@ -68,7 +73,14 @@ pub enum SttWire {
         base_url: &'static str,
         transcribe_path: &'static str,
         warm_up_path: &'static str,
+        /// The model sent by default — and the only one for a vendor with a
+        /// fixed line-up.
         transcribe_model: &'static str,
+        /// The user picks the model from a live catalogue and
+        /// `transcribe_model` is merely the default. A vendor with a fixed
+        /// model ignores the stored choice, so switching back to it never
+        /// sends another vendor's model id.
+        selectable_model: bool,
         /// Vendors disagree and both are load-bearing: Groq's turbo model
         /// cannot translate at all, and OpenAI's translations endpoint accepts
         /// nothing but `whisper-1`.
@@ -115,19 +127,32 @@ impl SttWire {
         match self {
             SttWire::OpenAiMultipart { warm_up_path, .. }
             | SttWire::Xai { warm_up_path, .. }
-            | SttWire::Deepgram { warm_up_path, .. } => {
-                warm_up_path
-            }
+            | SttWire::Deepgram { warm_up_path, .. } => warm_up_path,
         }
+    }
+
+    /// Whether the stored model choice applies to this vendor at all.
+    pub fn selectable_model(&self) -> bool {
+        matches!(
+            self,
+            SttWire::OpenAiMultipart {
+                selectable_model: true,
+                ..
+            }
+        )
     }
 
     /// Where a request goes. `translate` only ever changes it on a dialect that
     /// has somewhere else to go.
     pub fn path(&self, translate: bool) -> &'static str {
         match self {
-            SttWire::OpenAiMultipart { transcribe_path, translation, .. } => {
-                translation.filter(|_| translate).map_or(transcribe_path, |t| t.path)
-            }
+            SttWire::OpenAiMultipart {
+                transcribe_path,
+                translation,
+                ..
+            } => translation
+                .filter(|_| translate)
+                .map_or(transcribe_path, |t| t.path),
             SttWire::Xai { path, .. } => path,
             SttWire::Deepgram { listen_path, .. } => listen_path,
         }
@@ -157,6 +182,7 @@ pub const PROVIDERS: &[SttProviderSpec] = &[
             transcribe_path: "/openai/v1/audio/transcriptions",
             warm_up_path: "/openai/v1/models",
             transcribe_model: "whisper-large-v3-turbo",
+            selectable_model: false,
             translation: Some(SttTranslation {
                 path: "/openai/v1/audio/translations",
                 model: "whisper-large-v3",
@@ -184,6 +210,7 @@ pub const PROVIDERS: &[SttProviderSpec] = &[
             transcribe_path: "/v1/audio/transcriptions",
             warm_up_path: "/v1/models",
             transcribe_model: "gpt-4o-mini-transcribe",
+            selectable_model: false,
             translation: Some(SttTranslation {
                 path: "/v1/audio/translations",
                 model: "whisper-1",
@@ -203,7 +230,10 @@ pub const PROVIDERS: &[SttProviderSpec] = &[
         proxied: true,
         supports_translate: false,
         // Hard error above 100, verified — not a silent truncation.
-        keyterms: SttKeyterms::Repeated { field: "keyterm", max: 100 },
+        keyterms: SttKeyterms::Repeated {
+            field: "keyterm",
+            max: 100,
+        },
         key_label: "xAI",
         wire: SttWire::Xai {
             base_url: "https://api.x.ai",
@@ -225,7 +255,10 @@ pub const PROVIDERS: &[SttProviderSpec] = &[
         // Настоящий предел вендора — 500 ТОКЕНОВ на все термины разом, а не их
         // число, посчитать его на клиенте нечем. Берём документированный потолок
         // рекомендации (20–50 терминов): он заведомо внутри лимита.
-        keyterms: SttKeyterms::Repeated { field: "keyterm", max: 50 },
+        keyterms: SttKeyterms::Repeated {
+            field: "keyterm",
+            max: 50,
+        },
         key_label: "Deepgram",
         wire: SttWire::Deepgram {
             // Европейский хост выбран намеренно: у Deepgram он отдельный, и
@@ -251,6 +284,7 @@ pub const PROVIDERS: &[SttProviderSpec] = &[
             transcribe_path: "/api/v1/audio/transcriptions",
             warm_up_path: "/api/v1/models?output_modalities=transcription",
             transcribe_model: DEFAULT_OPENROUTER_MODEL,
+            selectable_model: true,
             translation: None,
             temperature: None,
         },

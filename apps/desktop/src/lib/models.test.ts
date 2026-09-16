@@ -21,7 +21,6 @@ const model = (id: string, extra: Partial<ModelInfo> = {}): ModelInfo => ({
   adaptive: true,
   alwaysThinks: false,
   codeExec: true,
-  maxInputTokens: 0,
   ...extra,
 });
 

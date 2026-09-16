@@ -9,7 +9,6 @@ export interface ModelInfo {
   adaptive: boolean;
   alwaysThinks: boolean;
   codeExec: boolean;
-  maxInputTokens: number;
 }
 
 /** New chats start here. The id is declared in Rust (`llm::DEFAULT_MODEL`). */
@@ -17,8 +16,6 @@ export const DEFAULT_MODEL: string = GENERATED_DEFAULT_MODEL;
 
 /** Aggregators have no offline catalogue; their live lists get a dedicated picker page. */
 export const DYNAMIC_MODEL_PROVIDERS = LLM_PROVIDERS.filter((p) => p.catalog.length === 0);
-
-const UNKNOWN_MAX_INPUT_TOKENS = 0;
 
 export interface ModelProvider {
   id: string;
@@ -63,7 +60,6 @@ export const FALLBACK_MODELS: ModelInfo[] = LLM_PROVIDERS.flatMap((p) =>
     adaptive: m.adaptive,
     alwaysThinks: m.alwaysThinks,
     codeExec: m.codeExec,
-    maxInputTokens: UNKNOWN_MAX_INPUT_TOKENS,
   })),
 );
 
@@ -161,7 +157,6 @@ function unlistedModel(id: string): ModelInfo {
     adaptive: true,
     alwaysThinks: false,
     codeExec: true,
-    maxInputTokens: UNKNOWN_MAX_INPUT_TOKENS,
   };
 }
 

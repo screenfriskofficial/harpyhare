@@ -1,67 +1,82 @@
-import { withDiagramViewport } from "./diagram-viewport";
-import template from "./system-design-template.html?raw";
+import { isRecord } from "./utils";
 
-interface DiagramNode {
+export type SystemDesignKind = "service" | "db" | "queue" | "client";
+
+export interface SystemDesignNode {
   id: string;
+  /** Layer, left to right: clients first, storage last. Consecutive from 0. */
   col: number;
-  kind: "service" | "db" | "queue" | "client";
+  kind: SystemDesignKind;
   title: string;
   sub?: string[];
   badge?: string;
 }
 
-interface DiagramEdge {
+export interface SystemDesignEdge {
   from: string;
   to: string;
   label?: string;
+  /** Dashed: a message on a queue rather than a call. */
   async?: boolean;
 }
 
-interface DiagramGroup {
+export interface SystemDesignGroup {
   label: string;
   nodes: string[];
 }
 
-interface Diagram {
+/** The contract the system-design preset teaches the model; `version` is the format version. */
+export interface SystemDesign {
   version: 1;
   TITLE: string;
-  NODES: DiagramNode[];
-  EDGES: DiagramEdge[];
-  GROUPS?: DiagramGroup[];
+  NODES: SystemDesignNode[];
+  EDGES: SystemDesignEdge[];
+  GROUPS: SystemDesignGroup[];
 }
 
-function record(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
+export const SYSTEM_DESIGN_KINDS: readonly SystemDesignKind[] = [
+  "service",
+  "db",
+  "queue",
+  "client",
+];
+const MAX_CODE_CHARS = 100_000;
+const MAX_TEXT_CHARS = 120;
+const MAX_TITLE_CHARS = 200;
+const MAX_COLUMNS = 32;
+const MAX_NODES = 80;
+const MAX_EDGES = 200;
+const MAX_GROUPS = 20;
+const MAX_SUB_LINES = 3;
 
-function text(value: unknown, max = 120): value is string {
+function text(value: unknown, max = MAX_TEXT_CHARS): value is string {
   return typeof value === "string" && value.length <= max;
 }
 
-function node(value: unknown): value is DiagramNode {
+function node(value: unknown): value is SystemDesignNode {
   return (
-    record(value) &&
+    isRecord(value) &&
     text(value["id"]) &&
     value["id"].trim() !== "" &&
     typeof value["col"] === "number" &&
     Number.isInteger(value["col"]) &&
     value["col"] >= 0 &&
-    value["col"] < 32 &&
+    value["col"] < MAX_COLUMNS &&
     typeof value["kind"] === "string" &&
-    ["service", "db", "queue", "client"].includes(value["kind"]) &&
+    SYSTEM_DESIGN_KINDS.some((kind) => kind === value["kind"]) &&
     text(value["title"]) &&
     value["title"].trim() !== "" &&
     (value["sub"] === undefined ||
       (Array.isArray(value["sub"]) &&
-        value["sub"].length <= 3 &&
+        value["sub"].length <= MAX_SUB_LINES &&
         value["sub"].every((s) => text(s)))) &&
     (value["badge"] === undefined || text(value["badge"]))
   );
 }
 
-function edge(value: unknown): value is DiagramEdge {
+function edge(value: unknown): value is SystemDesignEdge {
   return (
-    record(value) &&
+    isRecord(value) &&
     text(value["from"]) &&
     text(value["to"]) &&
     value["from"] !== value["to"] &&
@@ -70,36 +85,37 @@ function edge(value: unknown): value is DiagramEdge {
   );
 }
 
-function group(value: unknown): value is DiagramGroup {
+function group(value: unknown): value is SystemDesignGroup {
   return (
-    record(value) &&
+    isRecord(value) &&
     text(value["label"]) &&
     Array.isArray(value["nodes"]) &&
     value["nodes"].length > 0 &&
-    value["nodes"].length <= 80 &&
+    value["nodes"].length <= MAX_NODES &&
     value["nodes"].every((id) => text(id))
   );
 }
 
-function diagram(value: unknown): value is Diagram {
+function design(
+  value: unknown,
+): value is Omit<SystemDesign, "GROUPS"> & { GROUPS?: SystemDesignGroup[] } {
   if (
-    !record(value) ||
+    !isRecord(value) ||
     value["version"] !== 1 ||
-    !text(value["TITLE"], 200) ||
+    !text(value["TITLE"], MAX_TITLE_CHARS) ||
     !Array.isArray(value["NODES"]) ||
     value["NODES"].length === 0 ||
-    value["NODES"].length > 80 ||
+    value["NODES"].length > MAX_NODES ||
     !value["NODES"].every(node) ||
     !Array.isArray(value["EDGES"]) ||
-    value["EDGES"].length > 200 ||
+    value["EDGES"].length > MAX_EDGES ||
     !value["EDGES"].every(edge) ||
     (value["GROUPS"] !== undefined &&
       (!Array.isArray(value["GROUPS"]) ||
-        value["GROUPS"].length > 20 ||
+        value["GROUPS"].length > MAX_GROUPS ||
         !value["GROUPS"].every(group)))
   )
     return false;
-
   const ids = new Set(value["NODES"].map((n) => n.id));
   const cols = new Set(value["NODES"].map((n) => n.col));
   return (
@@ -111,20 +127,24 @@ function diagram(value: unknown): value is Diagram {
   );
 }
 
-/** Only validated JSON becomes executable HTML. Incomplete streaming data stays code. */
-export function systemDesignHtml(code: string): string | null {
-  if (code.length > 100_000) return null;
+/**
+ * Only validated data becomes a diagram; incomplete JSON while streaming, or
+ * a block the model got wrong, stays visible as code for correction.
+ */
+export function parseSystemDesign(code: string): SystemDesign | null {
+  if (code.length > MAX_CODE_CHARS) return null;
   let data: unknown;
   try {
     data = JSON.parse(code);
   } catch {
     return null;
   }
-  if (!diagram(data)) return null;
-  // A literal </script> in JSON must never terminate the enclosing script tag.
-  const json = JSON.stringify({ ...data, GROUPS: data.GROUPS ?? [] })
-    .replace(/</g, "\\u003c")
-    .replace(/\u2028/g, "\\u2028")
-    .replace(/\u2029/g, "\\u2029");
-  return withDiagramViewport(template.replace("__SYSTEM_DESIGN_DATA__", () => json));
+  if (!design(data)) return null;
+  return {
+    version: 1,
+    TITLE: data.TITLE,
+    NODES: data.NODES,
+    EDGES: data.EDGES,
+    GROUPS: data.GROUPS ?? [],
+  };
 }

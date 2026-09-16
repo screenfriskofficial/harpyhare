@@ -38,19 +38,10 @@ export interface NotesPanelProps {
   library: ContextLibrary;
   index: NotesIndex | null;
   addDoc: ContextLibraryApi["addDoc"];
-  selectedDocIds: string[];
-  onToggleDoc: (docId: string) => void;
   onLeave: () => void;
 }
 
-export function NotesPanel({
-  library,
-  index,
-  addDoc,
-  selectedDocIds,
-  onToggleDoc,
-  onLeave,
-}: NotesPanelProps) {
+export function NotesPanel({ library, index, addDoc, onLeave }: NotesPanelProps) {
   const { t } = useTranslation();
   const [query, setQuery] = useState("");
   const [suggestionsDismissed, setSuggestionsDismissed] = useState(false);
@@ -67,7 +58,6 @@ export function NotesPanel({
   const suggesting = query.trim() !== "" && !suggestionsDismissed;
   const openDoc = library.docs.find((doc) => doc.id === openDocId) ?? null;
   const openTerms = rows.find((row) => row.doc.id === openDocId)?.terms ?? NO_TERMS;
-  const inContext = useMemo(() => new Set(selectedDocIds), [selectedDocIds]);
 
   useEffect(() => {
     searchRef.current?.focus();
@@ -221,13 +211,9 @@ export function NotesPanel({
           doc={openDoc}
           folderName={folderNameOf(library, openDoc.folderId)}
           terms={openTerms}
-          inContext={inContext.has(openDoc.id)}
           onBack={() => {
             setOpenDocId(null);
             searchRef.current?.focus();
-          }}
-          onToggleContext={() => {
-            onToggleDoc(openDoc.id);
           }}
           onCopy={() => {
             void navigator.clipboard.writeText(openDoc.text);
@@ -236,12 +222,7 @@ export function NotesPanel({
       ) : library.docs.length === 0 ? (
         <EmptyLibraryHint onPick={pickFiles} />
       ) : (
-        <NoteBrowseList
-          library={library}
-          inContext={inContext}
-          onOpen={openNote}
-          onToggleContext={onToggleDoc}
-        />
+        <NoteBrowseList library={library} onOpen={openNote} />
       )}
     </section>
   );

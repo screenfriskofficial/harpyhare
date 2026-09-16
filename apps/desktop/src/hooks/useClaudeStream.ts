@@ -3,7 +3,7 @@ import { cancelStream, sendToClaude } from "@/ipc/commands";
 import { onEvent } from "@/ipc/events";
 import type { ChatMessageDto } from "@/ipc/types";
 import type { RequestOptions } from "@/lib/chats";
-import { internalError, type AppError } from "@/lib/errors";
+import { errorMessage, internalError, type AppError } from "@/lib/errors";
 import { notifyAppError } from "@/lib/notify";
 import { advanceReveal, sliceRevealed } from "@/lib/stream-reveal";
 import { useLatestRef } from "./useLatestRef";
@@ -34,7 +34,6 @@ export interface ClaudeStreams {
 
 export function useClaudeStream(
   onComplete: (chatId: string, finalText: string) => void,
-  onUsage: (chatId: string, inputTokens: number) => void,
 ): ClaudeStreams {
   const [partial, setPartial] = useState<Record<string, string>>({});
   const [streaming, setStreaming] = useState<Record<string, boolean>>({});
@@ -55,7 +54,6 @@ export function useClaudeStream(
   );
 
   const onCompleteRef = useLatestRef(onComplete);
-  const onUsageRef = useLatestRef(onUsage);
 
   const frame = useCallback<FrameRequestCallback>((frameTs) => {
     if (active.current.size === 0) {
@@ -126,10 +124,6 @@ export function useClaudeStream(
       active.current.delete(chatId);
       commitBufferAndFinish(chatId, true);
     });
-    const offUsage = onEvent("llm-usage", ({ chatId, streamId, inputTokens }) => {
-      if (!isCurrentStream(chatId, streamId)) return;
-      onUsageRef.current(chatId, inputTokens);
-    });
     const offError = onEvent("llm-error", ({ chatId, streamId, code, message }) => {
       if (!isCurrentStream(chatId, streamId)) return;
       ids.delete(chatId);
@@ -140,14 +134,13 @@ export function useClaudeStream(
     return () => {
       offDelta();
       offDone();
-      offUsage();
       offError();
       cancelAnimationFrame(raf.current);
       running.current = false;
       lastFrameTs.current = 0;
       ids.clear();
     };
-  }, [ensureRevealLoop, commitBufferAndFinish, isCurrentStream, onUsageRef]);
+  }, [ensureRevealLoop, commitBufferAndFinish, isCurrentStream]);
 
   const beginStream = useCallback(
     (chatId: string, streamId: string) => {
@@ -192,7 +185,7 @@ export function useClaudeStream(
       try {
         await sendToClaude(messages, chatId, streamId, system, model, options);
       } catch (e) {
-        failStream(chatId, internalError(String(e)));
+        failStream(chatId, internalError(errorMessage(e)));
       }
     },
     [beginStream, failStream],

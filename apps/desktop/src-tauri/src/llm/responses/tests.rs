@@ -1,5 +1,6 @@
 use super::*;
-use crate::llm::{registry, ImageAttachment, SseParser, PROVIDER_OPENAI, PROVIDER_XAI};
+use crate::llm::test_support::{assistant, image, user, user_with_images};
+use crate::llm::{registry, SseParser, PROVIDER_OPENAI, PROVIDER_XAI};
 
 fn spec_of(id: &str) -> &'static registry::LlmProviderSpec {
     registry::spec(id).expect("вендор объявлен в реестре")
@@ -14,14 +15,6 @@ fn responses_specs() -> Vec<&'static registry::LlmProviderSpec> {
         .collect()
 }
 
-fn user(text: &str) -> ChatMessage {
-    ChatMessage { role: "user".into(), text: text.into(), images: Vec::new() }
-}
-
-fn assistant(text: &str) -> ChatMessage {
-    ChatMessage { role: ROLE_ASSISTANT.into(), text: text.into(), images: Vec::new() }
-}
-
 #[test]
 fn every_vendor_of_this_dialect_has_a_tagged_catalogue() {
     for spec in responses_specs() {
@@ -31,7 +24,10 @@ fn every_vendor_of_this_dialect_has_a_tagged_catalogue() {
     }
     let ids: Vec<&str> = responses_specs().iter().map(|p| p.id).collect();
     assert!(ids.contains(&PROVIDER_OPENAI));
-    assert!(ids.contains(&PROVIDER_XAI), "Grok обязан обслуживаться этим же диалектом");
+    assert!(
+        ids.contains(&PROVIDER_XAI),
+        "Grok обязан обслуживаться этим же диалектом"
+    );
 }
 
 #[test]
@@ -39,10 +35,19 @@ fn the_effort_sent_is_the_one_the_vendor_declared() {
     // Measured against both live APIs: OpenAI takes "none", xAI refuses it.
     // A vendor added with the wrong floor here fails loudly at that vendor.
     for spec in responses_specs() {
-        let registry::LlmWire::Responses { effort_off, effort_on, .. } = spec.wire else {
+        let registry::LlmWire::Responses {
+            effort_off,
+            effort_on,
+            ..
+        } = spec.wire
+        else {
             unreachable!()
         };
-        let info = spec.models().into_iter().find(|m| !m.always_thinks).expect("есть adaptive");
+        let info = spec
+            .models()
+            .into_iter()
+            .find(|m| !m.always_thinks)
+            .expect("есть adaptive");
         assert_eq!(
             reasoning_value(spec, Some(&info), false),
             Some(json!({ "effort": effort_off })),
@@ -64,10 +69,17 @@ fn openai_and_xai_disagree_about_switching_reasoning_off() {
     let xai = spec_of(PROVIDER_XAI);
     let off = |s: &'static registry::LlmProviderSpec| {
         let m = s.models().into_iter().find(|m| !m.always_thinks).unwrap();
-        reasoning_value(s, Some(&m), false).unwrap()["effort"].as_str().unwrap().to_string()
+        reasoning_value(s, Some(&m), false).unwrap()["effort"]
+            .as_str()
+            .unwrap()
+            .to_string()
     };
     assert_eq!(off(openai), "none");
-    assert_eq!(off(xai), "minimal", "xAI отвергает none — это проверено живым запросом");
+    assert_eq!(
+        off(xai),
+        "minimal",
+        "xAI отвергает none — это проверено живым запросом"
+    );
 }
 
 #[test]
@@ -87,12 +99,21 @@ fn always_thinking_model_gets_no_reasoning_field() {
 #[test]
 fn web_search_tool_is_sent_only_on_request() {
     assert_eq!(web_search_value(false), None);
-    assert_eq!(web_search_value(true), Some(json!({"type": WEB_SEARCH_TOOL_TYPE})));
+    assert_eq!(
+        web_search_value(true),
+        Some(json!({"type": WEB_SEARCH_TOOL_TYPE}))
+    );
 }
 
 #[test]
 fn request_body_puts_system_into_instructions_and_never_stores() {
-    let body = build_request_body("gpt-5.6-terra", "будь краток", &[user("привет")], None, None);
+    let body = build_request_body(
+        "gpt-5.6-terra",
+        "будь краток",
+        &[user("привет")],
+        None,
+        None,
+    );
     assert_eq!(body["instructions"], "будь краток");
     assert_eq!(body["store"], false);
     assert_eq!(body["stream"], true);
@@ -122,11 +143,7 @@ fn empty_messages_are_dropped_from_input() {
 
 #[test]
 fn images_travel_as_data_urls() {
-    let m = ChatMessage {
-        role: "user".into(),
-        text: "что тут".into(),
-        images: vec![ImageAttachment { media_type: "image/png".into(), data: "QUJD".into() }],
-    };
+    let m = user_with_images("что тут", vec![image("image/png", "QUJD")]);
     let body = build_request_body("gpt-5.6-terra", "", &[m], None, None);
     let content = &body["input"][0]["content"];
     assert_eq!(content[0]["type"], CONTENT_INPUT_TEXT);
@@ -144,15 +161,13 @@ fn text_deltas_are_parsed() {
 }
 
 #[test]
-fn completed_event_ends_the_stream_and_carries_input_tokens() {
-    let data = r#"{"type":"response.completed","response":{"usage":{"input_tokens":41}}}"#;
-    assert_eq!(parse_block(data), vec![SseOut::Done(Some(41))]);
-}
-
-#[test]
-fn completed_event_without_usage_still_ends_the_stream() {
-    let data = r#"{"type":"response.completed","response":{}}"#;
-    assert_eq!(parse_block(data), vec![SseOut::Done(None)]);
+fn completed_event_ends_the_stream_with_or_without_usage() {
+    for data in [
+        r#"{"type":"response.completed","response":{"usage":{"input_tokens":41}}}"#,
+        r#"{"type":"response.completed","response":{}}"#,
+    ] {
+        assert_eq!(parse_block(data), vec![SseOut::Done]);
+    }
 }
 
 #[test]
@@ -166,14 +181,20 @@ fn a_failure_worth_retrying_is_reported_as_such() {
     let data = r#"{"type":"response.failed","response":{"error":{"code":"server_error","message":"перегрузка"}}}"#;
     assert_eq!(
         parse_block(data),
-        vec![SseOut::Retryable { code: 500, message: "перегрузка".into() }]
+        vec![SseOut::Retryable {
+            code: 500,
+            message: "перегрузка".into()
+        }]
     );
 }
 
 #[test]
 fn incomplete_response_surfaces_its_reason() {
     let data = r#"{"type":"response.incomplete","response":{"incomplete_details":{"reason":"max_output_tokens"}}}"#;
-    assert_eq!(parse_block(data), vec![SseOut::ApiError("max_output_tokens".into())]);
+    assert_eq!(
+        parse_block(data),
+        vec![SseOut::Incomplete("max_output_tokens".into())]
+    );
 }
 
 #[test]

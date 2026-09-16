@@ -27,6 +27,8 @@ pub enum DiagnosticKind {
 pub enum DiagnosticOrigin {
     Session,
     Preflight,
+    /// A model step of a prompt or message pipeline, run for a chat or from the builder.
+    Pipeline,
 }
 
 #[derive(Clone, Debug, Serialize, specta::Type)]
@@ -281,15 +283,9 @@ pub fn answer_trace(app: &tauri::AppHandle, model: &str, origin: DiagnosticOrigi
         .iter()
         .find(|m| m.id == model)
         .map(|m| m.provider.clone())
-        .or_else(|| {
-            crate::llm::registry::PROVIDERS
-                .iter()
-                .find(|p| model.starts_with(&format!("{}/", p.id)))
-                .map(|p| p.id.to_string())
-        })
+        .or_else(|| crate::llm::registry::namespace_owner(model).map(|p| p.id.to_string()))
         .unwrap_or_default();
-    let settings = crate::app_state::current_settings(app);
-    let via_relay = !settings.access_token.is_empty()
+    let via_relay = crate::app_state::with_settings(app, |s| !s.access_token.is_empty())
         && crate::llm::registry::spec(&provider).is_some_and(|p| p.proxied);
     Trace::new(DiagnosticKind::Answer, origin, &provider, model, via_relay)
 }
@@ -299,7 +295,8 @@ pub fn transcription_trace(
     origin: DiagnosticOrigin,
 ) -> Trace {
     let plan = crate::app_state::stt_client_plan(settings);
-    let model = if plan.provider_id == "openrouter" {
+    let spec = crate::stt::registry::resolve(plan.provider_id);
+    let model = if spec.wire.selectable_model() {
         settings.openrouter_stt_model.as_str()
     } else {
         ""

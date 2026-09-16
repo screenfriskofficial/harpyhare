@@ -13,6 +13,7 @@ use crate::{access, capture, llm, settings, state, stt};
 const SETTINGS_FILE_NAME: &str = "settings.json";
 const CHATS_FILE_NAME: &str = "chats.json";
 const CONTEXT_LIBRARY_FILE_NAME: &str = "context-library.json";
+const PIPELINES_FILE_NAME: &str = "pipelines.json";
 
 pub struct App {
     pub settings: Mutex<settings::Settings>,
@@ -88,8 +89,19 @@ pub fn context_library_path(app: &AppHandle) -> std::path::PathBuf {
     app_data_file(app, CONTEXT_LIBRARY_FILE_NAME)
 }
 
+pub fn pipelines_path(app: &AppHandle) -> std::path::PathBuf {
+    app_data_file(app, PIPELINES_FILE_NAME)
+}
+
 pub fn current_settings(app: &AppHandle) -> settings::Settings {
     app.state::<App>().settings.lock_unpoisoned().clone()
+}
+
+/// Reads one thing out of the settings under the lock. For a field or two
+/// this is what to call: `current_settings` clones presets, keys and quick
+/// actions along, which is wasteful on a hot path like a key press.
+pub fn with_settings<R>(app: &AppHandle, read: impl FnOnce(&settings::Settings) -> R) -> R {
+    read(&app.state::<App>().settings.lock_unpoisoned())
 }
 
 pub fn llm_provider(app: &AppHandle) -> Arc<dyn llm::LlmProvider> {

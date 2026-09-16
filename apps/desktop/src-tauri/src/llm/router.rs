@@ -54,12 +54,9 @@ impl ProviderRouter {
 
     fn client_for(&self, model_id: &str) -> Result<&Arc<dyn LlmProvider>, LlmError> {
         // Saved aggregator ids keep their owner even after its key is removed.
-        let owner = self.provider_of_model(model_id).or_else(|| {
-            super::registry::PROVIDERS
-                .iter()
-                .find(|p| model_id.starts_with(&format!("{}/", p.id)))
-                .map(|p| p.id.to_string())
-        });
+        let owner = self
+            .provider_of_model(model_id)
+            .or_else(|| super::registry::namespace_owner(model_id).map(|p| p.id.to_string()));
         let Some(provider) = owner else {
             return Ok(self.default_provider());
         };
@@ -127,10 +124,6 @@ impl LlmProvider for ProviderRouter {
         self.client_for(&request.model)?
             .stream(request, cancel, sink)
             .await
-    }
-
-    async fn count_tokens(&self, request: LlmRequest) -> Result<u32, LlmError> {
-        self.client_for(&request.model)?.count_tokens(request).await
     }
 
     async fn list_models(&self) -> Result<Vec<ModelInfo>, LlmError> {

@@ -425,7 +425,6 @@ impl llm::LlmStreamSink for ProbeSink {
             self.cancel.cancel();
         }
     }
-    fn input_tokens(&mut self, _total: u32) {}
 }
 
 async fn check_answer(

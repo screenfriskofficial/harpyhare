@@ -18,15 +18,15 @@ use tokio_tungstenite::tungstenite::{
 use super::registry::SttProviderSpec;
 use super::{AudioChunkStream, Keyterms, SttEngine, SttError};
 use crate::audio;
+use crate::error::http::provider_error;
+// The WebSocket handshake gets the same deadline as an HTTP connect.
+use crate::net::{pooled_client, CONNECT_TIMEOUT, WARM_UP_TIMEOUT};
 
 const MODEL: &str = "nova-3";
 const MULTI_LANGUAGE: &str = "multi";
 const DEFAULT_LANGUAGE: &str = "ru";
 const WAV_MIME: &str = "audio/wav";
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(60);
-const WARM_UP_TIMEOUT: Duration = Duration::from_secs(5);
-/// Хендшейк WebSocket: столько же, сколько connect у HTTP-клиента.
-const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 /// Один кадр аудио, который не ушёл за это время, — сеть встала: дальше
 /// ждать нечего, конвейер уходит в батчевый фолбэк.
 const SEND_TIMEOUT: Duration = Duration::from_secs(10);
@@ -74,7 +74,7 @@ impl DeepgramStt {
             spec,
             api_key,
             base_url: spec.wire.base_url().into(),
-            client: super::warm_pooled_client(),
+            client: pooled_client(),
             language: DEFAULT_LANGUAGE.into(),
         }
     }
@@ -186,7 +186,7 @@ impl DeepgramStt {
                     .as_deref()
                     .and_then(|b| serde_json::from_slice(b).ok())
                     .unwrap_or_default();
-                super::http_failure(
+                provider_error(
                     crate::error::http::HttpFailure {
                         status: code,
                         code: crate::error::http::classify(code, &body, false),
@@ -249,7 +249,7 @@ impl DeepgramStt {
                         .to_string(),
                 )
             }
-            _ => Err(super::http_failure(
+            _ => Err(provider_error(
                 crate::error::http::failure(resp, false).await,
                 self.spec.key_label,
             )),

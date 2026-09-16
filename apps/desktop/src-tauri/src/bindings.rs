@@ -2,8 +2,8 @@ use tauri_specta::{collect_commands, Builder, ErrorHandlingMode};
 
 use crate::settings::{self, SettingsLimits};
 use crate::{
-    chat, clipboard, events, hotkeys, llm, permissions, preferences, recording, screenshot,
-    storage, stt, system, window,
+    chat, clipboard, events, hotkeys, llm, permissions, pipeline, preferences, recording,
+    screenshot, storage, stt, system, window,
 };
 
 pub const BINDINGS_OUTPUT_PATH: &str = "../src/ipc/bindings.ts";
@@ -26,9 +26,12 @@ pub fn builder() -> Builder<tauri::Wry> {
             crate::preflight::cancel_preflight,
             chat::send_to_claude,
             chat::cancel_stream,
-            chat::count_chat_tokens,
             chat::probe_connectivity,
             chat::list_models,
+            storage::load_pipelines,
+            storage::save_pipelines,
+            pipeline::run_pipeline_step,
+            pipeline::cancel_pipeline_run,
             stt::models::list_openrouter_stt_models,
             storage::load_chats,
             storage::save_chats,
@@ -68,7 +71,6 @@ pub fn builder() -> Builder<tauri::Wry> {
         .typ::<crate::state::RecorderState>()
         .typ::<events::LlmDelta>()
         .typ::<events::LlmDone>()
-        .typ::<events::LlmUsage>()
         .typ::<events::LlmErrorEvent>()
         .typ::<events::ResizeKeyPayload>()
         .typ::<events::ResizeDim>()

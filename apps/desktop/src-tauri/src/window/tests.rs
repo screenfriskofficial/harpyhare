@@ -38,16 +38,24 @@ fn the_tween_starts_at_the_origin_frame_and_lands_exactly_on_the_target() {
         to_x: 40,
         y: 12,
     };
-    let (w, h, x) = tween_frame(&tween, RESIZE_TWEEN_STEPS);
-    assert!((w - 800.0).abs() < 1e-9 && (h - 500.0).abs() < 1e-9);
-    assert_eq!(x, 40, "последний кадр стоит ровно на цели");
-    let (w1, h1, x1) = tween_frame(&tween, 1);
-    assert!(w1 > 400.0 && w1 < 800.0 && h1 > 300.0 && h1 < 500.0);
-    assert!(x1 < 100 && x1 > 40, "ease-out: первый кадр уже сдвинулся, но не доехал");
+    let last_frame = tween_frame(&tween, RESIZE_TWEEN_STEPS);
+    assert!((last_frame.width - 800.0).abs() < 1e-9 && (last_frame.height - 500.0).abs() < 1e-9);
+    assert_eq!(last_frame.x, 40, "последний кадр стоит ровно на цели");
+    assert_eq!(last_frame.y, 12, "верхний край не двигается");
+    let first = tween_frame(&tween, 1);
+    assert!(first.width > 400.0 && first.width < 800.0);
+    assert!(first.height > 300.0 && first.height < 500.0);
+    assert!(
+        first.x < 100 && first.x > 40,
+        "ease-out: первый кадр уже сдвинулся, но не доехал"
+    );
     let mut last = 0.0;
     for step in 1..=RESIZE_TWEEN_STEPS {
-        let (w, _, _) = tween_frame(&tween, step);
-        assert!(w >= last, "ширина растёт монотонно");
-        last = w;
+        let width = tween_frame(&tween, step).width;
+        assert!(width >= last, "ширина растёт монотонно");
+        last = width;
     }
+    let target = tween.target();
+    assert_eq!((target.x, target.y), (40, 12));
+    assert_eq!((target.width, target.height), (800.0, 500.0));
 }

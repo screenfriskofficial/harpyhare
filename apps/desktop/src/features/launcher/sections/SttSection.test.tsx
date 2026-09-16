@@ -1,5 +1,5 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { DEFAULT_SETTINGS } from "@/ipc/types";
 import type { PermissionsApi } from "@/hooks/usePermissions";
 import type { SetSetting } from "../contract";
@@ -20,21 +20,7 @@ vi.mock("@/hooks/useSttModels", () => ({
 }));
 import { SttSection } from "./SttSection";
 
-beforeEach(() => {
-  Element.prototype.scrollIntoView = vi.fn();
-  vi.stubGlobal(
-    "ResizeObserver",
-    class {
-      observe = vi.fn();
-      unobserve = vi.fn();
-      disconnect = vi.fn();
-    },
-  );
-});
-afterEach(() => {
-  cleanup();
-  vi.unstubAllGlobals();
-});
+afterEach(cleanup);
 
 function setup(provider: string) {
   const set = vi.fn<SetSetting>();

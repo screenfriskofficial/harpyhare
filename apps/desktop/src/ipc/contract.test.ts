@@ -50,7 +50,6 @@ const contract = {
   TranscriptReady: true satisfies SameShape<EventMap["transcript-ready"], Rust.TranscriptReady>,
   LlmDelta: true satisfies SameShape<EventMap["llm-delta"], Rust.LlmDelta>,
   LlmDone: true satisfies SameShape<EventMap["llm-done"], Rust.LlmDone>,
-  LlmUsage: true satisfies SameShape<EventMap["llm-usage"], Rust.LlmUsage>,
   LlmErrorEvent: true satisfies SameShape<EventMap["llm-error"], Rust.LlmErrorEvent>,
   ResizeDim: true satisfies SameShape<EventMap["resize-key"]["dim"], Rust.ResizeDim>,
   UpdateProgress: true satisfies SameShape<EventMap["update-progress"], Rust.UpdateProgress>,

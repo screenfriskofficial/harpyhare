@@ -1,0 +1,30 @@
+.pipeline-workspace {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 272px;
+  gap: 12px;
+  min-height: 0;
+  flex: 1;
+}
+.pipeline-inspector {
+  overflow-y: auto;
+  min-height: 0;
+}
+/* The pointer keeps the app-wide arrow (index.css) while dragging cards and wiring handles. */
+.pipeline-canvas .react-flow__handle {
+  width: 12px;
+  height: 12px;
+}
+.pipeline-canvas .react-flow__node:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 3px;
+  border-radius: var(--radius);
+}
+/* Narrowness is decided by the editor's ResizeObserver, not a container query: the list replaces the canvas at the same threshold. */
+.pipeline-editor[data-narrow="true"] .pipeline-workspace {
+  grid-template-columns: minmax(0, 1fr);
+  grid-auto-rows: max-content;
+  overflow-y: auto;
+}
+.pipeline-editor[data-narrow="true"] .pipeline-inspector {
+  overflow-y: visible;
+}

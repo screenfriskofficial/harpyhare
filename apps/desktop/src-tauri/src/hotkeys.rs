@@ -81,11 +81,18 @@ pub struct PlatformCombo {
 
 impl PlatformCombo {
     const fn shared(combo: &'static str) -> Self {
-        Self { macos: combo, windows: combo }
+        Self {
+            macos: combo,
+            windows: combo,
+        }
     }
 
     pub fn current(&self) -> &'static str {
-        if cfg!(target_os = "macos") { self.macos } else { self.windows }
+        if cfg!(target_os = "macos") {
+            self.macos
+        } else {
+            self.windows
+        }
     }
 }
 
@@ -98,12 +105,15 @@ pub struct PlatformModifierCombos {
 
 impl PlatformModifierCombos {
     pub fn current(&self) -> &'static [&'static str] {
-        if cfg!(target_os = "macos") { self.macos } else { self.windows }
+        if cfg!(target_os = "macos") {
+            self.macos
+        } else {
+            self.windows
+        }
     }
 }
 
-pub const MODIFIER_TOKENS: &[&str] =
-    &[MODIFIER_CMD, MODIFIER_CTRL, MODIFIER_ALT, MODIFIER_SHIFT];
+pub const MODIFIER_TOKENS: &[&str] = &[MODIFIER_CMD, MODIFIER_CTRL, MODIFIER_ALT, MODIFIER_SHIFT];
 
 /// Все написания модификаторов, которые понимает плагин шорткатов и фронт
 /// (`MODIFIER_ALIASES` в `lib/hotkeys.ts`), с их каноническим токеном.
@@ -390,7 +400,9 @@ pub fn effective(bindings: &[HotkeyBinding], id: &str) -> String {
     if let Some(binding) = bindings.iter().rev().find(|b| b.action == id) {
         return binding.combo.clone();
     }
-    action(id).map(|a| a.default_combo.current().to_string()).unwrap_or_default()
+    action(id)
+        .map(|a| a.default_combo.current().to_string())
+        .unwrap_or_default()
 }
 
 fn split_combo(combo: &str) -> (Vec<String>, Option<String>) {
@@ -506,7 +518,9 @@ pub fn conflict(a_id: &str, combo_a: &str, b_id: &str, combo_b: &str) -> bool {
 pub fn normalize(bindings: &mut Vec<HotkeyBinding>) {
     let mut claimed: Vec<(&'static str, String)> = Vec::new();
     for binding in bindings.iter().rev() {
-        let Some(action) = action(&binding.action) else { continue };
+        let Some(action) = action(&binding.action) else {
+            continue;
+        };
         if claimed.iter().any(|(id, _)| *id == action.id) {
             continue;
         }
@@ -534,8 +548,10 @@ pub fn normalize(bindings: &mut Vec<HotkeyBinding>) {
                 .find(|(id, _)| *id == action.id)
                 .map(|(_, combo)| combo.clone())
                 .unwrap_or_else(|| action.default_combo.current().to_string());
-            (combo != action.default_combo.current())
-                .then(|| HotkeyBinding { action: action.id.to_string(), combo })
+            (combo != action.default_combo.current()).then(|| HotkeyBinding {
+                action: action.id.to_string(),
+                combo,
+            })
         })
         .collect();
 }
@@ -569,7 +585,9 @@ pub fn migrate_legacy_fields(raw: &mut serde_json::Value) {
         if already_migrated {
             continue;
         }
-        let Some(combo) = value.as_str() else { continue };
+        let Some(combo) = value.as_str() else {
+            continue;
+        };
         let combo = combo.trim();
         if combo.is_empty() || combo == effective(&[], action_id) {
             continue;
@@ -577,7 +595,10 @@ pub fn migrate_legacy_fields(raw: &mut serde_json::Value) {
         migrated.push(serde_json::json!({ "action": action_id, "combo": combo }));
     }
     if !migrated.is_empty() {
-        object.insert(HOTKEYS_FIELD.to_string(), serde_json::Value::Array(migrated));
+        object.insert(
+            HOTKEYS_FIELD.to_string(),
+            serde_json::Value::Array(migrated),
+        );
     }
 }
 
@@ -600,8 +621,12 @@ pub fn drop_malformed_bindings(raw: &mut serde_json::Value) {
         return;
     };
     bindings.retain(|binding| {
-        binding.get("action").is_some_and(serde_json::Value::is_string)
-            && binding.get("combo").is_some_and(serde_json::Value::is_string)
+        binding
+            .get("action")
+            .is_some_and(serde_json::Value::is_string)
+            && binding
+                .get("combo")
+                .is_some_and(serde_json::Value::is_string)
     });
 }
 

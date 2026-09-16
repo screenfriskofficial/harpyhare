@@ -27,7 +27,6 @@ describe("useModels", () => {
       adaptive: true,
       alwaysThinks: false,
       codeExec: true,
-      maxInputTokens: 0,
     };
     const fable: ModelInfo = {
       id: "claude-fable-5",
@@ -36,7 +35,6 @@ describe("useModels", () => {
       adaptive: true,
       alwaysThinks: true,
       codeExec: true,
-      maxInputTokens: 0,
     };
     listModels.mockResolvedValue([sonnet, fable]);
     const { result } = renderHook(() => useModels(), { wrapper: createQueryWrapper() });

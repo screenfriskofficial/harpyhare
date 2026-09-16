@@ -24,24 +24,29 @@ const ANSWER_PREVIEW_CHARS: usize = 80;
 
 struct CollectingSink {
     text: String,
-    input_tokens: u32,
 }
 
 impl LlmStreamSink for CollectingSink {
     fn text_delta(&mut self, delta: &str) {
         self.text.push_str(delta);
     }
-    fn input_tokens(&mut self, total: u32) {
-        self.input_tokens = total;
-    }
 }
 
 fn message(role: &str, text: &str) -> ChatMessage {
-    ChatMessage { role: role.into(), text: text.into(), images: vec![] }
+    ChatMessage {
+        role: role.into(),
+        text: text.into(),
+        images: vec![],
+    }
 }
 
 fn request(model: &str, messages: Vec<ChatMessage>, options: RequestOptions) -> LlmRequest {
-    LlmRequest { model: model.into(), system: BRIEF_SYSTEM.into(), messages, options }
+    LlmRequest {
+        model: model.into(),
+        system: BRIEF_SYSTEM.into(),
+        messages,
+        options,
+    }
 }
 
 /// `openai` → `OPENAI_API_KEY`, `xai` → `XAI_API_KEY`. Same convention the app
@@ -51,19 +56,26 @@ fn key_env_var(key_id: &str) -> String {
 }
 
 async fn run_stream_case(provider: &dyn LlmProvider, name: &str, request: LlmRequest) {
-    let mut sink = CollectingSink { text: String::new(), input_tokens: 0 };
+    let mut sink = CollectingSink {
+        text: String::new(),
+    };
     let started = std::time::Instant::now();
     match provider
-        .stream(request, tokio_util::sync::CancellationToken::new(), &mut sink)
+        .stream(
+            request,
+            tokio_util::sync::CancellationToken::new(),
+            &mut sink,
+        )
         .await
     {
         Ok(()) => {
-            let preview: String = sink.text.trim().chars().take(ANSWER_PREVIEW_CHARS).collect();
-            println!(
-                "  [OK ] {name}: «{preview}» ({} вх. токенов, {:?})",
-                sink.input_tokens,
-                started.elapsed()
-            );
+            let preview: String = sink
+                .text
+                .trim()
+                .chars()
+                .take(ANSWER_PREVIEW_CHARS)
+                .collect();
+            println!("  [OK ] {name}: «{preview}» ({:?})", started.elapsed());
         }
         Err(e) => println!("  [ERR] {name}: {e}"),
     }
@@ -76,12 +88,7 @@ async fn run_vendor_cases(spec: &'static registry::LlmProviderSpec, api_key: Str
     let models = match client.list_models().await {
         Ok(models) => {
             for m in &models {
-                let window = if m.max_input_tokens == 0 {
-                    "окно неизвестно".to_string()
-                } else {
-                    format!("окно {}", m.max_input_tokens)
-                };
-                println!("  [OK ] каталог: {} — {window}", m.id);
+                println!("  [OK ] каталог: {}", m.id);
             }
             models
         }
@@ -107,9 +114,18 @@ async fn run_vendor_cases(spec: &'static registry::LlmProviderSpec, api_key: Str
         message(ROLE_USER, "а 2+2?"),
     ];
 
-    let thinking_off = RequestOptions { thinking: false, web_search: false };
-    let thinking_on = RequestOptions { thinking: true, web_search: false };
-    let with_web_search = RequestOptions { thinking: false, web_search: true };
+    let thinking_off = RequestOptions {
+        thinking: false,
+        web_search: false,
+    };
+    let thinking_on = RequestOptions {
+        thinking: true,
+        web_search: false,
+    };
+    let with_web_search = RequestOptions {
+        thinking: false,
+        web_search: true,
+    };
 
     run_stream_case(
         &client,
@@ -117,15 +133,30 @@ async fn run_vendor_cases(spec: &'static registry::LlmProviderSpec, api_key: Str
         request(&first.id, single.clone(), thinking_off.clone()),
     )
     .await;
-    run_stream_case(&client, "thinking=on", request(&first.id, single.clone(), thinking_on)).await;
-    run_stream_case(&client, "мультитёрн", request(&first.id, multi, thinking_off.clone())).await;
+    run_stream_case(
+        &client,
+        "thinking=on",
+        request(&first.id, single.clone(), thinking_on),
+    )
+    .await;
+    run_stream_case(
+        &client,
+        "мультитёрн",
+        request(&first.id, multi, thinking_off.clone()),
+    )
+    .await;
     run_stream_case(
         &client,
         "пустой assistant в истории",
         request(&first.id, with_empty_assistant, thinking_off.clone()),
     )
     .await;
-    run_stream_case(&client, "веб-поиск", request(&first.id, single.clone(), with_web_search)).await;
+    run_stream_case(
+        &client,
+        "веб-поиск",
+        request(&first.id, single.clone(), with_web_search),
+    )
+    .await;
 
     if let Some(always) = models.iter().find(|m| m.always_thinks) {
         run_stream_case(
@@ -139,7 +170,10 @@ async fn run_vendor_cases(spec: &'static registry::LlmProviderSpec, api_key: Str
 
 /// Proves the router sends each model to its own vendor with every available
 /// provider wired up at once.
-async fn run_router_case(catalog: ModelCatalog, available: Vec<(&'static registry::LlmProviderSpec, String)>) {
+async fn run_router_case(
+    catalog: ModelCatalog,
+    available: Vec<(&'static registry::LlmProviderSpec, String)>,
+) {
     let anthropic_key = std::env::var(ANTHROPIC_KEY_ENV).unwrap_or_default();
     let mut providers: Vec<Arc<dyn LlmProvider>> = vec![Arc::new(
         harpyhare_lib::llm::AnthropicClient::new(anthropic_key).with_catalog(Arc::clone(&catalog)),
@@ -162,7 +196,9 @@ async fn run_router_case(catalog: ModelCatalog, available: Vec<(&'static registr
         Err(e) => println!("  [ERR] роутер: {e}"),
     }
     for (spec, _) in &available {
-        let Some(model) = spec.models().into_iter().next() else { continue };
+        let Some(model) = spec.models().into_iter().next() else {
+            continue;
+        };
         run_stream_case(
             &router,
             &format!("роутер → {}", spec.id),
@@ -185,11 +221,17 @@ fn main() {
         .iter()
         .filter(|spec| matches!(spec.wire, registry::LlmWire::Responses { .. }))
         .filter_map(|spec| {
-            let key = std::env::var(key_env_var(spec.key_id)).ok().filter(|k| !k.is_empty());
+            let key = std::env::var(key_env_var(spec.key_id))
+                .ok()
+                .filter(|k| !k.is_empty());
             match key {
                 Some(key) => Some((spec, key)),
                 None => {
-                    println!("[skip] {}: нет {} в .env", spec.id, key_env_var(spec.key_id));
+                    println!(
+                        "[skip] {}: нет {} в .env",
+                        spec.id,
+                        key_env_var(spec.key_id)
+                    );
                     None
                 }
             }

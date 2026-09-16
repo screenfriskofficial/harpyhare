@@ -22,12 +22,18 @@ fn respects_negative_monitor_origin() {
 
 #[test]
 fn keeps_window_size_that_fits_the_work_area() {
-    assert_eq!(clamp_window_size(960.0, 700.0, 1512.0, 944.0), (960.0, 700.0));
+    assert_eq!(
+        clamp_window_size(960.0, 700.0, 1512.0, 944.0),
+        (960.0, 700.0)
+    );
 }
 
 #[test]
 fn trims_window_to_the_work_area_on_both_axes() {
-    assert_eq!(clamp_window_size(1540.0, 1100.0, 1512.0, 944.0), (1512.0, 944.0));
+    assert_eq!(
+        clamp_window_size(1540.0, 1100.0, 1512.0, 944.0),
+        (1512.0, 944.0)
+    );
 }
 
 #[test]

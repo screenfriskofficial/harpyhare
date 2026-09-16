@@ -79,8 +79,7 @@ afterEach(() => {
 describe("useClaudeStream (per-chat)", () => {
   it("роутит дельты в нужный чат", () => {
     const onComplete = vi.fn();
-    const onUsage = vi.fn();
-    const { result } = renderHook(() => useClaudeStream(onComplete, onUsage));
+    const { result } = renderHook(() => useClaudeStream(onComplete));
     act(
       () =>
         void result.current.send(
@@ -99,7 +98,7 @@ describe("useClaudeStream (per-chat)", () => {
   });
 
   it("раскрывает буфер постепенно, а не разом", () => {
-    const { result } = renderHook(() => useClaudeStream(vi.fn(), vi.fn()));
+    const { result } = renderHook(() => useClaudeStream(vi.fn()));
     act(
       () =>
         void result.current.send(
@@ -118,7 +117,7 @@ describe("useClaudeStream (per-chat)", () => {
   });
 
   it("два параллельных стрима не смешиваются", () => {
-    const { result } = renderHook(() => useClaudeStream(vi.fn(), vi.fn()));
+    const { result } = renderHook(() => useClaudeStream(vi.fn()));
     act(
       () =>
         void result.current.send(
@@ -148,8 +147,7 @@ describe("useClaudeStream (per-chat)", () => {
 
   it("llm-done вызывает onComplete с полным текстом и снимает streaming", () => {
     const onComplete = vi.fn();
-    const onUsage = vi.fn();
-    const { result } = renderHook(() => useClaudeStream(onComplete, onUsage));
+    const { result } = renderHook(() => useClaudeStream(onComplete));
     act(
       () =>
         void result.current.send(
@@ -168,7 +166,7 @@ describe("useClaudeStream (per-chat)", () => {
   });
 
   it("после stop поздние дельты игнорируются", () => {
-    const { result } = renderHook(() => useClaudeStream(vi.fn(), vi.fn()));
+    const { result } = renderHook(() => useClaudeStream(vi.fn()));
     act(
       () =>
         void result.current.send(
@@ -189,8 +187,7 @@ describe("useClaudeStream (per-chat)", () => {
 
   it("stop сохраняет частичный ответ через onComplete (не выбрасывает)", () => {
     const onComplete = vi.fn();
-    const onUsage = vi.fn();
-    const { result } = renderHook(() => useClaudeStream(onComplete, onUsage));
+    const { result } = renderHook(() => useClaudeStream(onComplete));
     act(
       () =>
         void result.current.send(
@@ -213,8 +210,7 @@ describe("useClaudeStream (per-chat)", () => {
 
   it("stop затем новый send не закрывает новый стрим поздним llm-done", () => {
     const onComplete = vi.fn();
-    const onUsage = vi.fn();
-    const { result } = renderHook(() => useClaudeStream(onComplete, onUsage));
+    const { result } = renderHook(() => useClaudeStream(onComplete));
     act(
       () =>
         void result.current.send(
@@ -249,36 +245,9 @@ describe("useClaudeStream (per-chat)", () => {
     expect(onComplete).toHaveBeenLastCalledWith("A", "новый");
   });
 
-  it("usage от прошлой генерации не перезаписывает счётчик новой", () => {
-    const onUsage = vi.fn();
-    const { result } = renderHook(() => useClaudeStream(vi.fn(), onUsage));
-    const send = () => {
-      act(
-        () =>
-          void result.current.send(
-            "A",
-            [{ role: "user", text: "q", images: [] }],
-            "",
-            "claude-opus-4-8",
-            { thinking: true, webSearch: false },
-          ),
-      );
-    };
-    send();
-    act(() => {
-      result.current.stop("A");
-    });
-    send();
-    emit("llm-usage", { chatId: "A", streamId: streamIdOf("A", 0), inputTokens: 111 });
-    expect(onUsage).not.toHaveBeenCalled();
-    emit("llm-usage", { chatId: "A", inputTokens: 222 });
-    expect(onUsage).toHaveBeenCalledExactlyOnceWith("A", 222);
-  });
-
   it("stop без полученного текста не трогает onComplete", () => {
     const onComplete = vi.fn();
-    const onUsage = vi.fn();
-    const { result } = renderHook(() => useClaudeStream(onComplete, onUsage));
+    const { result } = renderHook(() => useClaudeStream(onComplete));
     act(
       () =>
         void result.current.send(
@@ -297,8 +266,7 @@ describe("useClaudeStream (per-chat)", () => {
 
   it("llm-error сохраняет частичный ответ и показывает ошибку", () => {
     const onComplete = vi.fn();
-    const onUsage = vi.fn();
-    const { result } = renderHook(() => useClaudeStream(onComplete, onUsage));
+    const { result } = renderHook(() => useClaudeStream(onComplete));
     act(
       () =>
         void result.current.send(
@@ -317,7 +285,7 @@ describe("useClaudeStream (per-chat)", () => {
   });
 
   it("llm-error кладёт ошибку в чат и снимает streaming", () => {
-    const { result } = renderHook(() => useClaudeStream(vi.fn(), vi.fn()));
+    const { result } = renderHook(() => useClaudeStream(vi.fn()));
     act(
       () =>
         void result.current.send(
@@ -335,7 +303,7 @@ describe("useClaudeStream (per-chat)", () => {
 
   it("второй send в тот же чат до ре-рендера отвергается, первый стрим живёт", () => {
     const onComplete = vi.fn();
-    const { result } = renderHook(() => useClaudeStream(onComplete, vi.fn()));
+    const { result } = renderHook(() => useClaudeStream(onComplete));
     act(() => {
       void result.current.send("A", [], "", "m", { thinking: false, webSearch: false });
       void result.current.send("A", [], "", "m", { thinking: false, webSearch: false });
@@ -350,7 +318,7 @@ describe("useClaudeStream (per-chat)", () => {
 
   it("discard отменяет стрим и выбрасывает буфер без onComplete", () => {
     const onComplete = vi.fn();
-    const { result } = renderHook(() => useClaudeStream(onComplete, vi.fn()));
+    const { result } = renderHook(() => useClaudeStream(onComplete));
     act(() => {
       void result.current.send("A", [], "", "m", { thinking: false, webSearch: false });
     });

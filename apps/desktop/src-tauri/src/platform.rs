@@ -195,9 +195,21 @@ pub fn open_web_url(url: &str) {
     }
 }
 
-#[cfg(test)]
-mod tests;
-
 pub fn open_microphone_privacy_pane() {
     backend::open_microphone_privacy_pane();
 }
+
+/// `Some(granted)` once the user has answered the system prompt, `None` while
+/// they have not been asked. Reading it never opens the device or prompts.
+pub fn microphone_capture_access() -> Option<bool> {
+    backend::microphone_capture_access()
+}
+
+/// Shows the system prompt where the platform has one and resolves to the
+/// resulting grant. A platform without such a prompt answers `true` at once.
+pub async fn request_microphone_capture_access() -> Result<bool, String> {
+    backend::request_microphone_capture_access().await
+}
+
+#[cfg(test)]
+mod tests;

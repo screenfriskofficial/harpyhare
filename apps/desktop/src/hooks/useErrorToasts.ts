@@ -5,7 +5,12 @@ import type { AppError } from "@/lib/errors";
 import { notifyAppError } from "@/lib/notify";
 import { useCopyDiagnosticReport } from "./useDiagnostics";
 
-export function useErrorToasts(): void {
+/**
+ * Shows the toast for an error by its code, with the diagnostics action. The
+ * backend's error events go through it; the returned reporter is for failures
+ * that arrive as a command result instead of an event (pipeline steps).
+ */
+export function useErrorToasts(): (error: AppError) => void {
   const { t } = useTranslation();
   const copy = useCopyDiagnosticReport();
   const show = useCallback(
@@ -29,4 +34,5 @@ export function useErrorToasts(): void {
       }),
     [show],
   );
+  return show;
 }

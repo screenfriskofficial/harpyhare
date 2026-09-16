@@ -13,14 +13,10 @@ use std::sync::{Arc, Mutex};
 #[derive(Default)]
 struct Sink {
     text: String,
-    tokens: u32,
 }
 impl LlmStreamSink for Sink {
     fn text_delta(&mut self, delta: &str) {
         self.text.push_str(delta);
-    }
-    fn input_tokens(&mut self, total: u32) {
-        self.tokens = total;
     }
 }
 
@@ -44,10 +40,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .find(|m| m.id == model)
         .ok_or("model is absent from text catalogue")?;
     println!(
-        "{} text models; selected {}; context {}; thinking {}; mandatory {}",
+        "{} text models; selected {}; thinking {}; mandatory {}",
         models.len(),
         selected.id,
-        selected.max_input_tokens,
         selected.adaptive,
         selected.always_thinks
     );
@@ -73,14 +68,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             &mut sink,
         )
         .await?;
-    if sink.text.trim().is_empty() || sink.tokens == 0 {
-        return Err("missing answer or usage".into());
+    if sink.text.trim().is_empty() {
+        return Err("missing answer".into());
     }
-    println!(
-        "{}\n{} input tokens; {:?}",
-        sink.text.trim(),
-        sink.tokens,
-        started.elapsed()
-    );
+    println!("{}\n{:?}", sink.text.trim(), started.elapsed());
     Ok(())
 }

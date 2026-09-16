@@ -3,9 +3,11 @@
 //! Responses: диалект другой, поэтому и модуль отдельный. Рассуждение здесь
 //! кодируется не полем, а суффиксом `-thinking` у имени модели.
 //!
-//! Транспорт общий — `LlmHttp` и `SseParser`; своего здесь ровно три вещи:
-//! тело запроса, разбор чанков Chat Completions и динамический каталог с
-//! бесплатной пробой «обслуживает ли группа модель».
+//! The transport is shared (`LlmHttp` and `SseParser`) and so is the dialect
+//! (`chat_completions`: message shape, chunk parsing, the `finish_reason`
+//! policy); this module owns exactly two things — picking the model with the
+//! `-thinking` suffix and the dynamic catalogue with its free "does the group
+//! serve this model" probe.
 
 use crate::sync::LockUnpoisoned;
 use serde_json::{json, Value};
@@ -14,12 +16,13 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use tokio_util::sync::CancellationToken;
 
+use super::chat_completions;
 use super::http::{Credential, LlmHttp};
 use super::registry::{catalog_models, LlmProviderSpec};
 use super::{
-    network_error, pump_sse_stream, ChatMessage, HttpClientOptions, LlmError,
-    LlmProvider, LlmRequest, LlmStreamSink, ModelCatalog, ModelInfo, SseOut, SseParser,
-    ANTHROPIC_HEADERS, API_KEY_HEADER, LIST_MODELS_TIMEOUT, MODELS_PATH, STREAM_IDLE_TIMEOUT,
+    network_error, pump_sse_stream, HttpClientOptions, LlmError, LlmProvider, LlmRequest,
+    LlmStreamSink, ModelCatalog, ModelInfo, SseOut, SseParser, ANTHROPIC_HEADERS, API_KEY_HEADER,
+    LIST_MODELS_TIMEOUT, MODELS_PATH, STREAM_IDLE_TIMEOUT,
 };
 
 pub const PROVIDER_XCLIS: &str = "xclis";
@@ -27,15 +30,14 @@ pub const PROVIDER_XCLIS: &str = "xclis";
 /// По нему роутер узнаёт владельца модели даже до прихода живого каталога.
 pub const MODEL_PREFIX: &str = "xclis/";
 
+/// How the vendor is named in error messages.
+const VENDOR_LABEL: &str = "Xclis";
 const CHAT_COMPLETIONS_PATH: &str = "/v1/chat/completions";
-const COUNT_TOKENS_PATH: &str = "/v1/messages/count_tokens";
 const MAX_TOKENS: u32 = 32768;
-const ERROR_BODY_CHARS: usize = 500;
 const THINKING_SUFFIX: &str = "-thinking";
 /// Текст, которым Xclis отказывается обслуживать объявленную им же модель.
 const MODEL_REJECTED_MARKER: &str = "not supported by any configured account";
 const EVENT_STREAM_MIME: &str = "text/event-stream";
-const DONE_SENTINEL: &str = "[DONE]";
 /// Сколько живёт вердикт пробы «обслуживает ли группа модель». Пробы шли на
 /// КАЖДЫЙ `list_models` — при старте и при каждом монтировании HUD, по
 /// запросу на модель; состав группы меняется куда реже.
@@ -53,66 +55,10 @@ impl Verdict {
     }
 }
 
-fn snippet(text: &str) -> String {
-    text.chars().take(ERROR_BODY_CHARS).collect()
-}
-
-fn prompt_tokens(v: &Value) -> Option<u32> {
-    v["usage"]["prompt_tokens"]
-        .as_u64()
-        .or_else(|| v["usage"]["input_tokens"].as_u64())
-        .filter(|n| *n > 0)
-        .map(|n| n as u32)
-}
-
-fn content_text(content: &Value) -> Option<String> {
-    if let Some(text) = content.as_str() {
-        return Some(text.to_string());
-    }
-    let items = content.as_array()?;
-    Some(
-        items
-            .iter()
-            .filter_map(|item| item["text"].as_str().or_else(|| item["content"].as_str()))
-            .collect::<Vec<_>>()
-            .join(""),
-    )
-}
-
-/// Разбор одного события Chat Completions. Терминальное событие диалекта —
-/// `[DONE]`; `finish_reason` лишь объявляет конец ответа (`Finished`), потому
-/// что usage-чанк с `include_usage` приходит ПОСЛЕ него, и остановка на
-/// `finish_reason` теряла бы токены.
+/// One Chat Completions event, parsed by the shared dialect under this
+/// vendor's name.
 pub fn parse_block(data: &str) -> Vec<SseOut> {
-    if data.trim() == DONE_SENTINEL {
-        return vec![SseOut::Done(None)];
-    }
-    let v = match serde_json::from_str::<Value>(data) {
-        Ok(v) => v,
-        Err(e) => {
-            return vec![SseOut::ApiError(format!(
-                "Xclis вернул некорректный SSE JSON: {e}; {}",
-                snippet(data)
-            ))]
-        }
-    };
-    if let Some(message) = v["error"]["message"].as_str() {
-        return vec![SseOut::ApiError(format!("Xclis: {message}"))];
-    }
-    let mut out = Vec::new();
-    if let Some(tokens) = prompt_tokens(&v) {
-        out.push(SseOut::InputTokens(tokens));
-    }
-    let choice = &v["choices"][0];
-    if let Some(text) = content_text(&choice["delta"]["content"]) {
-        if !text.is_empty() {
-            out.push(SseOut::TextDelta(text));
-        }
-    }
-    if choice["finish_reason"].is_string() {
-        out.push(SseOut::Finished);
-    }
-    out
+    chat_completions::parse_chunk(data, VENDOR_LABEL)
 }
 
 #[derive(Clone)]
@@ -140,11 +86,17 @@ impl XclisClient {
             base_url,
             Credential::Bearer(api_key.clone()),
             spec.wire.key_label(),
-            HttpClientOptions { read_timeout: STREAM_IDLE_TIMEOUT, system_proxy: false },
+            HttpClientOptions {
+                read_timeout: STREAM_IDLE_TIMEOUT,
+                system_proxy: false,
+            },
         );
         let anthropic = chat
             .clone()
-            .with_credential(Credential::ApiKeyHeader { header: API_KEY_HEADER, key: api_key })
+            .with_credential(Credential::ApiKeyHeader {
+                header: API_KEY_HEADER,
+                key: api_key,
+            })
             .with_headers(ANTHROPIC_HEADERS);
         Self {
             spec,
@@ -201,40 +153,6 @@ impl XclisClient {
         requested.to_string()
     }
 
-    fn openai_content(message: &ChatMessage) -> Value {
-        if message.images.is_empty() {
-            return json!(message.text);
-        }
-        let mut blocks = Vec::with_capacity(message.images.len() + 1);
-        for image in &message.images {
-            blocks.push(json!({
-                "type": "image_url",
-                "image_url": {
-                    "url": format!("data:{};base64,{}", image.media_type, image.data)
-                }
-            }));
-        }
-        if !message.text.is_empty() {
-            blocks.push(json!({"type": "text", "text": message.text}));
-        }
-        Value::Array(blocks)
-    }
-
-    fn chat_messages(request: &LlmRequest) -> Vec<Value> {
-        let mut messages = Vec::with_capacity(request.messages.len() + 1);
-        if !request.system.trim().is_empty() {
-            messages.push(json!({"role": "system", "content": request.system}));
-        }
-        messages.extend(
-            request
-                .messages
-                .iter()
-                .filter(|m| !m.text.is_empty() || !m.images.is_empty())
-                .map(|m| json!({"role": m.role, "content": Self::openai_content(m)})),
-        );
-        messages
-    }
-
     fn chat_body(&self, request: &LlmRequest) -> Result<Value, LlmError> {
         if request.options.web_search {
             return Err(LlmError::Api(
@@ -243,51 +161,10 @@ impl XclisClient {
         }
         Ok(json!({
             "model": self.selected_model(&request.model, request.options.thinking),
-            "messages": Self::chat_messages(request),
+            "messages": chat_completions::messages_json(request),
             "max_tokens": MAX_TOKENS,
-            "stream": true,
-            // Usage у Chat Completions приходит только по запросу — отдельным
-            // чанком после `finish_reason`; без него индикатор контекста пуст.
-            "stream_options": {"include_usage": true}
+            "stream": true
         }))
-    }
-
-    fn anthropic_count_content(message: &ChatMessage) -> Value {
-        if message.images.is_empty() {
-            return json!(message.text);
-        }
-        let mut blocks = Vec::with_capacity(message.images.len() + 1);
-        for image in &message.images {
-            blocks.push(json!({
-                "type": "image",
-                "source": {
-                    "type": "base64",
-                    "media_type": image.media_type,
-                    "data": image.data
-                }
-            }));
-        }
-        if !message.text.is_empty() {
-            blocks.push(json!({"type": "text", "text": message.text}));
-        }
-        Value::Array(blocks)
-    }
-
-    fn count_body(&self, request: &LlmRequest) -> Value {
-        let messages: Vec<Value> = request
-            .messages
-            .iter()
-            .filter(|m| !m.text.is_empty() || !m.images.is_empty())
-            .map(|m| json!({"role": m.role, "content": Self::anthropic_count_content(m)}))
-            .collect();
-        let mut body = json!({
-            "model": self.selected_model(&request.model, request.options.thinking),
-            "messages": messages
-        });
-        if !request.system.trim().is_empty() {
-            body["system"] = json!(request.system);
-        }
-        body
     }
 
     fn cached_verdict(&self, model: &str) -> Option<bool> {
@@ -299,9 +176,13 @@ impl XclisClient {
     }
 
     fn remember_verdict(&self, model: &str, served: bool) {
-        self.verdicts
-            .lock_unpoisoned()
-            .insert(model.to_string(), Verdict { served, at: Instant::now() });
+        self.verdicts.lock_unpoisoned().insert(
+            model.to_string(),
+            Verdict {
+                served,
+                at: Instant::now(),
+            },
+        );
     }
 
     /// **Каталог Xclis не сходится с реальностью, и это проверено живьём:** из
@@ -322,8 +203,7 @@ impl XclisClient {
             .cloned()
             .collect();
         let probed =
-            futures_util::future::join_all(pending.iter().map(|id| self.model_is_served(id)))
-                .await;
+            futures_util::future::join_all(pending.iter().map(|id| self.model_is_served(id))).await;
         for (id, served) in pending.iter().zip(probed) {
             self.remember_verdict(id, served);
         }
@@ -339,7 +219,12 @@ impl XclisClient {
         let body = json!({"model": model, "messages": []});
         match self
             .chat
-            .post_response(CHAT_COMPLETIONS_PATH, &body, &CancellationToken::new(), None)
+            .post_response(
+                CHAT_COMPLETIONS_PATH,
+                &body,
+                &CancellationToken::new(),
+                None,
+            )
             .await
         {
             Ok(_) => true,
@@ -378,7 +263,11 @@ impl XclisClient {
 
     /// Ошибка запроса с побочным эффектом: отказ по модели запоминается, чтобы
     /// пикер перестал её предлагать.
-    fn note_model_rejection<T>(&self, model: &str, result: Result<T, LlmError>) -> Result<T, LlmError> {
+    fn note_model_rejection<T>(
+        &self,
+        model: &str,
+        result: Result<T, LlmError>,
+    ) -> Result<T, LlmError> {
         if let Err(LlmError::Api(message)) = &result {
             if Self::is_model_rejection(message) {
                 self.remember_rejected(model);
@@ -388,12 +277,9 @@ impl XclisClient {
     }
 
     fn completion_text(value: &Value) -> String {
-        let content = &value["choices"][0]["message"]["content"];
-        if let Some(text) = content_text(content).filter(|t| !t.trim().is_empty()) {
-            return text.trim().to_string();
-        }
-        value["choices"][0]["message"]["reasoning_content"]
-            .as_str()
+        // Match the SSE path: reasoning is not the finished answer and must
+        // never become a prepared prompt or the next pipeline step's input.
+        chat_completions::content_text(&value["choices"][0]["message"]["content"])
             .unwrap_or_default()
             .trim()
             .to_string()
@@ -418,14 +304,12 @@ impl XclisClient {
             v = resp.json::<Value>() => v.map_err(network_error)?,
             _ = cancel.cancelled() => return Err(LlmError::Cancelled),
         };
-        if let Some(tokens) = prompt_tokens(&value) {
-            sink.input_tokens(tokens);
-        }
+        chat_completions::finish_error(&value["choices"][0], VENDOR_LABEL)?;
         let text = Self::completion_text(&value);
         if text.is_empty() {
             return Err(LlmError::Api(format!(
-                "Xclis вернул 200, но без choices[0].message.content: {}",
-                snippet(&value.to_string())
+                "{VENDOR_LABEL} вернул 200, но без choices[0].message.content: {}",
+                chat_completions::snippet(&value.to_string())
             )));
         }
         sink.text_delta(&text);
@@ -442,7 +326,11 @@ impl XclisClient {
     fn advertised_ids(value: &Value) -> Vec<String> {
         value["data"]
             .as_array()
-            .map(|raw| raw.iter().filter_map(|v| v["id"].as_str().map(str::to_string)).collect())
+            .map(|raw| {
+                raw.iter()
+                    .filter_map(|v| v["id"].as_str().map(str::to_string))
+                    .collect()
+            })
             .unwrap_or_default()
     }
 
@@ -464,12 +352,14 @@ impl XclisClient {
                 let adaptive = is_served(&format!("{upstream_id}{THINKING_SUFFIX}"));
                 Some(ModelInfo {
                     id: Self::app_id(upstream_id),
-                    display_name: v["display_name"].as_str().unwrap_or(upstream_id).to_string(),
+                    display_name: v["display_name"]
+                        .as_str()
+                        .unwrap_or(upstream_id)
+                        .to_string(),
                     provider: PROVIDER_XCLIS.into(),
                     adaptive,
                     always_thinks: false,
                     code_exec: false,
-                    max_input_tokens: 0,
                 })
             })
             .collect();
@@ -504,30 +394,34 @@ impl LlmProvider for XclisClient {
         let body = self.chat_body(&request)?;
         let resp = self
             .chat
-            .post_response(CHAT_COMPLETIONS_PATH, &body, &cancel, Some(EVENT_STREAM_MIME))
+            .post_response(
+                CHAT_COMPLETIONS_PATH,
+                &body,
+                &cancel,
+                Some(EVENT_STREAM_MIME),
+            )
             .await;
         let resp = self.note_model_rejection(&model, resp)?;
         if Self::response_is_sse(&resp) {
-            pump_sse_stream(resp, SseParser::with_block_parser(parse_block), &cancel, sink).await
+            pump_sse_stream(
+                resp,
+                SseParser::with_block_parser(parse_block),
+                &cancel,
+                sink,
+            )
+            .await
         } else {
             Self::consume_json_response(resp, &cancel, sink).await
         }
     }
 
-    async fn count_tokens(&self, request: LlmRequest) -> Result<u32, LlmError> {
-        let model = self.selected_model(&request.model, request.options.thinking);
-        let result = self.anthropic.post_json(COUNT_TOKENS_PATH, &self.count_body(&request)).await;
-        let value = self.note_model_rejection(&model, result)?;
-        value["input_tokens"]
-            .as_u64()
-            .map(|n| n as u32)
-            .ok_or_else(|| LlmError::Api("Xclis count_tokens: ответ без input_tokens".into()))
-    }
-
     /// Каталог только читается роутером и сливается им в общий; писать его
     /// отсюда нельзя — см. `ProviderRouter::catalog`.
     async fn list_models(&self) -> Result<Vec<ModelInfo>, LlmError> {
-        let value = self.anthropic.get_json(MODELS_PATH, LIST_MODELS_TIMEOUT).await?;
+        let value = self
+            .anthropic
+            .get_json(MODELS_PATH, LIST_MODELS_TIMEOUT)
+            .await?;
         let served = self.served_ids(Self::advertised_ids(&value)).await;
         Ok(Self::models_from(&value, &served))
     }

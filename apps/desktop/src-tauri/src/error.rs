@@ -22,6 +22,9 @@ pub enum ErrorCode {
     AccessDenied,
     ModelUnavailable,
     RequestTooLarge,
+    /// The model stopped before the end of its answer (length limit, context
+    /// overflow, refusal). What arrived is real text, but not a whole answer.
+    Incomplete,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, specta::Type)]

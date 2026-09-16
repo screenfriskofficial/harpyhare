@@ -141,10 +141,22 @@ function MessageImages({ images }: { images: ImagePayload[] }) {
   );
 }
 
-function UserBubble({ text, images }: { text: string; images: ImagePayload[] }) {
+function UserBubble({
+  text,
+  images,
+  droppedImages,
+}: {
+  text: string;
+  images: ImagePayload[];
+  droppedImages: number;
+}) {
+  const { t } = useTranslation();
   return (
     <div className="flex max-w-[85%] flex-col gap-1.5 rounded-lg bg-surface-active px-3 py-1.5 text-chat text-foreground ring-1 ring-border ring-inset">
       <MessageImages images={images} />
+      {droppedImages > 0 && (
+        <span className="text-hint text-muted-foreground">{t("hud.history.imagesDropped")}</span>
+      )}
       {text !== "" && <span className="min-w-0 break-words whitespace-pre-wrap">{text}</span>}
     </div>
   );
@@ -201,7 +213,7 @@ export const ChatHistory = memo(function ChatHistory({
           }
         >
           {m.role === "user" ? (
-            <UserBubble text={m.text} images={m.images} />
+            <UserBubble text={m.text} images={m.images} droppedImages={m.droppedImages ?? 0} />
           ) : (
             <Assistant text={m.text} components={components} />
           )}

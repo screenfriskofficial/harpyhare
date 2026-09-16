@@ -32,7 +32,11 @@ base64 = "0.22.1"
 hound = "3.5.1"
 rubato = "3.0.0"
 futures-util = "0.3.32"
-tokio = { version = "1.52.3", features = ["full"] }
+# Only what the crate itself calls (the runtime and `spawn_blocking`,
+# `select!`/`join!`, channels and `Notify`, timers, `TcpStream` in the WebSocket
+# client's type): `full` also pulled in signals, processes and file I/O, none of
+# which are used here.
+tokio = { version = "1.52.3", features = ["rt-multi-thread", "macros", "sync", "time", "net"] }
 tokio-util = "0.7.18"
 # Дефолтная фича `rustls` у reqwest тянет ВТОРОЙ криптопровайдер (`aws-lc-rs`,
 # C-сборка в каждом холодном CI) поверх `ring`, который уже нужен апдейтеру и

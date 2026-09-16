@@ -49,7 +49,7 @@ export function QuickActionsBar({ actions, combo, disabled, onRun }: QuickAction
       role="group"
       aria-label={t("hud.quickActions")}
       onMouseDown={keepPromptFocus}
-      className="no-scrollbar mb-1.5 flex min-w-0 items-center gap-1 overflow-x-auto"
+      className="no-scrollbar flex min-w-0 items-center gap-1 overflow-x-auto"
     >
       {actions.map((action, index) => (
         <QuickActionButton

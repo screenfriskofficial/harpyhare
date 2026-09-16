@@ -296,14 +296,16 @@ pub fn encode_wav_16k_mono(samples: &[f32]) -> Result<Vec<u8>, AudioError> {
         WAV_HEADER_LEN + samples.len() * BYTES_PER_SAMPLE,
     ));
     {
-        let mut writer = hound::WavWriter::new(&mut cursor, spec)
-            .map_err(|e| AudioError::Wav(e.to_string()))?;
+        let mut writer =
+            hound::WavWriter::new(&mut cursor, spec).map_err(|e| AudioError::Wav(e.to_string()))?;
         let mut w16 = writer.get_i16_writer(samples.len() as u32);
         for s in samples {
             w16.write_sample(f32_sample_to_i16(*s));
         }
         w16.flush().map_err(|e| AudioError::Wav(e.to_string()))?;
-        writer.finalize().map_err(|e| AudioError::Wav(e.to_string()))?;
+        writer
+            .finalize()
+            .map_err(|e| AudioError::Wav(e.to_string()))?;
     }
     Ok(cursor.into_inner())
 }

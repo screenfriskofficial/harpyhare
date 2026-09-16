@@ -45,7 +45,9 @@ where
     let shortcut = shortcut_of(hotkey)?;
     let _ = app.global_shortcut().unregister(shortcut);
     app.global_shortcut()
-        .on_shortcut(shortcut, move |app, _shortcut, event| on_event(app, event.state))
+        .on_shortcut(shortcut, move |app, _shortcut, event| {
+            on_event(app, event.state)
+        })
         .map_err(|e| e.to_string())
 }
 
@@ -90,11 +92,12 @@ pub fn unregister_cancel(app: &AppHandle, hotkey: &str) {
     unregister(app, hotkey);
 }
 
+/// Runs on every PTT press and release, so it reads the bindings under the
+/// lock rather than cloning the whole `Settings` each time.
 pub fn cancel_combo(app: &AppHandle) -> String {
-    hotkeys::effective(
-        &crate::app_state::current_settings(app).hotkeys,
-        hotkeys::ACTION_CANCEL_RECORDING,
-    )
+    crate::app_state::with_settings(app, |s| {
+        hotkeys::effective(&s.hotkeys, hotkeys::ACTION_CANCEL_RECORDING)
+    })
 }
 
 pub fn register_toggle(app: &AppHandle, hotkey: &str) -> Result<(), String> {

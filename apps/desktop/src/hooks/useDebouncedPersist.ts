@@ -35,20 +35,44 @@ export function useDebouncedPersist<T>(
   const persisted = useRef<{ value: T } | null>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const pending = useRef(false);
+  const inFlight = useRef<Promise<void> | null>(null);
+  // How many `flush` callers await the current write. Their rejection is the
+  // one they report themselves; the timer's toast would double it.
+  const awaited = useRef(0);
 
   const write = useCallback((): Promise<void> => {
     clearTimeout(timer.current);
     timer.current = undefined;
-    pending.current = false;
-    const snapshot = latest.current;
-    persisted.current = { value: snapshot };
-    return saveRef.current(serializeRef.current(snapshot)).then(() => undefined);
+    if (inFlight.current !== null) return inFlight.current;
+    // A flush must wait for an already-started save, and newer snapshots must
+    // never race an older write to disk. A failed snapshot stays dirty.
+    inFlight.current = (async () => {
+      while (pending.current && persisted.current !== null) {
+        const snapshot = latest.current;
+        pending.current = false;
+        try {
+          await saveRef.current(serializeRef.current(snapshot));
+          persisted.current = { value: snapshot };
+          if (latest.current !== snapshot) pending.current = true;
+        } catch (error) {
+          pending.current = true;
+          throw error;
+        }
+      }
+    })().finally(() => {
+      inFlight.current = null;
+    });
+    return inFlight.current;
   }, [latest, saveRef, serializeRef]);
 
-  const flush = useCallback(
-    (): Promise<void> => (pending.current ? write() : Promise.resolve()),
-    [write],
-  );
+  const flush = useCallback((): Promise<void> => {
+    const result = inFlight.current ?? (pending.current ? write() : null);
+    if (result === null) return Promise.resolve();
+    awaited.current += 1;
+    return result.finally(() => {
+      awaited.current -= 1;
+    });
+  }, [write]);
 
   const markLoaded = useCallback((loaded: T) => {
     persisted.current = { value: loaded };
@@ -59,7 +83,9 @@ export function useDebouncedPersist<T>(
     pending.current = true;
     clearTimeout(timer.current);
     timer.current = setTimeout(() => {
-      void write().catch(onSaveError(subject));
+      void write().catch((error: unknown) => {
+        if (awaited.current === 0) onSaveError(subject)(error);
+      });
     }, PERSIST_DEBOUNCE_MS);
     return () => {
       clearTimeout(timer.current);

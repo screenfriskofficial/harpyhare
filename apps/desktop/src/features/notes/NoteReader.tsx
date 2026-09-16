@@ -1,4 +1,4 @@
-import { ArrowLeft, Check, Copy, Plus } from "lucide-react";
+import { ArrowLeft, Copy } from "lucide-react";
 import { useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import { IconButton } from "@/components/IconButton";
@@ -6,27 +6,16 @@ import { markdownComponents, PROSE_MARKDOWN_CLASS } from "@/components/markdown-
 import { MarkdownChunk } from "@/components/MarkdownChunk";
 import type { ContextDoc } from "@/lib/context-library";
 import { noteMatchCount } from "@/lib/notes-excerpt";
-import { cn } from "@/lib/utils";
 
 export interface NoteReaderProps {
   doc: ContextDoc;
   folderName: string | null;
   terms: string[];
-  inContext: boolean;
   onBack: () => void;
-  onToggleContext: () => void;
   onCopy: () => void;
 }
 
-export function NoteReader({
-  doc,
-  folderName,
-  terms,
-  inContext,
-  onBack,
-  onToggleContext,
-  onCopy,
-}: NoteReaderProps) {
+export function NoteReader({ doc, folderName, terms, onBack, onCopy }: NoteReaderProps) {
   const { t } = useTranslation();
   const matches = useMemo(() => noteMatchCount(doc.text, terms), [doc.text, terms]);
   return (
@@ -45,13 +34,6 @@ export function NoteReader({
             {t("hud.notes.matches", { count: matches })}
           </span>
         )}
-        <IconButton
-          title={inContext ? t("hud.notes.removeFromContext") : t("hud.notes.addToContext")}
-          className={cn("size-6 shrink-0", inContext && "text-foreground")}
-          onClick={onToggleContext}
-        >
-          {inContext ? <Check className="size-3.5" /> : <Plus className="size-3.5" />}
-        </IconButton>
         <IconButton title={t("hud.notes.copy")} className="size-6 shrink-0" onClick={onCopy}>
           <Copy className="size-3.5" />
         </IconButton>

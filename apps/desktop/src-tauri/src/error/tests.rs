@@ -18,6 +18,10 @@ fn llm_errors_map_to_codes() {
     );
     assert_eq!(LlmError::Network("x".into()).code(), ErrorCode::Network);
     assert_eq!(LlmError::Api("x".into()).code(), ErrorCode::Api);
+    assert_eq!(
+        LlmError::Incomplete("max_tokens".into()).code(),
+        ErrorCode::Incomplete
+    );
     assert_eq!(LlmError::Cancelled.code(), ErrorCode::Cancelled);
 }
 

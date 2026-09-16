@@ -4,12 +4,16 @@ import type { ClaudeStreams } from "@/hooks/useClaudeStream";
 import type { ChatMessageDto } from "@/ipc/types";
 import { draftImages, historyWithNewUserMessage, toMessageDto } from "@/lib/chat-messages";
 import { chatRequestOptions, type Chat } from "@/lib/chats";
-import type { ContextLibrary } from "@/lib/context-library";
 import type { PromptPreset } from "@/lib/presets";
 import { chatPromptSources, chatSystemPrompt } from "@/lib/system-prompt";
 
 export interface SendPipeline {
   dispatchSend: (rawText: string) => void;
+  /**
+   * Sends into a specific chat rather than the one on screen — the chat a
+   * recording was started in, which the user may have left since.
+   */
+  dispatchSendTo: (chatId: string, rawText: string) => void;
   dispatchQuickAction: (prompt: string, withAttachments: boolean) => void;
   doSend: () => void;
   resendFromMessage: (index: number) => void;
@@ -25,22 +29,21 @@ export function useSendPipeline(
   chatsRef: RefObject<ChatsApi>,
   streamRef: RefObject<ClaudeStreams>,
   presetsRef: RefObject<PromptPreset[]>,
-  libraryRef: RefObject<ContextLibrary>,
   beforeSend: () => void,
 ): SendPipeline {
   const streamChat = useCallback(
     (chat: Chat, history: ChatMessageDto[]) => {
-      const system = chatSystemPrompt(
-        chatPromptSources(presetsRef.current, chat, libraryRef.current),
-      );
+      const system = chatSystemPrompt(chatPromptSources(presetsRef.current, chat));
       void streamRef.current.send(chat.id, history, system, chat.model, chatRequestOptions(chat));
     },
-    [streamRef, presetsRef, libraryRef],
+    [streamRef, presetsRef],
   );
 
-  const dispatchSend = useCallback(
-    (rawText: string) => {
-      const chat = chatsRef.current.active;
+  const sendIn = useCallback(
+    (chat: Chat, rawText: string) => {
+      // `EMPTY_CHAT` placeholder before the list has loaded: a send would go to
+      // a chat with no id and its answer would be appended to nothing.
+      if (chat.id === "") return;
       if (streamRef.current.isStreaming(chat.id)) return;
       const trimmed = rawText.trim();
       const images = draftImages(chat);
@@ -52,9 +55,25 @@ export function useSendPipeline(
     [chatsRef, streamRef, beforeSend, streamChat],
   );
 
+  const dispatchSend = useCallback(
+    (rawText: string) => {
+      sendIn(chatsRef.current.active, rawText);
+    },
+    [sendIn, chatsRef],
+  );
+
+  const dispatchSendTo = useCallback(
+    (chatId: string, rawText: string) => {
+      const chat = chatsRef.current.chats.find((c) => c.id === chatId);
+      if (chat) sendIn(chat, rawText);
+    },
+    [sendIn, chatsRef],
+  );
+
   const dispatchQuickAction = useCallback(
     (prompt: string, withAttachments: boolean) => {
       const chat = chatsRef.current.active;
+      if (chat.id === "") return;
       if (streamRef.current.isStreaming(chat.id)) return;
       const trimmed = prompt.trim();
       if (trimmed === "") return;
@@ -83,5 +102,5 @@ export function useSendPipeline(
     [chatsRef, streamRef, beforeSend, streamChat],
   );
 
-  return { dispatchSend, dispatchQuickAction, doSend, resendFromMessage };
+  return { dispatchSend, dispatchSendTo, dispatchQuickAction, doSend, resendFromMessage };
 }

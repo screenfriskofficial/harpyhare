@@ -23,7 +23,10 @@ fn save_load_roundtrip_with_owner_only_perms() {
 
 #[test]
 fn load_missing_file_gives_empty_string() {
-    assert_eq!(load(&std::env::temp_dir().join("harpyhare-nonexistent/chats.json")).unwrap(), "");
+    assert_eq!(
+        load(&std::env::temp_dir().join("harpyhare-nonexistent/chats.json")).unwrap(),
+        ""
+    );
 }
 
 #[test]

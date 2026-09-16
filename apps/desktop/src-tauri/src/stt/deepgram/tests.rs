@@ -15,10 +15,18 @@ fn empty_language_uses_multi() {
 fn websocket_url_comes_from_the_registry_row_and_names_the_pcm_shape() {
     let stt = deepgram();
     let url = stt.websocket_url(&[]);
-    let SttWire::Deepgram { base_url, listen_path, .. } = stt.spec.wire else {
+    let SttWire::Deepgram {
+        base_url,
+        listen_path,
+        ..
+    } = stt.spec.wire
+    else {
         panic!("строка Deepgram объявляет свой диалект");
     };
-    let expected_prefix = format!("{}{listen_path}?", base_url.replacen("https://", "wss://", 1));
+    let expected_prefix = format!(
+        "{}{listen_path}?",
+        base_url.replacen("https://", "wss://", 1)
+    );
     assert!(url.starts_with(&expected_prefix), "{url}");
     assert!(url.contains("model=nova-3"));
     assert!(url.contains("encoding=linear16"));
@@ -68,7 +76,10 @@ fn final_results_are_joined() {
         r#"{"type":"Results","is_final":true,"channel":{"alternatives":[{"transcript":"мир"}]}}"#,
     )
     .unwrap();
-    assert_eq!(DeepgramStt::transcript_from_segments(&segments), "привет мир");
+    assert_eq!(
+        DeepgramStt::transcript_from_segments(&segments),
+        "привет мир"
+    );
 }
 
 #[test]
@@ -79,7 +90,9 @@ fn no_segments_is_an_empty_transcript_not_an_error() {
 #[test]
 fn test_base_url_switches_ws_scheme() {
     let stt = deepgram().with_base_url("http://127.0.0.1:1234".into());
-    assert!(stt.websocket_url(&[]).starts_with("ws://127.0.0.1:1234/v1/listen?"));
+    assert!(stt
+        .websocket_url(&[])
+        .starts_with("ws://127.0.0.1:1234/v1/listen?"));
 }
 
 /// Хендшейк к мёртвому адресу обязан упасть сам и быстро — а не по TCP-таймауту ОС.
@@ -102,6 +115,12 @@ async fn cancel_during_the_handshake_is_reported_as_cancelled() {
     let chunks: AudioChunkStream = Box::pin(futures_util::stream::pending());
     let cancel = tokio_util::sync::CancellationToken::new();
     cancel.cancel();
-    let err = stt.transcribe_stream(chunks, &[], cancel).await.unwrap_err();
-    assert!(matches!(err, SttError::Cancelled | SttError::Network(_)), "got: {err:?}");
+    let err = stt
+        .transcribe_stream(chunks, &[], cancel)
+        .await
+        .unwrap_err();
+    assert!(
+        matches!(err, SttError::Cancelled | SttError::Network(_)),
+        "got: {err:?}"
+    );
 }

@@ -71,7 +71,7 @@ export function useChatActions(
 
   const clearHistoryWithUndo = useCallback(() => {
     const api = chatsRef.current;
-    const { id, messages, lastInputTokens } = api.active;
+    const { id, messages } = api.active;
     if (messages.length === 0) return;
     api.clearMessages(id);
     notify({
@@ -80,7 +80,7 @@ export function useChatActions(
       action: {
         label: t("chats.undo"),
         run: () => {
-          chatsRef.current.restoreMessages(id, messages, lastInputTokens);
+          chatsRef.current.restoreMessages(id, messages);
         },
       },
     });

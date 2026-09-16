@@ -349,8 +349,10 @@ pub fn expand_main_window(app: AppHandle, width: f64, height: f64) {
     let _ = w.show();
     let _ = w.set_focus();
     set_window_size(app.clone(), width, height);
-    std::thread::spawn(move || {
-        std::thread::sleep(MINI_MIN_SIZE_RESTORE_DELAY);
+    // A timer, not a thread: the delay only lets the expand tween finish
+    // before the full minimum size is restored underneath it.
+    tauri::async_runtime::spawn(async move {
+        tokio::time::sleep(MINI_MIN_SIZE_RESTORE_DELAY).await;
         if app.state::<App>().window_mini.load(Ordering::SeqCst) {
             return;
         }
@@ -373,13 +375,40 @@ struct ResizeTween {
     y: i32,
 }
 
-/// Кадр твина: (ширина, высота, x) для шага `step` из `RESIZE_TWEEN_STEPS`.
-fn tween_frame(tween: &ResizeTween, step: u32) -> (f64, f64, i32) {
+/// One tween frame: the window's logical size and the physical position of its corner.
+#[derive(Debug, Clone, Copy)]
+struct Frame {
+    x: i32,
+    y: i32,
+    width: f64,
+    height: f64,
+}
+
+impl ResizeTween {
+    /// Where the window must end up: exactly on the target, free of the
+    /// interpolation error of the last step.
+    fn target(&self) -> Frame {
+        Frame {
+            x: self.to_x,
+            y: self.y,
+            width: self.to_width,
+            height: self.to_height,
+        }
+    }
+}
+
+/// The tween frame for step `step` out of `RESIZE_TWEEN_STEPS`.
+fn tween_frame(tween: &ResizeTween, step: u32) -> Frame {
     let eased = ease_out_cubic(f64::from(step) / f64::from(RESIZE_TWEEN_STEPS));
     let width = tween.from_width + (tween.to_width - tween.from_width) * eased;
     let height = tween.from_height + (tween.to_height - tween.from_height) * eased;
     let x = (f64::from(tween.from_x) + f64::from(tween.to_x - tween.from_x) * eased).round() as i32;
-    (width, height, x)
+    Frame {
+        x,
+        y: tween.y,
+        width,
+        height,
+    }
 }
 
 /// Сколько ждать главный поток за одним кадром твина: дольше — значит он
@@ -462,25 +491,25 @@ fn ease_out_cubic(t: f64) -> f64 {
     1.0 - (1.0 - t).powi(3)
 }
 
-fn frame_still_ours(w: &WebviewWindow, width: f64, height: f64) -> bool {
+fn frame_still_ours(w: &WebviewWindow, applied: Frame) -> bool {
     let scale = w.scale_factor().unwrap_or(1.0);
     let Ok(size) = w.inner_size() else {
         return true;
     };
-    (f64::from(size.width) / scale - width).abs() < RESIZE_EPSILON_LOGICAL_PX
-        && (f64::from(size.height) / scale - height).abs() < RESIZE_EPSILON_LOGICAL_PX
+    (f64::from(size.width) / scale - applied.width).abs() < RESIZE_EPSILON_LOGICAL_PX
+        && (f64::from(size.height) / scale - applied.height).abs() < RESIZE_EPSILON_LOGICAL_PX
 }
 
 fn tween_superseded(
     app: &AppHandle,
     w: &WebviewWindow,
     my_gen: u64,
-    applied: Option<(f64, f64)>,
+    applied: Option<Frame>,
 ) -> bool {
     if app.state::<App>().resize_gen.load(Ordering::SeqCst) != my_gen {
         return true;
     }
-    applied.is_some_and(|(width, height)| !frame_still_ours(w, width, height))
+    applied.is_some_and(|frame| !frame_still_ours(w, frame))
 }
 
 /// Один переход на главный поток за кадр: и проверка «кадр ещё наш», и
@@ -488,37 +517,24 @@ fn tween_superseded(
 /// `inner_size()` из фонового потока были двумя блокирующими round-trip'ами
 /// сверх самого `run_on_main_thread` — три хода на каждые 13 мс.
 fn run_resize_tween(app: AppHandle, w: WebviewWindow, tween: ResizeTween, my_gen: u64) {
-    let mut applied: Option<(f64, f64)> = None;
+    let mut applied: Option<Frame> = None;
     for step in 1..=RESIZE_TWEEN_STEPS {
-        let (width, height, x) = tween_frame(&tween, step);
-        if !apply_frame_if_still_ours(&app, &w, my_gen, applied, x, tween.y, width, height) {
+        let frame = tween_frame(&tween, step);
+        if !apply_frame_if_still_ours(&app, &w, my_gen, applied, frame) {
             return;
         }
-        applied = Some((width, height));
+        applied = Some(frame);
         std::thread::sleep(RESIZE_TWEEN_FRAME_INTERVAL);
     }
-    apply_frame_if_still_ours(
-        &app,
-        &w,
-        my_gen,
-        applied,
-        tween.to_x,
-        tween.y,
-        tween.to_width,
-        tween.to_height,
-    );
+    apply_frame_if_still_ours(&app, &w, my_gen, applied, tween.target());
 }
 
-#[allow(clippy::too_many_arguments)]
 fn apply_frame_if_still_ours(
     app: &AppHandle,
     w: &WebviewWindow,
     my_gen: u64,
-    applied: Option<(f64, f64)>,
-    x: i32,
-    y: i32,
-    width: f64,
-    height: f64,
+    applied: Option<Frame>,
+    frame: Frame,
 ) -> bool {
     let (ack, wait) = std::sync::mpsc::channel();
     let win = w.clone();
@@ -526,7 +542,7 @@ fn apply_frame_if_still_ours(
     let queued = app.run_on_main_thread(move || {
         let ours = !tween_superseded(&handle, &win, my_gen, applied);
         if ours {
-            apply_window_frame_now(&win, x, y, width, height);
+            apply_window_frame_now(&win, frame);
         }
         let _ = ack.send(ours);
     });
@@ -538,11 +554,14 @@ fn apply_frame_if_still_ours(
 
 /// Только с главного потока: применяет позицию (если она реально отличается —
 /// лишний `SetWindowPos` дёргает начало координат при протяжке) и размер.
-fn apply_window_frame_now(win: &WebviewWindow, x: i32, y: i32, width: f64, height: f64) {
-    if win.outer_position().is_ok_and(|p| p.x != x || p.y != y) {
-        let _ = win.set_position(tauri::PhysicalPosition::new(x, y));
+fn apply_window_frame_now(win: &WebviewWindow, frame: Frame) {
+    if win
+        .outer_position()
+        .is_ok_and(|p| p.x != frame.x || p.y != frame.y)
+    {
+        let _ = win.set_position(tauri::PhysicalPosition::new(frame.x, frame.y));
     }
-    let _ = win.set_size(tauri::LogicalSize::new(width, height));
+    let _ = win.set_size(tauri::LogicalSize::new(frame.width, frame.height));
 }
 
 #[cfg(test)]

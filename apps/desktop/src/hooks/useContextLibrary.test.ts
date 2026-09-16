@@ -8,6 +8,12 @@ vi.mock("@/ipc/commands", () => ({
   loadContextLibrary: () => loadContextLibrary(),
   saveContextLibrary: (json: string) => saveContextLibrary(json),
 }));
+const notify = vi.fn<(...a: unknown[]) => void>();
+vi.mock("@/lib/notify", () => ({
+  notify: (...a: unknown[]) => {
+    notify(...a);
+  },
+}));
 
 import { useContextLibrary } from "./useContextLibrary";
 
@@ -15,6 +21,7 @@ beforeEach(() => {
   loadContextLibrary.mockReset();
   loadContextLibrary.mockResolvedValue("");
   saveContextLibrary.mockClear();
+  notify.mockClear();
 });
 
 afterEach(cleanup);
@@ -32,6 +39,19 @@ describe("useContextLibrary", () => {
       expect(result.current.library.docs).toHaveLength(1);
     });
     expect(result.current.library.folders[0]?.name).toBe("Собесы");
+  });
+
+  it("нечитаемый файл: тост, пустая заглушка и ни одной записи", async () => {
+    loadContextLibrary.mockRejectedValue(new Error("EIO"));
+    const { result } = renderHook(() => useContextLibrary());
+    await waitFor(() => {
+      expect(notify).toHaveBeenCalledTimes(1);
+    });
+    act(() => {
+      result.current.addFolder("Новая");
+    });
+    await act(async () => Promise.resolve());
+    expect(saveContextLibrary).not.toHaveBeenCalled();
   });
 
   it("правки сохраняются на диск с дебаунсом", async () => {

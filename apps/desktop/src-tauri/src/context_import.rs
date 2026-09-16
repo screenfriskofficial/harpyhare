@@ -47,7 +47,10 @@ fn too_large_message(max_bytes: u64) -> String {
 /// Read at most one byte beyond the limit, even if the file grows after open.
 fn read_limited(reader: impl Read, max_bytes: u64) -> Result<Vec<u8>, String> {
     let mut bytes = Vec::new();
-    reader.take(max_bytes + 1).read_to_end(&mut bytes).map_err(|e| e.to_string())?;
+    reader
+        .take(max_bytes + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|e| e.to_string())?;
     if bytes.len() as u64 > max_bytes {
         return Err(too_large_message(max_bytes));
     }
@@ -82,7 +85,8 @@ pub fn read_pdf_base64(data_base64: &str) -> Result<String, String> {
 fn decode_pdf_base64(data_base64: &str) -> Result<Vec<u8>, String> {
     let data_base64 = data_base64.trim();
     // Padding can make the decoded upper bound exceed the limit by two bytes.
-    let max_encoded_len = PDF_MAX_BYTES.div_ceil(BYTES_PER_BASE64_TRIPLET) * BASE64_CHARS_PER_TRIPLET;
+    let max_encoded_len =
+        PDF_MAX_BYTES.div_ceil(BYTES_PER_BASE64_TRIPLET) * BASE64_CHARS_PER_TRIPLET;
     if data_base64.len() as u64 > max_encoded_len {
         return Err(too_large_message(PDF_MAX_BYTES));
     }

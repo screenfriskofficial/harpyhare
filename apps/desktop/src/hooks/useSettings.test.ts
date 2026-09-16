@@ -1,6 +1,7 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { DEFAULT_SETTINGS, type Settings } from "@/ipc/types";
+import { previewWidthBounds } from "@/lib/shell-layout";
 
 const getSettings = vi.fn(() => Promise.resolve(DEFAULT_SETTINGS));
 const setSettings = vi.fn((s: Settings) => Promise.resolve(s));
@@ -83,6 +84,32 @@ describe("useSettings", () => {
     expect(setSettings.mock.calls[0]?.[0]?.window_width).toBe(
       DEFAULT_SETTINGS.window_width + DEFAULT_SETTINGS.resize_step,
     );
+    vi.useRealTimers();
+  });
+
+  it("setPreviewWidth клампит под текущее окно и персистит с дебаунсом", async () => {
+    vi.useFakeTimers();
+    getSettings.mockResolvedValue(DEFAULT_SETTINGS);
+    const { result } = renderHook(() => useSettings());
+    await waitFor(() => {
+      expect(result.current.loading).toBe(false);
+    });
+    setSettings.mockClear();
+    act(() => {
+      result.current.setPreviewWidth(700);
+    });
+    expect(result.current.settings.preview_width).toBe(700);
+    act(() => {
+      result.current.setPreviewWidth(5000);
+    });
+    const { max } = previewWidthBounds(DEFAULT_SETTINGS.window_width);
+    expect(result.current.settings.preview_width).toBe(max);
+    expect(setSettings).not.toHaveBeenCalled();
+    act(() => {
+      vi.advanceTimersByTime(400);
+    });
+    expect(setSettings).toHaveBeenCalledTimes(1);
+    expect(setSettings.mock.calls[0]?.[0]?.preview_width).toBe(max);
     vi.useRealTimers();
   });
 

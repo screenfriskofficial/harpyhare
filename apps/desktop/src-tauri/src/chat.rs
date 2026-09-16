@@ -182,9 +182,6 @@ fn emit_llm_result(
 }
 
 struct ChatStreamSink {
-    app: AppHandle,
-    chat_id: String,
-    stream_id: String,
     pending: Arc<Mutex<String>>,
     wake: Arc<Notify>,
     trace: Trace,
@@ -195,10 +192,6 @@ impl llm::LlmStreamSink for ChatStreamSink {
         self.trace.first_text(delta);
         self.pending.lock_unpoisoned().push_str(delta);
         self.wake.notify_one();
-    }
-
-    fn input_tokens(&mut self, total: u32) {
-        events::llm_usage(&self.app, &self.chat_id, &self.stream_id, total);
     }
 }
 
@@ -225,9 +218,6 @@ pub async fn send_to_claude(
 
     let flusher = spawn_llm_delta_flusher(app.clone(), chat_id.clone(), stream_id.clone());
     let mut sink = ChatStreamSink {
-        app: app.clone(),
-        chat_id: chat_id.clone(),
-        stream_id: stream_id.clone(),
         pending: Arc::clone(&flusher.pending),
         wake: Arc::clone(&flusher.wake),
         trace: trace.clone(),
@@ -239,26 +229,6 @@ pub async fn send_to_claude(
     trace.finish(res.as_ref().err().map(CodedError::code));
     unregister_llm_cancel(&app, &chat_id, &stream_id);
     emit_llm_result(&app, chat_id, stream_id, res);
-}
-
-#[tauri::command]
-#[specta::specta]
-pub async fn count_chat_tokens(
-    app: AppHandle,
-    messages: Vec<llm::ChatMessage>,
-    system: String,
-    model: String,
-    options: llm::RequestOptions,
-) -> Result<u32, String> {
-    llm_provider(&app)
-        .count_tokens(llm::LlmRequest {
-            model,
-            system,
-            messages,
-            options,
-        })
-        .await
-        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]

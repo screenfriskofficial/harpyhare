@@ -2,7 +2,7 @@ use crate::sync::LockUnpoisoned;
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Manager};
 
-use crate::app_state::{current_settings, settings_path, App};
+use crate::app_state::{settings_path, with_settings, App};
 use crate::{platform, recording};
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, specta::Type)]
@@ -46,64 +46,30 @@ fn audio_state(app: &AppHandle) -> PermissionState {
     if app.state::<App>().capture.lock_unpoisoned().is_some() {
         return PermissionState::Granted;
     }
-    if !current_settings(app).audio_permission_requested {
+    if !with_settings(app, |s| s.audio_permission_requested) {
         return PermissionState::Unknown;
     }
     state_from_granted(recording::ensure_capture(app))
 }
 
-/// Reading authorization never opens the device or prompts the user.
+/// Reading authorization never opens the device or prompts the user. The
+/// platform call lives in both backends (`platform::microphone_capture_access`),
+/// not in a `cfg` branch here — see the platform-split rule in CLAUDE.md.
 pub fn microphone_state() -> PermissionState {
-    #[cfg(target_os = "macos")]
-    {
-        use cidre::av;
-        match av::CaptureDevice::authorization_status_for_media_type(av::MediaType::audio()) {
-            Ok(av::AuthorizationStatus::Authorized) => PermissionState::Granted,
-            Ok(av::AuthorizationStatus::NotDetermined) => PermissionState::Unknown,
-            _ => PermissionState::Denied,
-        }
-    }
-    #[cfg(target_os = "windows")]
-    {
-        PermissionState::Granted
-    } // WASAPI reports denied desktop access when opening.
+    platform::microphone_capture_access().map_or(PermissionState::Unknown, state_from_granted)
 }
 
 async fn request_microphone_permission() -> Result<PermissionState, String> {
-    #[cfg(target_os = "macos")]
-    {
-        use cidre::av;
-        let receiver = {
-            let (sender, receiver) = tokio::sync::oneshot::channel();
-            let mut sender = Some(sender);
-            let mut callback = cidre::blocks::SendBlock::new1(move |granted: bool| {
-                if let Some(sender) = sender.take() {
-                    let _ = sender.send(granted);
-                }
-            });
-            av::CaptureDevice::request_access_for_media_type_ch(
-                av::MediaType::audio(),
-                &mut callback,
-            )
-            .map_err(|e| format!("Не удалось запросить микрофон: {e:?}"))?;
-            receiver
-        };
-        receiver
-            .await
-            .map(state_from_granted)
-            .map_err(|e| e.to_string())
-    }
-    #[cfg(target_os = "windows")]
-    {
-        Ok(microphone_state())
-    }
+    platform::request_microphone_capture_access()
+        .await
+        .map(state_from_granted)
 }
 
 fn screen_state(app: &AppHandle) -> PermissionState {
     if platform::screen_capture_access() {
         return PermissionState::Granted;
     }
-    if current_settings(app).screen_permission_requested {
+    if with_settings(app, |s| s.screen_permission_requested) {
         PermissionState::Denied
     } else {
         PermissionState::Unknown

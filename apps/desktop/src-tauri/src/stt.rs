@@ -22,16 +22,10 @@ const DEFAULT_LANGUAGE: &str = "ru";
 const WAV_MIME: &str = "audio/wav";
 const WAV_FILE_NAME: &str = "audio.wav";
 
-const CONNECT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
-const HTTP2_KEEP_ALIVE_INTERVAL: std::time::Duration = std::time::Duration::from_secs(30);
-const HTTP2_KEEP_ALIVE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
 /// База таймаута батчевой загрузки; к ней добавляется длительность самой
 /// записи — десятиминутный WAV с инференсом в 60 с не укладывался.
 const DEFAULT_REQUEST_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
-const WARM_UP_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
 const STREAM_REQUEST_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(11 * 60);
-/// HTTP-эквивалент «сервер не успел» для `SttError::Retryable`.
-const TIMEOUT_STATUS: u16 = 408;
 
 #[derive(Debug, thiserror::Error)]
 pub enum SttError {
@@ -68,16 +62,24 @@ impl crate::error::CodedError for SttError {
     }
 }
 
-fn http_failure(error: crate::error::http::HttpFailure, key_label: &'static str) -> SttError {
-    use crate::error::ErrorCode;
-    match error.code {
-        ErrorCode::BadApiKey => SttError::BadApiKey(key_label),
-        ErrorCode::BadAccessCode => SttError::BadAccessCode(error.message),
-        ErrorCode::Api => SttError::Other(error.message),
-        ErrorCode::RateLimited | ErrorCode::ServiceUnavailable | ErrorCode::Timeout => {
-            SttError::Retryable(error.status)
-        }
-        _ => SttError::Http(error),
+impl crate::error::http::ProviderError for SttError {
+    fn bad_api_key(key_label: &'static str) -> Self {
+        SttError::BadApiKey(key_label)
+    }
+    fn bad_access_code(message: String) -> Self {
+        SttError::BadAccessCode(message)
+    }
+    fn api(message: String) -> Self {
+        SttError::Other(message)
+    }
+    fn retryable(status: u16) -> Self {
+        SttError::Retryable(status)
+    }
+    fn http(failure: crate::error::http::HttpFailure) -> Self {
+        SttError::Http(failure)
+    }
+    fn network(message: String) -> Self {
+        SttError::Network(message)
     }
 }
 
@@ -151,7 +153,7 @@ pub fn build_engine(
         ),
         registry::SttWire::OpenAiMultipart { .. } | registry::SttWire::Xai { .. } => {
             let mut client = SttHttpClient::over(spec, config.api_key);
-            if spec.id == registry::PROVIDER_OPENROUTER {
+            if spec.wire.selectable_model() {
                 client.model = config.model.filter(|model| !model.trim().is_empty());
             }
             let client = match config.proxy_base_url {
@@ -182,27 +184,9 @@ pub struct SttHttpClient {
     proxy: bool,
 }
 
-pub(crate) fn warm_pooled_client() -> reqwest::Client {
-    crate::tls::ensure_crypto_provider();
-    reqwest::Client::builder()
-        .user_agent(crate::llm::APP_USER_AGENT)
-        .connect_timeout(CONNECT_TIMEOUT)
-        .pool_idle_timeout(None)
-        .http2_keep_alive_interval(HTTP2_KEEP_ALIVE_INTERVAL)
-        .http2_keep_alive_timeout(HTTP2_KEEP_ALIVE_TIMEOUT)
-        .http2_keep_alive_while_idle(true)
-        .build()
-        .expect("reqwest client")
-}
-
-/// Сетевая ошибка reqwest в терминах порта: таймаут — «сервер не успел», а
-/// не «нет соединения»: последнее поднимает во фронте оверлей связи, хотя
-/// сеть в порядке — это медленный аплоад или инференс.
+/// The shared transport policy in this port's terms — see `error::http::transport_error`.
 fn network_error(e: reqwest::Error) -> SttError {
-    if e.is_timeout() && !e.is_connect() {
-        return SttError::Retryable(TIMEOUT_STATUS);
-    }
-    SttError::Network(e.to_string())
+    crate::error::http::transport_error(&e)
 }
 
 /// Батч и стрим шлют одно и то же тело — WAV. Стрим получает сырой PCM из
@@ -231,7 +215,7 @@ impl SttHttpClient {
             api_key,
             base_url: spec.wire.base_url().into(),
             timeout: DEFAULT_REQUEST_TIMEOUT,
-            client: warm_pooled_client(),
+            client: crate::net::pooled_client(),
             language: DEFAULT_LANGUAGE.into(),
             translate: false,
             proxy: false,
@@ -375,7 +359,7 @@ impl SttHttpClient {
         if resp.status().is_success() {
             Self::text_from_success(resp).await
         } else {
-            Err(http_failure(
+            Err(crate::error::http::provider_error(
                 crate::error::http::failure(resp, self.proxy).await,
                 self.spec.key_label,
             ))
@@ -426,7 +410,7 @@ impl SttEngine for SttHttpClient {
                 self.base_url,
                 self.spec.wire.warm_up_path()
             ))
-            .timeout(WARM_UP_TIMEOUT)
+            .timeout(crate::net::WARM_UP_TIMEOUT)
             .send()
             .await;
     }
@@ -453,6 +437,3 @@ impl SttEngine for SttHttpClient {
 
 #[cfg(test)]
 mod tests;
-
-#[cfg(test)]
-mod openrouter_tests;

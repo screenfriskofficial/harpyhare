@@ -23,8 +23,7 @@ fn parse_rejects_malformed_json() {
 #[test]
 fn parse_accepts_valid_pool() {
     let pool =
-        PresetPool::parse(r#"{"version":2,"presets":[{"id":"a","name":"A","text":"t"}]}"#)
-            .unwrap();
+        PresetPool::parse(r#"{"version":2,"presets":[{"id":"a","name":"A","text":"t"}]}"#).unwrap();
     assert_eq!(pool.version, 2);
     assert_eq!(pool.presets.len(), 1);
 }
@@ -37,7 +36,10 @@ fn pool(version: u32, id: &str) -> String {
 fn bundled_pool_declares_a_version() {
     // `load_initial` compares versions, so a bundled pool stuck at 0 would lose
     // to any cache forever.
-    assert!(PresetPool::bundled().version > 0, "у вшитого пула должна быть версия");
+    assert!(
+        PresetPool::bundled().version > 0,
+        "у вшитого пула должна быть версия"
+    );
 }
 
 #[test]
@@ -55,7 +57,10 @@ fn every_bundled_preset_declares_keyterms() {
 
 #[test]
 fn parse_rejects_an_empty_pool_and_duplicate_ids() {
-    assert!(PresetPool::parse(r#"{"version":9,"presets":[]}"#).is_none(), "пустой пул стёр бы все пресеты");
+    assert!(
+        PresetPool::parse(r#"{"version":9,"presets":[]}"#).is_none(),
+        "пустой пул стёр бы все пресеты"
+    );
     assert!(
         PresetPool::parse(
             r#"{"version":9,"presets":[{"id":"a","name":"A","text":"t"},{"id":"a","name":"B","text":"u"}]}"#
@@ -75,18 +80,27 @@ fn a_fetched_pool_replaces_the_current_one_only_when_not_older_and_different() {
     assert!(same_version_new_content.should_replace(bundled.version, &bundled.presets));
 
     let identical = PresetPool::parse(BUNDLED_PRESETS_JSON).unwrap();
-    assert!(!identical.should_replace(bundled.version, &bundled.presets), "то же самое — не применяем и не эмитим");
+    assert!(
+        !identical.should_replace(bundled.version, &bundled.presets),
+        "то же самое — не применяем и не эмитим"
+    );
 
     // The case that matters day to day: a build ships edited presets while the
     // blob still serves the previous pool, and the cache holds that older one.
     let older = PresetPool::parse(&pool(bundled.version - 1, "stale")).unwrap();
-    assert!(!older.should_replace(bundled.version, &bundled.presets), "старый пул не перебивает свежую сборку");
+    assert!(
+        !older.should_replace(bundled.version, &bundled.presets),
+        "старый пул не перебивает свежую сборку"
+    );
 }
 
 #[test]
 fn version_only_refresh_prevents_a_later_content_downgrade() {
     let initial = PresetPool::bundled();
-    let newer = PresetPool { version: initial.version + 2, presets: initial.presets.clone() };
+    let newer = PresetPool {
+        version: initial.version + 2,
+        presets: initial.presets.clone(),
+    };
     assert!(newer.should_replace(initial.version, &initial.presets));
     let stale = PresetPool::parse(&pool(initial.version + 1, "stale")).unwrap();
     assert!(!stale.should_replace(newer.version, &newer.presets));

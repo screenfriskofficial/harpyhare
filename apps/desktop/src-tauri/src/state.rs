@@ -33,7 +33,9 @@ impl RecorderState {
         use RecorderState as S;
         let (next, action) = match (*self, e) {
             (S::Idle, E::PttPressed) => (S::Recording, A::StartCapture),
-            (S::Recording, E::PttReleased { duration_secs }) if duration_secs < MIN_RECORDING_SECS => {
+            (S::Recording, E::PttReleased { duration_secs })
+                if duration_secs < MIN_RECORDING_SECS =>
+            {
                 (S::Idle, A::Discard)
             }
             (S::Recording, E::PttReleased { .. }) => (S::Transcribing, A::Transcribe),

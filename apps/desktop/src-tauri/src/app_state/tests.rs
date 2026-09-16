@@ -16,7 +16,7 @@ fn settings_with(provider: &str, access_token: &str) -> settings::Settings {
 
 #[test]
 fn direct_groq_takes_the_groq_key_and_talks_to_the_vendor() {
-    let plan = stt_client_plan(&settings_with(settings::STT_PROVIDER_GROQ, ""));
+    let plan = stt_client_plan(&settings_with(crate::stt::registry::PROVIDER_GROQ, ""));
     assert_eq!(plan.provider_id, stt::registry::PROVIDER_GROQ);
     assert_eq!(plan.api_key, GROQ_KEY);
     assert_eq!(plan.proxy_base_url, None);
@@ -24,7 +24,7 @@ fn direct_groq_takes_the_groq_key_and_talks_to_the_vendor() {
 
 #[test]
 fn direct_openai_takes_the_openai_key_and_talks_to_the_vendor() {
-    let plan = stt_client_plan(&settings_with(settings::STT_PROVIDER_OPENAI, ""));
+    let plan = stt_client_plan(&settings_with(crate::stt::registry::PROVIDER_OPENAI, ""));
     assert_eq!(plan.provider_id, stt::registry::PROVIDER_OPENAI);
     assert_eq!(plan.api_key, OPENAI_KEY);
     assert_eq!(plan.proxy_base_url, None);
@@ -32,7 +32,10 @@ fn direct_openai_takes_the_openai_key_and_talks_to_the_vendor() {
 
 #[test]
 fn proxy_groq_swaps_the_key_for_the_token_and_the_host_for_the_proxy() {
-    let plan = stt_client_plan(&settings_with(settings::STT_PROVIDER_GROQ, ACCESS_TOKEN));
+    let plan = stt_client_plan(&settings_with(
+        crate::stt::registry::PROVIDER_GROQ,
+        ACCESS_TOKEN,
+    ));
     assert_eq!(plan.provider_id, stt::registry::PROVIDER_GROQ);
     assert_eq!(plan.api_key, ACCESS_TOKEN);
     assert_eq!(plan.proxy_base_url, Some(access::proxy_base_url()));
@@ -40,7 +43,10 @@ fn proxy_groq_swaps_the_key_for_the_token_and_the_host_for_the_proxy() {
 
 #[test]
 fn proxy_openai_keeps_the_vendor_and_only_swaps_key_and_host() {
-    let plan = stt_client_plan(&settings_with(settings::STT_PROVIDER_OPENAI, ACCESS_TOKEN));
+    let plan = stt_client_plan(&settings_with(
+        crate::stt::registry::PROVIDER_OPENAI,
+        ACCESS_TOKEN,
+    ));
     assert_eq!(plan.provider_id, stt::registry::PROVIDER_OPENAI);
     assert_eq!(plan.api_key, ACCESS_TOKEN);
     assert_eq!(plan.proxy_base_url, Some(access::proxy_base_url()));

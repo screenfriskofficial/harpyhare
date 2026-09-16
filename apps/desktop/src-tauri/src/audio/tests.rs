@@ -14,9 +14,7 @@ fn downmix_mono_passthrough() {
 #[test]
 fn rms_of_silence_is_zero_and_of_sine_is_positive() {
     assert_eq!(rms(&vec![0.0f32; 1600]), 0.0);
-    let sine: Vec<f32> = (0..1600)
-        .map(|i| (i as f32 * 0.1).sin() * 0.5)
-        .collect();
+    let sine: Vec<f32> = (0..1600).map(|i| (i as f32 * 0.1).sin() * 0.5).collect();
     assert!(rms(&sine) > 0.3);
 }
 
@@ -65,7 +63,10 @@ fn stream_resampler_chunked_matches_batch() {
         .zip(&batch)
         .map(|(a, b)| (a - b).abs())
         .fold(0.0f32, f32::max);
-    assert!(max_diff < 1e-4, "нарезка не влияет на сигнал, max_diff={max_diff}");
+    assert!(
+        max_diff < 1e-4,
+        "нарезка не влияет на сигнал, max_diff={max_diff}"
+    );
 }
 
 #[test]
@@ -86,7 +87,10 @@ fn stream_resampler_reproduces_sine() {
     a = a * 2.0 / mid.len() as f64;
     b = b * 2.0 / mid.len() as f64;
     let amplitude = (a * a + b * b).sqrt();
-    assert!((amplitude - 1.0).abs() < 0.02, "амплитуда сохранена: {amplitude}");
+    assert!(
+        (amplitude - 1.0).abs() < 0.02,
+        "амплитуда сохранена: {amplitude}"
+    );
     let residual = (mid
         .iter()
         .enumerate()
@@ -98,7 +102,10 @@ fn stream_resampler_reproduces_sine() {
         .sum::<f64>()
         / mid.len() as f64)
         .sqrt();
-    assert!(residual < 0.02, "кроме 440Гц в сигнале ничего нет, residual={residual}");
+    assert!(
+        residual < 0.02,
+        "кроме 440Гц в сигнале ничего нет, residual={residual}"
+    );
 }
 
 #[test]
@@ -118,7 +125,10 @@ fn wav_streaming_header_shape() {
     assert_eq!(&h[8..12], b"WAVE");
     assert_eq!(&h[36..40], b"data");
     assert_eq!(u32::from_le_bytes(h[4..8].try_into().unwrap()), 0xFFFF_FFFF);
-    assert_eq!(u32::from_le_bytes(h[40..44].try_into().unwrap()), 0xFFFF_FFFF);
+    assert_eq!(
+        u32::from_le_bytes(h[40..44].try_into().unwrap()),
+        0xFFFF_FFFF
+    );
     assert_eq!(u32::from_le_bytes(h[24..28].try_into().unwrap()), 16000);
     assert_eq!(u16::from_le_bytes(h[22..24].try_into().unwrap()), 1);
 }

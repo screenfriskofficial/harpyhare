@@ -4,8 +4,9 @@ use tokio_util::sync::CancellationToken;
 
 use super::{
     build_http_client, network_error, probe_http_client, pump_sse_stream, require_ok_status,
-    HttpClientOptions, LlmError, LlmStreamSink, SseParser, REQUEST_TIMEOUT, WARM_UP_TIMEOUT,
+    HttpClientOptions, LlmError, LlmStreamSink, SseParser,
 };
+use crate::net::WARM_UP_TIMEOUT;
 
 /// How a request proves who it is.
 ///
@@ -144,19 +145,6 @@ impl LlmHttp {
     pub async fn get_json(&self, path: &str, timeout: Duration) -> Result<Value, LlmError> {
         let resp = self
             .send(self.client.get(self.url(path)).timeout(timeout))
-            .await?;
-        let resp = require_ok_status(resp, self.key_label, self.proxy).await?;
-        Self::json_of(resp).await
-    }
-
-    pub async fn post_json(&self, path: &str, body: &Value) -> Result<Value, LlmError> {
-        let resp = self
-            .send(
-                self.client
-                    .post(self.url(path))
-                    .json(body)
-                    .timeout(REQUEST_TIMEOUT),
-            )
             .await?;
         let resp = require_ok_status(resp, self.key_label, self.proxy).await?;
         Self::json_of(resp).await

@@ -10,9 +10,12 @@ export const commands = {
 	cancelPreflight: (runId: string) => __TAURI_INVOKE<void>("cancel_preflight", { runId }),
 	sendToClaude: (messages: ChatMessage[], chatId: string, streamId: string, system: string, model: string, options: RequestOptions) => __TAURI_INVOKE<void>("send_to_claude", { messages, chatId, streamId, system, model, options }),
 	cancelStream: (chatId: string, streamId: string) => __TAURI_INVOKE<void>("cancel_stream", { chatId, streamId }),
-	countChatTokens: (messages: ChatMessage[], system: string, model: string, options: RequestOptions) => __TAURI_INVOKE<number>("count_chat_tokens", { messages, system, model, options }),
 	probeConnectivity: () => __TAURI_INVOKE<boolean>("probe_connectivity"),
 	listModels: () => __TAURI_INVOKE<ModelInfo[]>("list_models"),
+	loadPipelines: () => __TAURI_INVOKE<string>("load_pipelines"),
+	savePipelines: (json: string) => __TAURI_INVOKE<null>("save_pipelines", { json }),
+	runPipelineStep: (runId: string, nodeId: string, messages: ChatMessage[], system: string, model: string, options: RequestOptions) => __TAURI_INVOKE<string>("run_pipeline_step", { runId, nodeId, messages, system, model, options }),
+	cancelPipelineRun: (runId: string) => __TAURI_INVOKE<void>("cancel_pipeline_run", { runId }),
 	listOpenrouterSttModels: () => __TAURI_INVOKE<SttModelInfo[]>("list_openrouter_stt_models"),
 	loadChats: () => __TAURI_INVOKE<string>("load_chats"),
 	saveChats: (json: string) => __TAURI_INVOKE<null>("save_chats", { json }),
@@ -90,9 +93,9 @@ export const MODIFIER_COMBOS = {"macos":["Cmd","Ctrl","Alt","Cmd+Shift","Ctrl+Sh
 
 export const QUICK_ACTION_LIMIT = 9 as const;
 
-export const SETTINGS_DEFAULTS = {"access_token":"","anthropic_api_key":"","audio_permission_requested":false,"auto_preview_html":true,"auto_send":false,"buffer_enabled":true,"buffer_seconds":4,"capture_device_uid":"","capture_microphone":false,"capture_system_audio":true,"chat_font_size":13.5,"deepgram_api_key":"","groq_api_key":"","hotkeys":[],"microphone_device_uid":"","move_step":20,"openai_api_key":"","openrouter_api_key":"","openrouter_stt_model":"openai/gpt-4o-mini-transcribe","prompt_presets":[],"quick_action_attachments":false,"quick_actions":[{"id":"detail","prompt":"Расскажи более подробно.","title":"Подробнее"},{"id":"brief","prompt":"Ответь короче, только суть.","title":"Короче"},{"id":"code","prompt":"Покажи пример кода.","title":"Пример кода"}],"resize_step":20,"screen_permission_requested":false,"screen_share_visible":false,"scroll_step":120,"skipped_version":"","stt_language":"ru","stt_provider":"groq","stt_translate":false,"teleprompter_font_size":28.0,"teleprompter_resume":true,"teleprompter_speed":40.0,"theme":"gray","ui_language":"","window_height":680.0,"window_opacity":0.9,"window_width":960.0,"xai_api_key":"","xclis_api_key":""} as const;
+export const SETTINGS_DEFAULTS = {"access_token":"","anthropic_api_key":"","audio_permission_requested":false,"auto_preview_html":true,"auto_send":false,"buffer_enabled":true,"buffer_seconds":4,"capture_device_uid":"","capture_microphone":false,"capture_system_audio":true,"chat_font_size":13.5,"deepgram_api_key":"","groq_api_key":"","hotkeys":[],"microphone_device_uid":"","move_step":20,"openai_api_key":"","openrouter_api_key":"","openrouter_stt_model":"openai/gpt-4o-mini-transcribe","preview_width":570.0,"prompt_presets":[],"quick_action_attachments":false,"quick_actions":[{"id":"detail","prompt":"Расскажи более подробно.","title":"Подробнее"},{"id":"brief","prompt":"Ответь короче, только суть.","title":"Короче"},{"id":"code","prompt":"Покажи пример кода.","title":"Пример кода"}],"resize_step":20,"screen_permission_requested":false,"screen_share_visible":false,"scroll_step":120,"skipped_version":"","stt_language":"ru","stt_provider":"groq","stt_translate":false,"teleprompter_font_size":28.0,"teleprompter_resume":true,"teleprompter_speed":40.0,"theme":"gray","ui_language":"","window_height":680.0,"window_opacity":0.9,"window_width":960.0,"xai_api_key":"","xclis_api_key":""} as const;
 
-export const SETTINGS_LIMITS = {"bufferSeconds":{"default":4,"max":10,"min":1},"chatFontSize":{"default":13.5,"max":20.0,"min":10.0},"moveStep":{"default":20,"max":200,"min":1},"resizeStep":{"default":20,"max":200,"min":1},"scrollStep":{"default":120,"max":1000,"min":10},"teleprompterFontSize":{"default":28.0,"max":48.0,"min":20.0},"teleprompterSpeed":{"default":40.0,"max":150.0,"min":10.0},"windowHeight":{"default":680.0,"max":1100.0,"min":520.0},"windowOpacity":{"default":0.9,"max":1.0,"min":0.2},"windowWidth":{"default":960.0,"max":1600.0,"min":300.0}} as const;
+export const SETTINGS_LIMITS = {"bufferSeconds":{"default":4,"max":10,"min":1},"chatFontSize":{"default":13.5,"max":20.0,"min":10.0},"moveStep":{"default":20,"max":200,"min":1},"previewWidth":{"default":570.0,"max":1600.0,"min":260.0},"resizeStep":{"default":20,"max":200,"min":1},"scrollStep":{"default":120,"max":1000,"min":10},"teleprompterFontSize":{"default":28.0,"max":48.0,"min":20.0},"teleprompterSpeed":{"default":40.0,"max":150.0,"min":10.0},"windowHeight":{"default":680.0,"max":1100.0,"min":520.0},"windowOpacity":{"default":0.9,"max":1.0,"min":0.2},"windowWidth":{"default":960.0,"max":1600.0,"min":300.0}} as const;
 
 export const STT_PROVIDERS = [{"id":"groq","keyId":"groq","label":"Groq · Whisper","proxied":true,"supportsTranslate":true},{"id":"openai","keyId":"openai","label":"OpenAI · gpt-4o mini","proxied":true,"supportsTranslate":true},{"id":"xai","keyId":"xai","label":"Grok · Speech-to-Text","proxied":true,"supportsTranslate":false},{"id":"deepgram","keyId":"deepgram","label":"Deepgram · Nova-3","proxied":false,"supportsTranslate":false},{"id":"openrouter","keyId":"openrouter","label":"OpenRouter","proxied":false,"supportsTranslate":false}] as const;
 
@@ -147,7 +150,9 @@ export type CheckStep = "systemAudio" | "microphone" | "transcription" | "answer
 
 export type DiagnosticKind = "capture" | "transcription" | "answer";
 
-export type DiagnosticOrigin = "session" | "preflight";
+export type DiagnosticOrigin = "session" | "preflight" | 
+/**  A model step of a prompt or message pipeline, run for a chat or from the builder. */
+"pipeline";
 
 export type DiagnosticRecord = {
 	id: string,
@@ -172,7 +177,12 @@ export type DiagnosticReport = {
 	records: DiagnosticRecord[],
 };
 
-export type ErrorCode = "network" | "badApiKey" | "badAccessCode" | "retryable" | "api" | "cancelled" | "permission" | "silence" | "internal" | "billing" | "dailyLimit" | "rateLimited" | "serviceUnavailable" | "timeout" | "accessDenied" | "modelUnavailable" | "requestTooLarge";
+export type ErrorCode = "network" | "badApiKey" | "badAccessCode" | "retryable" | "api" | "cancelled" | "permission" | "silence" | "internal" | "billing" | "dailyLimit" | "rateLimited" | "serviceUnavailable" | "timeout" | "accessDenied" | "modelUnavailable" | "requestTooLarge" | 
+/**
+ *  The model stopped before the end of its answer (length limit, context
+ *  overflow, refusal). What arrived is real text, but not a whole answer.
+ */
+"incomplete";
 
 export type HotkeyAction = {
 	id: string,
@@ -228,12 +238,6 @@ export type LlmErrorEvent = {
 	message: string,
 };
 
-export type LlmUsage = {
-	chatId: string,
-	streamId: string,
-	inputTokens: number,
-};
-
 export type ModelInfo = {
 	id: string,
 	displayName: string,
@@ -241,7 +245,6 @@ export type ModelInfo = {
 	adaptive: boolean,
 	alwaysThinks: boolean,
 	codeExec: boolean,
-	maxInputTokens: number,
 };
 
 export type PermissionKind = "audio" | "microphone" | "screen";
@@ -331,6 +334,7 @@ export type Settings = {
 	screen_permission_requested?: boolean,
 	window_width?: number | null,
 	window_height?: number | null,
+	preview_width?: number | null,
 	resize_step?: number,
 	capture_device_uid?: string,
 	microphone_device_uid?: string,

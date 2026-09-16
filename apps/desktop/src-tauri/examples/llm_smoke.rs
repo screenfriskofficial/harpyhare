@@ -53,14 +53,26 @@ fn build_cases() -> Vec<(&'static str, serde_json::Value)> {
     let with_empty_assistant = arithmetic_dialog("");
 
     vec![
-        ("opus thinking=on (база)", probe_body(BRIEF_SYSTEM, &single, true)),
-        ("opus thinking=off", probe_body(BRIEF_SYSTEM, &single, false)),
-        ("opus мультитёрн с кэшем", probe_body(BRIEF_SYSTEM, &multi, true)),
+        (
+            "opus thinking=on (база)",
+            probe_body(BRIEF_SYSTEM, &single, true),
+        ),
+        (
+            "opus thinking=off",
+            probe_body(BRIEF_SYSTEM, &single, false),
+        ),
+        (
+            "opus мультитёрн с кэшем",
+            probe_body(BRIEF_SYSTEM, &multi, true),
+        ),
         (
             "opus пустой assistant в истории",
             probe_body(BRIEF_SYSTEM, &with_empty_assistant, true),
         ),
-        ("opus без препромпта (system=\"\")", probe_body("", &single, true)),
+        (
+            "opus без препромпта (system=\"\")",
+            probe_body("", &single, true),
+        ),
     ]
 }
 

@@ -3,7 +3,9 @@ use std::sync::Arc;
 
 use tauri::{AppHandle, Manager};
 
-use crate::app_state::{build_llm_client, build_stt_client, current_settings, settings_path, App};
+use crate::app_state::{
+    build_llm_client, build_stt_client, current_settings, settings_path, with_settings, App,
+};
 use crate::recording::request_capture_rebuild;
 use crate::window::main_window;
 use crate::{access, global_shortcuts, settings};
@@ -99,10 +101,9 @@ pub fn set_stt_keyterms(app: AppHandle, keyterms: Vec<String>) {
 #[tauri::command]
 #[specta::specta]
 pub fn set_ptt_suspended(app: AppHandle, suspended: bool) {
-    let hk = crate::hotkeys::effective(
-        &app.state::<App>().settings.lock_unpoisoned().hotkeys,
-        crate::hotkeys::ACTION_RECORD,
-    );
+    let hk = with_settings(&app, |s| {
+        crate::hotkeys::effective(&s.hotkeys, crate::hotkeys::ACTION_RECORD)
+    });
     if suspended {
         global_shortcuts::unregister(&app, &hk);
     } else {

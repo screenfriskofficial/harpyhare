@@ -1,4 +1,4 @@
-use crate::sync::LockUnpoisoned;
+use crate::sync::{LockUnpoisoned, WaitUnpoisoned};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::Duration;
@@ -303,7 +303,7 @@ impl AudioCapture {
                 Session::Idle => return Ok(Vec::new()),
                 _ => {
                     let (guard, timeout) =
-                        self.shared.cv.wait_timeout(s, STOP_WAIT_TIMEOUT).unwrap();
+                        self.shared.cv.wait_timeout_unpoisoned(s, STOP_WAIT_TIMEOUT);
                     s = guard;
                     if timeout.timed_out() {
                         // Консьюмер не отвечает — этим капчером больше не
@@ -396,7 +396,7 @@ fn wait_for_work(shared: &Shared) -> ConsumerWork {
         if shared.buffering.load(Ordering::Acquire) {
             return ConsumerWork::Buffering;
         }
-        s = shared.cv.wait(s).unwrap();
+        s = shared.cv.wait_unpoisoned(s);
     }
 }
 

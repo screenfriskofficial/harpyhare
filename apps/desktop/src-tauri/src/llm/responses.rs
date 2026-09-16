@@ -1,8 +1,7 @@
 //! The OpenAI Responses API — a dialect, not a vendor.
 //!
-//! Spoken verbatim by OpenAI and xAI (same paths, same SSE event names, same
-//! usage shape), so a vendor that speaks it needs a row in `registry` and
-//! nothing else. What still differs between them is data, and lives on
+//! Spoken verbatim by OpenAI and xAI (same paths, same SSE event names), so a
+//! vendor that speaks it needs a row in `registry` and nothing else. What still differs between them is data, and lives on
 //! `LlmWire::Responses`.
 
 use serde_json::{json, Value};
@@ -13,7 +12,6 @@ use super::registry::{LlmProviderSpec, LlmWire};
 use super::{
     sse_data_json, ChatMessage, ImageAttachment, LlmError, LlmProvider, LlmRequest, LlmStreamSink,
     ModelInfo, SseOut, SseParser, LIST_MODELS_TIMEOUT, MODELS_PATH, UNKNOWN_API_ERROR,
-    UNKNOWN_TOKEN_COUNT,
 };
 
 const RESPONSES_PATH: &str = "/v1/responses";
@@ -37,7 +35,11 @@ const CONTENT_OUTPUT_TEXT: &str = "output_text";
 /// cannot do.
 fn efforts(spec: &LlmProviderSpec) -> (&'static str, &'static str) {
     match spec.wire {
-        LlmWire::Responses { effort_off, effort_on, .. } => (effort_off, effort_on),
+        LlmWire::Responses {
+            effort_off,
+            effort_on,
+            ..
+        } => (effort_off, effort_on),
         LlmWire::Anthropic { .. } | LlmWire::Xclis { .. } | LlmWire::OpenRouter { .. } => {
             unreachable!("клиент Responses собран из чужого диалекта")
         }
@@ -64,13 +66,16 @@ pub fn web_search_value(requested: bool) -> Option<Value> {
 fn image_block(img: &ImageAttachment) -> Value {
     json!({
         "type": CONTENT_INPUT_IMAGE,
-        "image_url": format!("data:{};base64,{}", img.media_type, img.data)
+        "image_url": img.data_url()
     })
 }
 
 fn text_block(role: &str, text: &str) -> Value {
-    let block_type =
-        if role == ROLE_ASSISTANT { CONTENT_OUTPUT_TEXT } else { CONTENT_INPUT_TEXT };
+    let block_type = if role == ROLE_ASSISTANT {
+        CONTENT_OUTPUT_TEXT
+    } else {
+        CONTENT_INPUT_TEXT
+    };
     json!({"type": block_type, "text": text})
 }
 
@@ -91,7 +96,7 @@ pub fn build_request_body(
 ) -> Value {
     let input: Vec<Value> = messages
         .iter()
-        .filter(|m| !m.text.is_empty() || !m.images.is_empty())
+        .filter(|m| !m.is_empty())
         .map(message_json)
         .collect();
     let mut body = json!({
@@ -117,15 +122,15 @@ pub fn parse_block(data: &str) -> Vec<SseOut> {
         return Vec::new();
     };
     let out = match v["type"].as_str() {
-        Some("response.output_text.delta") => {
-            v["delta"].as_str().map(|d| SseOut::TextDelta(d.to_string()))
-        }
-        Some("response.completed") => {
-            let total = v["response"]["usage"]["input_tokens"].as_u64().unwrap_or(0);
-            Some(SseOut::Done((total > 0).then_some(total as u32)))
-        }
+        Some("response.output_text.delta") => v["delta"]
+            .as_str()
+            .map(|d| SseOut::TextDelta(d.to_string())),
+        Some("response.completed") => Some(SseOut::Done),
         Some("response.failed") => Some(failure_out(&v)),
-        Some("response.incomplete" | "error") => Some(SseOut::ApiError(
+        Some("response.incomplete") => Some(SseOut::Incomplete(
+            error_message(&v).unwrap_or(UNKNOWN_API_ERROR).to_string(),
+        )),
+        Some("error") => Some(SseOut::ApiError(
             error_message(&v).unwrap_or(UNKNOWN_API_ERROR).to_string(),
         )),
         _ => None,
@@ -137,7 +142,10 @@ fn failure_out(v: &Value) -> SseOut {
     let message = error_message(v).unwrap_or(UNKNOWN_API_ERROR).to_string();
     let code = v["response"]["error"]["code"].as_str().unwrap_or_default();
     match RETRYABLE_FAILURE_CODES.iter().find(|(c, _)| *c == code) {
-        Some((_, status)) => SseOut::Retryable { code: *status, message },
+        Some((_, status)) => SseOut::Retryable {
+            code: *status,
+            message,
+        },
         None => SseOut::ApiError(message),
     }
 }
@@ -171,7 +179,10 @@ impl ResponsesClient {
     }
 
     pub fn proxied(spec: &'static LlmProviderSpec, access_token: String, base_url: String) -> Self {
-        Self { spec, http: LlmHttp::proxied(base_url, access_token, spec.wire.key_label()) }
+        Self {
+            spec,
+            http: LlmHttp::proxied(base_url, access_token, spec.wire.key_label()),
+        }
     }
 
     pub fn with_base_url(mut self, url: String) -> Self {
@@ -183,22 +194,15 @@ impl ResponsesClient {
         self.spec.models()
     }
 
-    /// `/v1/models` of this dialect answers two different ways. Every vendor
-    /// lists the ids a key may call, which is all OpenAI offers; xAI also
-    /// publishes `context_length`, and that is the only honest source for the
-    /// context gauge's denominator. Reading it when present needs no per-vendor
-    /// flag — a vendor that omits it simply leaves the window unknown.
-    async fn live_models(&self) -> Result<Vec<(String, u32)>, LlmError> {
+    /// The ids a key may call, which is all `/v1/models` of this dialect is
+    /// read for: the catalogue itself is curated, the live list only filters it.
+    async fn live_model_ids(&self) -> Result<Vec<String>, LlmError> {
         let v = self.http.get_json(MODELS_PATH, LIST_MODELS_TIMEOUT).await?;
         Ok(v["data"]
             .as_array()
             .map(|arr| {
                 arr.iter()
-                    .filter_map(|m| {
-                        let id = m["id"].as_str()?.to_string();
-                        let window = m["context_length"].as_u64().unwrap_or(0) as u32;
-                        Some((id, window))
-                    })
+                    .filter_map(|m| m["id"].as_str().map(str::to_string))
                     .collect()
             })
             .unwrap_or_default())
@@ -240,13 +244,6 @@ impl LlmProvider for ResponsesClient {
             .await
     }
 
-    /// No vendor of this dialect publishes a token counter. 0 is the app's own
-    /// "unknown", which the context gauge already understands — an error here
-    /// would only add retries and log noise for something not offered.
-    async fn count_tokens(&self, _request: LlmRequest) -> Result<u32, LlmError> {
-        Ok(UNKNOWN_TOKEN_COUNT)
-    }
-
     /// Through the relay the catalogue cannot be probed: `/v1/models` there is
     /// Anthropic's, and giving another vendor its own path would break the
     /// path==upstream symmetry the audio routes rely on. What a code holder may
@@ -255,15 +252,11 @@ impl LlmProvider for ResponsesClient {
         if self.http.is_proxy() {
             return Ok(self.catalog());
         }
-        let live = self.live_models().await?;
+        let live = self.live_model_ids().await?;
         Ok(self
             .catalog()
             .into_iter()
-            .filter_map(|mut m| {
-                let (_, window) = live.iter().find(|(id, _)| id == &m.id)?;
-                m.max_input_tokens = *window;
-                Some(m)
-            })
+            .filter(|m| live.contains(&m.id))
             .collect())
     }
 

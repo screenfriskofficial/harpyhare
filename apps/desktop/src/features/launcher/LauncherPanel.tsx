@@ -1,12 +1,14 @@
 import { useEffect, useMemo, useState } from "react";
 import type { CSSProperties } from "react";
 import { useTranslation } from "react-i18next";
+import { PipelineWorkspaceLoader } from "@/components/PipelineWorkspaceLoader";
 import { DiagnosticsPanel } from "@/features/diagnostics/DiagnosticsPanel";
 import { useModels } from "@/hooks/useModels";
 import { useOfficialPresets } from "@/hooks/useOfficialPresets";
 import type { Settings } from "@/ipc/types";
 import { visibleApiKeys, availableAnswerProviders } from "@/lib/api-keys";
 import { DEFAULT_MODEL, MODEL_PROVIDERS, selectableModels } from "@/lib/models";
+import { pipelineInput } from "@/lib/pipelines";
 import { mergePresets } from "@/lib/presets";
 import { normalizeDraft } from "@/lib/settings-draft";
 import { ContextLibraryPanel } from "./ContextLibraryPanel";
@@ -39,6 +41,7 @@ function riseDelay(order: number): CSSProperties {
 export function LauncherPanel({
   settings,
   contextLibrary,
+  pipelines,
   readiness,
   updater,
   launching,
@@ -73,18 +76,26 @@ export function LauncherPanel({
   }, [availableKey, checkModel, modelState.models, preflight.busy]);
 
   const official = useOfficialPresets();
+  const presets = useMemo(
+    () => mergePresets(official, draft.prompt_presets),
+    [official, draft.prompt_presets],
+  );
 
   const searchSources = useMemo(
     () => ({
-      presets: mergePresets(official, draft.prompt_presets).map((p) => ({
-        id: p.id,
-        name: p.name,
-      })),
+      presets: presets.map((p) => ({ id: p.id, name: p.name })),
       quickActions: draft.quick_actions.map((a) => ({ id: a.id, title: a.title })),
       contextDocs: contextLibrary.library.docs.map((d) => ({ id: d.id, name: d.name })),
       apiKeys: visibleApiKeys(draft),
     }),
-    [official, draft, contextLibrary.library.docs],
+    [presets, draft, contextLibrary.library.docs],
+  );
+  // Memoised on purpose: the workspace fingerprints and previews the whole
+  // library from this object, and a keystroke in any other draft field must
+  // not make it redo that.
+  const workspaceInput = useMemo(
+    () => pipelineInput({ library: contextLibrary.library, presets, model: checkModel }),
+    [contextLibrary.library, presets, checkModel],
   );
 
   const sidebarNotices = useMemo<SidebarNotice[]>(
@@ -179,6 +190,15 @@ export function LauncherPanel({
             key={screen}
             className="flex min-h-0 min-w-0 flex-1 animate-in duration-150 fade-in-0 slide-in-from-bottom-1 motion-reduce:animate-none"
           >
+            {screen === "pipelines" && (
+              <ScreenShell screen="pipelines" scroll={false}>
+                <PipelineWorkspaceLoader
+                  api={pipelines}
+                  models={modelState.models}
+                  input={workspaceInput}
+                />
+              </ScreenShell>
+            )}
             {screen === "check" && (
               <PreflightScreen
                 api={preflight}

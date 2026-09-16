@@ -35,6 +35,7 @@ const ERROR_TOAST_TITLE: Record<ErrorCode, TranslationKey | null> = {
   accessDenied: "diagnostics.errors.accessDenied.title",
   modelUnavailable: "diagnostics.errors.modelUnavailable.title",
   requestTooLarge: "diagnostics.errors.requestTooLarge.title",
+  incomplete: "diagnostics.errors.incomplete.title",
 };
 
 interface NotifyInput {
@@ -80,4 +81,9 @@ export function notifyAppError(error: AppError, action?: ToastAction): void {
   const content = errorToastContent(error);
   if (content === null) return;
   notify({ ...content, variant: "error", action });
+}
+
+/** The generic error toast: the localized «Ошибка» title over the given text. */
+export function notifyError(message: string, action?: ToastAction): void {
+  notify({ variant: "error", title: t("common.error"), message, action });
 }

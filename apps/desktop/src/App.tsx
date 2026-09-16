@@ -1,13 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
 import { useTranslation } from "react-i18next";
-import { AnswerPanel } from "@/components/AnswerPanel";
-import { AppHeader, type UpdateBadge } from "@/components/AppHeader";
+import { AnswerPanel, type ChatScrollMemory } from "@/components/AnswerPanel";
+import { AppHeader } from "@/components/AppHeader";
 import { Composer } from "@/components/Composer";
 import { ConnectivityOverlay } from "@/components/ConnectivityOverlay";
 import { MiniHud } from "@/components/MiniHud";
 import { ModelCommandMenu } from "@/components/ModelCommandMenu";
 import { PreviewPanel } from "@/components/PreviewPanel";
-import type { ContextUsage } from "@/components/StatusBar";
 import { Teleprompter } from "@/components/Teleprompter";
 import { LiquidMetalBorder } from "@/components/ui/liquid-metal-border";
 import { UpdateDialog } from "@/components/UpdateDialog";
@@ -19,13 +18,20 @@ import { useComboKey } from "@/hooks/useComboKey";
 import { useConnectivity } from "@/hooks/useConnectivity";
 import { useContextLibrary } from "@/hooks/useContextLibrary";
 import { useErrorToasts } from "@/hooks/useErrorToasts";
+import { useHudModes } from "@/hooks/useHudModes";
 import { useHudSettingsActions } from "@/hooks/useHudSettingsActions";
 import { useLatestRef } from "@/hooks/useLatestRef";
+import { useLeaveToLauncher } from "@/hooks/useLeaveToLauncher";
+import { useLockedModelFallback } from "@/hooks/useLockedModelFallback";
+import { useMessageClipboard } from "@/hooks/useMessageClipboard";
 import { useModels } from "@/hooks/useModels";
+import { useNetworkErrorReport } from "@/hooks/useNetworkErrorReport";
 import { useNotesIndex } from "@/hooks/useNotesIndex";
 import { useOfficialPresets } from "@/hooks/useOfficialPresets";
+import { usePipelineKeyterms } from "@/hooks/usePipelineKeyterms";
+import { usePipelines } from "@/hooks/usePipelines";
+import { usePipelineStreams } from "@/hooks/usePipelineStreams";
 import { usePreviewPanel } from "@/hooks/usePreviewPanel";
-import { useProjectedContextTokens } from "@/hooks/useProjectedContextTokens";
 import { usePromptFocus } from "@/hooks/usePromptFocus";
 import { usePttSuspend } from "@/hooks/usePttSuspend";
 import { useQuickActionKeys } from "@/hooks/useQuickActionKeys";
@@ -34,66 +40,37 @@ import { useRegionScreenshot } from "@/hooks/useRegionScreenshot";
 import { useSendPipeline } from "@/hooks/useSendPipeline";
 import { useSettings } from "@/hooks/useSettings";
 import { useSttFeedback } from "@/hooks/useSttFeedback";
-import { useSttKeyterms } from "@/hooks/useSttKeyterms";
 import { useSttModels } from "@/hooks/useSttModels";
 import { useTeleprompterSession } from "@/hooks/useTeleprompterSession";
-import { useTranscription } from "@/hooks/useTranscription";
+import { useTranscriptDelivery } from "@/hooks/useTranscriptDelivery";
 import { useUnreadChats } from "@/hooks/useUnreadChats";
-import { useUpdater, type UpdaterStatus } from "@/hooks/useUpdater";
+import { useUpdateDialog } from "@/hooks/useUpdateDialog";
+import { useUpdater } from "@/hooks/useUpdater";
 import { useWindowControls } from "@/hooks/useWindowControls";
 import { useWindowFrame } from "@/hooks/useWindowFrame";
-import { t } from "@/i18n";
-import { copyImageToClipboard, startWindowDrag, stopMainWindow } from "@/ipc/commands";
+import { startWindowDrag } from "@/ipc/commands";
 import { onEvent } from "@/ipc/events";
-import type { QuickAction, UpdateInfo } from "@/ipc/types";
-import { modelProvidersMissingKey, sttProvidersMissingKey } from "@/lib/api-keys";
+import type { QuickAction } from "@/ipc/types";
+import { modelProvidersMissingKey } from "@/lib/api-keys";
 import { lastMessageOf, lastUserMessageIndex } from "@/lib/chat-messages";
-import type { ChatMessage } from "@/lib/chats";
-import { copyTextReportingError } from "@/lib/clipboard-text";
-import { appendTranscript } from "@/lib/composer";
-import { isNetworkError, isRetryable, type AppError } from "@/lib/errors";
+import { isRetryable, type AppError } from "@/lib/errors";
 import { effectiveCombo } from "@/lib/hotkeys";
-import { extractHtmlBlocks } from "@/lib/html-blocks";
-import { chatKeyterms } from "@/lib/keywords";
-import { imagePngBase64, messageCopyImage, messageCopyText } from "@/lib/message-clipboard";
+import { extractPreviewBlocks, type PreviewContent } from "@/lib/html-blocks";
 import { isActivityStatus } from "@/lib/mini-status";
 import { defaultModelFor } from "@/lib/models";
-import { DEFAULT_MODE, nextMode, NOTES_MODE, type AppModeId } from "@/lib/modes";
-import { notify } from "@/lib/notify";
 import { keyboardLayerOpen } from "@/lib/portalled-layers";
 import { mergePresets } from "@/lib/presets";
 import { filledQuickActions } from "@/lib/quick-actions";
-import { chatColumnWidthPx, SHELL_COLUMN_GAP_PX, SHELL_PADDING_PX } from "@/lib/shell-layout";
-import { chatPromptSources, chatSystemPrompt } from "@/lib/system-prompt";
+import {
+  CHAT_COLUMN_GAP_PX,
+  chatColumnWidthPx,
+  clampPreviewWidth,
+  SHELL_COLUMN_GAP_PX,
+  SHELL_PADDING_PX,
+} from "@/lib/shell-layout";
 
-function lastHtmlBlock(markdown: string): string | undefined {
-  const blocks = extractHtmlBlocks(markdown);
-  return blocks[blocks.length - 1];
-}
-
-function updateBadge(status: UpdaterStatus, info: UpdateInfo | null): UpdateBadge | null {
-  if (status === "idle" || !info) return null;
-  return { version: info.version, busy: status === "downloading" || status === "restarting" };
-}
-
-/** Текст, а если его нет — картинка: у скриншота без подписи копировать иначе нечего. */
-function copyMessageToClipboard(message: ChatMessage): void {
-  const text = messageCopyText(message);
-  if (text !== "") {
-    void copyTextReportingError(text);
-    return;
-  }
-  const image = messageCopyImage(message);
-  if (!image) return;
-  void imagePngBase64(image)
-    .then(copyImageToClipboard)
-    .catch(() => {
-      notify({
-        variant: "error",
-        title: t("common.error"),
-        message: t("errors.copyImageFailed"),
-      });
-    });
+function lastPreviewBlock(markdown: string): PreviewContent | undefined {
+  return extractPreviewBlocks(markdown).at(-1);
 }
 
 export default function App() {
@@ -106,10 +83,11 @@ export default function App() {
     bumpChatFontSize,
     bumpWindowSize,
     applyNativeWindowSize,
+    setPreviewWidth,
     flush: flushSettings,
   } = useSettings();
   const recorderState = useRecorder();
-  useErrorToasts();
+  const reportError = useErrorToasts();
   // Read at chat-creation time, not at render time: a key added mid-session
   // changes what the next chat opens on without a reload.
   const settingsRef = useLatestRef(settings);
@@ -128,22 +106,29 @@ export default function App() {
   const chatsRef = useLatestRef(chats);
   const updater = useUpdater();
 
-  const [updateOpen, setUpdateOpen] = useState(false);
   const [modelMenuOpen, setModelMenuOpen] = useState(false);
   const sttCatalog = useSttModels(modelMenuOpen);
-  const [miniMode, setMiniMode] = useState(false);
-  const [mode, setMode] = useState<AppModeId>(DEFAULT_MODE);
-  const notesMode = mode === NOTES_MODE;
-  const miniModeRef = useLatestRef(miniMode);
-  const notesModeRef = useLatestRef(notesMode);
-
-  const revealChat = useCallback(() => {
-    setMiniMode(false);
-    setMode(DEFAULT_MODE);
-  }, []);
+  const {
+    miniMode,
+    mode,
+    notesMode,
+    miniModeRef,
+    notesModeRef,
+    setMode,
+    revealChat,
+    toggleMode,
+    collapse,
+    expand,
+  } = useHudModes();
 
   const { sttError, showRetry, clearSttFeedback, retry } = useSttFeedback(recorderState);
-  const { previewHtml, previewOpen, openPreview, togglePreview, closePreview } = usePreviewPanel();
+  const { previewContent, previewOpen, openPreview, togglePreview, closePreview, viewportMemory } =
+    usePreviewPanel();
+  // Survives the chat panel's unmount in mini mode and notes — see `AnswerPanel`.
+  const chatScrollMemory = useRef<ChatScrollMemory | null>(null);
+  // How far the open composer reaches above its slot; the gap between the two goes first.
+  const [composerOverflow, setComposerOverflow] = useState(0);
+  const ledgerInset = Math.max(0, composerOverflow - CHAT_COLUMN_GAP_PX);
   useWindowFrame({
     windowWidth: settings.window_width,
     windowHeight: settings.window_height,
@@ -152,6 +137,11 @@ export default function App() {
     ready: !settingsLoading,
     applyNativeWindowSize,
   });
+  // The stored width is clamped against the current window here, not re-saved:
+  // a narrower window only squeezes the panel until the window grows again.
+  const previewWidth = previewOpen
+    ? clampPreviewWidth(settings.preview_width, settings.window_width)
+    : null;
 
   const officialPresets = useOfficialPresets();
   const presets = useMemo(
@@ -161,6 +151,7 @@ export default function App() {
   const presetsRef = useLatestRef(presets);
 
   const contextLibrary = useContextLibrary();
+  const pipelines = usePipelines();
   const libraryRef = useLatestRef(contextLibrary.library);
 
   const onScreenshotImage = useCallback(
@@ -192,43 +183,43 @@ export default function App() {
       if (unseen) markUnread(chatId);
       if (!settingsRef.current.auto_preview_html) return;
       if (chatId !== chatsRef.current.activeId) return;
-      const block = lastHtmlBlock(text);
+      const block = lastPreviewBlock(text);
       if (block !== undefined) openPreview(block);
     },
     [chatsRef, settingsRef, miniModeRef, notesModeRef, markUnread, openPreview],
   );
 
-  const onAssistantUsage = useCallback(
-    (chatId: string, inputTokens: number) => {
-      chatsRef.current.patchChat(chatId, { lastInputTokens: inputTokens });
-    },
-    [chatsRef],
+  const legacyStream = useClaudeStream(onAssistantDone);
+  const {
+    stream,
+    running: pipelineRunning,
+    cancelAll: cancelPipelines,
+  } = usePipelineStreams(
+    legacyStream,
+    pipelines,
+    chatsRef,
+    libraryRef,
+    presetsRef,
+    onAssistantDone,
+    reportError,
   );
-
-  const stream = useClaudeStream(onAssistantDone, onAssistantUsage);
   const streamRef = useLatestRef(stream);
 
-  const { dispatchSend, dispatchQuickAction, doSend, resendFromMessage } = useSendPipeline(
+  const { dispatchSendTo, dispatchQuickAction, doSend, resendFromMessage } = useSendPipeline(
     chatsRef,
     streamRef,
     presetsRef,
-    libraryRef,
     clearAllErrors,
   );
 
-  useTranscription(
-    useCallback(
-      (incoming: string) => {
-        revealChat();
-        const chat = chatsRef.current.active;
-        const merged = appendTranscript(chat.draft, incoming);
-        chatsRef.current.patchChat(chat.id, { draft: merged });
-        clearSttFeedback();
-        if (settingsRef.current.auto_send) dispatchSend(merged);
-      },
-      [chatsRef, settingsRef, dispatchSend, clearSttFeedback, revealChat],
-    ),
-  );
+  useTranscriptDelivery({
+    chatsRef,
+    settingsRef,
+    recorderState,
+    dispatchSendTo,
+    clearSttFeedback,
+    revealChat,
+  });
 
   const active = chats.active;
   const activeId = chats.activeId;
@@ -290,7 +281,6 @@ export default function App() {
     },
     [],
   );
-
   const afterChatCreated = useCallback(() => {
     revealChat();
     focusPromptSoon();
@@ -305,23 +295,9 @@ export default function App() {
   useEffect(() => onEvent("duplicate-chat", duplicateActiveChat), [duplicateActiveChat]);
 
   const modeSwitchAvailable = !miniMode && !teleprompter.open && !connectivity.offline;
-  const toggleMode = useCallback(() => {
-    if (keyboardLayerOpen()) return;
-    setMode(nextMode);
-  }, []);
   useComboKey(effectiveCombo(settings.hotkeys, "toggle_mode"), modeSwitchAvailable, toggleMode);
 
   const notesIndex = useNotesIndex(contextLibrary.library.docs, notesMode);
-  const toggleLibraryDoc = useCallback(
-    (docId: string) => {
-      const chat = chatsRef.current.active;
-      const libraryDocIds = chat.libraryDocIds.includes(docId)
-        ? chat.libraryDocIds.filter((id) => id !== docId)
-        : [...chat.libraryDocIds, docId];
-      chatsRef.current.patchChat(chat.id, { libraryDocIds });
-    },
-    [chatsRef],
-  );
 
   const openModelMenu = useCallback(() => {
     setModelMenuOpen((o) => !o);
@@ -359,26 +335,11 @@ export default function App() {
   );
   useQuickActionKeys(quickActionCombo, quickActions.length, runQuickActionAt);
 
-  useEffect(
-    () =>
-      onEvent("toggle-mini", () => {
-        setMiniMode((mini) => !mini);
-      }),
-    [],
-  );
-
   const anyStreaming = Object.values(stream.streaming).some(Boolean);
   const activityFrame = isActivityStatus(recorderState, anyStreaming);
   const activeError: AppError | null =
     sttError ?? screenshot.error ?? stream.error[activeId] ?? null;
-  const reportNetworkError = connectivity.reportNetworkError;
-  const reportedNetworkErrorRef = useRef<AppError | null>(null);
-  useEffect(() => {
-    if (!isNetworkError(activeError)) return;
-    if (reportedNetworkErrorRef.current === activeError) return;
-    reportedNetworkErrorRef.current = activeError;
-    reportNetworkError();
-  }, [activeError, reportNetworkError]);
+  useNetworkErrorReport(activeError, connectivity.reportNetworkError);
   const streamError = stream.error[activeId] ?? null;
   const answerRetry = useMemo(() => {
     if (showRetry || streamError === null || !isRetryable(streamError)) return null;
@@ -389,95 +350,30 @@ export default function App() {
   }, [showRetry, streamError, chatsRef, resendFromMessage]);
   const lastAnswer = useMemo(() => lastMessageOf(active.messages, "assistant"), [active.messages]);
   const canCopy = !activeStreaming && lastAnswer !== null;
-  const activeModelMaxInput = models.find((m) => m.id === active.model)?.maxInputTokens ?? 0;
-  const { presetId, libraryDocIds, context } = active;
-  const promptSources = useMemo(
-    () => chatPromptSources(presets, { presetId, libraryDocIds, context }, contextLibrary.library),
-    [presets, presetId, libraryDocIds, context, contextLibrary.library],
-  );
-  const activeSystem = useMemo(() => chatSystemPrompt(promptSources), [promptSources]);
-  useSttKeyterms(useMemo(() => chatKeyterms(promptSources), [promptSources]));
-  const projectedTokens = useProjectedContextTokens(active, activeSystem, activeStreaming);
-  const usedTokens = projectedTokens > 0 ? projectedTokens : active.lastInputTokens;
-  const contextUsage = useMemo<ContextUsage | null>(
-    () =>
-      activeModelMaxInput > 0 && usedTokens > 0
-        ? { usedTokens, maxTokens: activeModelMaxInput }
-        : null,
-    [activeModelMaxInput, usedTokens],
-  );
 
-  const copyMessage = useCallback(
-    (index: number) => {
-      const message = chatsRef.current.active.messages[index];
-      if (message) copyMessageToClipboard(message);
-    },
-    [chatsRef],
-  );
-  const copyLastAnswer = useCallback(() => {
-    const answer = lastMessageOf(chatsRef.current.active.messages, "assistant");
-    if (answer) void copyTextReportingError(answer.text);
-  }, [chatsRef]);
-
-  const lockedSttProviders = useMemo(() => sttProvidersMissingKey(settings), [settings]);
-  const lockedAnswerProviders = useMemo(() => modelProvidersMissingKey(settings), [settings]);
-
-  // Ключ вендора могли убрать (или отвязать код доступа) уже после того, как чат
-  // сел на его модель. Пикер такую модель рисует запертой, но ВЫБРАННОЙ она
-  // оставалась, и отправка уходила в чужого провайдера с неизвестным ему id.
-  useEffect(() => {
-    if (settingsLoading) return;
-    const owner = models.find((m) => m.id === active.model)?.provider;
-    if (owner === undefined || !lockedAnswerProviders.includes(owner)) return;
-    chatsRef.current.patchChat(active.id, {
-      model: defaultModelFor(lockedAnswerProviders, models),
-    });
-  }, [settingsLoading, models, active.model, active.id, lockedAnswerProviders, chatsRef]);
-
-  const updaterStatus = updater.status;
-  const updaterInfo = updater.info;
-  const update = useMemo(
-    () => updateBadge(updaterStatus, updaterInfo),
-    [updaterStatus, updaterInfo],
-  );
-  const skipUpdate = useCallback(() => {
-    const skipped = updater.info?.version ?? "";
-    setUpdateOpen(false);
-    updater.dismiss();
-    skipVersion(skipped);
-  }, [updater, skipVersion]);
-  const openUpdate = useCallback(() => {
-    setUpdateOpen(true);
-  }, []);
-  const closeUpdate = useCallback(() => {
-    setUpdateOpen(false);
-  }, []);
-  const collapse = useCallback(() => {
-    setMiniMode(true);
-  }, []);
-  const expand = useCallback(() => {
-    setMiniMode(false);
-  }, []);
+  usePipelineKeyterms(contextLibrary.library, presets, pipelines.library.pipelines, active);
+  const { copyMessage, copyLastAnswer } = useMessageClipboard(chatsRef);
+  const { lockedAnswerProviders, lockedSttProviders } = useLockedModelFallback({
+    settings,
+    settingsLoading,
+    models,
+    chatId: active.id,
+    chatModel: active.model,
+    patchChat: chats.patchChat,
+  });
+  const update = useUpdateDialog(updater, skipVersion);
 
   const onShellDragStart = useCallback((event: MouseEvent<HTMLElement>) => {
     if (event.button === 0 && event.target === event.currentTarget) void startWindowDrag();
   }, []);
 
-  // `Promise.all`, не `allSettled`: после неудачного сохранения окно остаётся
-  // открытым, иначе `stop_main_window` уничтожил бы вебвью вместе с данными.
-  const flushChats = chats.flush;
-  const flushLibrary = contextLibrary.flush;
-  const leaveToLauncher = useCallback(() => {
-    void Promise.all([flushChats(), flushLibrary(), flushSettings()])
-      .then(stopMainWindow)
-      .catch((err: unknown) => {
-        notify({
-          variant: "error",
-          title: t("common.error"),
-          message: t("errors.leaveSaveFailed", { error: String(err) }),
-        });
-      });
-  }, [flushChats, flushLibrary, flushSettings]);
+  const leaveToLauncher = useLeaveToLauncher({
+    flushChats: chats.flush,
+    flushLibrary: contextLibrary.flush,
+    flushSettings,
+    flushPipelines: pipelines.flush,
+    cancelPipelines,
+  });
 
   const removeDraftAttachment = useCallback(
     (index: number) => {
@@ -520,12 +416,12 @@ export default function App() {
       <LiquidMetalBorder active={activityFrame} />
       <div
         className="flex shrink-0 flex-col gap-2.5"
-        style={{ width: chatColumnWidthPx(settings.window_width) }}
+        style={{ width: chatColumnWidthPx(settings.window_width, previewWidth) }}
       >
         <AppHeader
           recorderState={recorderState}
           hotkeys={settings.hotkeys}
-          update={update}
+          update={update.badge}
           chats={chats.chats}
           activeId={activeId}
           streaming={stream.streaming}
@@ -533,7 +429,6 @@ export default function App() {
           mode={mode}
           canCopy={canCopy}
           canTeleprompt={teleprompter.canTeleprompt}
-          contextUsage={contextUsage}
           screenShareVisible={settings.screen_share_visible}
           onSelectChat={chats.selectChat}
           onRemoveChat={removeChatWithUndo}
@@ -546,7 +441,7 @@ export default function App() {
           onOpenTeleprompter={teleprompter.show}
           onStop={leaveToLauncher}
           onCollapse={collapse}
-          onOpenUpdate={openUpdate}
+          onOpenUpdate={update.openUpdate}
         />
 
         {notesMode ? (
@@ -554,18 +449,26 @@ export default function App() {
             library={contextLibrary.library}
             index={notesIndex}
             addDoc={contextLibrary.addDoc}
-            selectedDocIds={active.libraryDocIds}
-            onToggleDoc={toggleLibraryDoc}
             onLeave={revealChat}
           />
         ) : (
-          <>
+          <div
+            className="relative flex min-h-0 flex-1 flex-col"
+            style={{ gap: CHAT_COLUMN_GAP_PX }}
+          >
             <AnswerPanel
               messages={active.messages}
               chatId={activeId}
+              scrollMemory={chatScrollMemory}
+              bottomInset={ledgerInset}
               partial={partial}
               streaming={activeStreaming}
               streamStartedAt={stream.startedAt[activeId]}
+              streamLabel={
+                pipelineRunning[activeId] === undefined
+                  ? undefined
+                  : tr("hud.pipelines.running", { name: pipelineRunning[activeId] })
+              }
               scrollStep={settings.scroll_step}
               scrollModifier={effectiveCombo(settings.hotkeys, "scroll_chat")}
               recordCombo={effectiveCombo(settings.hotkeys, "record")}
@@ -586,6 +489,7 @@ export default function App() {
               onClearHistory={clearHistoryWithUndo}
               onRetry={answerRetry ?? retry}
               onRestoreFocus={focusPromptSoon}
+              onOverflowChange={setComposerOverflow}
               streaming={activeStreaming}
               showRetry={answerRetry !== null || showRetry}
               retryLabel={
@@ -594,7 +498,8 @@ export default function App() {
                   : tr("hud.composer.retryTranscription")
               }
               presets={presets}
-              library={contextLibrary.library}
+              pipelines={pipelines.library.pipelines}
+              pipelinesReady={pipelines.loaded}
               models={models}
               modelProvidersMissingKey={lockedAnswerProviders}
               onCaptureRegion={screenshot.capture}
@@ -603,11 +508,21 @@ export default function App() {
               quickActionCombo={quickActionCombo}
               onQuickAction={runQuickAction}
             />
-          </>
+          </div>
         )}
       </div>
 
-      {previewOpen && <PreviewPanel html={previewHtml} onClose={closePreview} />}
+      {previewWidth !== null && previewContent && (
+        <PreviewPanel
+          content={previewContent}
+          width={previewWidth}
+          windowWidth={settings.window_width}
+          resizeStep={settings.resize_step}
+          onResize={setPreviewWidth}
+          onClose={closePreview}
+          viewportMemory={viewportMemory}
+        />
+      )}
 
       <ModelCommandMenu
         open={modelMenuOpen}
@@ -645,15 +560,15 @@ export default function App() {
 
       {updater.info && (
         <UpdateDialog
-          open={updateOpen}
+          open={update.open}
           info={updater.info}
           status={updater.status}
           progress={updater.progress}
           error={updater.error}
           currentVersion={updater.currentVersion}
-          onClose={closeUpdate}
+          onClose={update.closeUpdate}
           onInstall={updater.install}
-          onSkip={skipUpdate}
+          onSkip={update.skipUpdate}
         />
       )}
     </div>

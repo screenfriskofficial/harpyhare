@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type RefObject } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { loadChats, saveChats } from "@/ipc/commands";
 import {
   CHAT_LIMIT,
@@ -14,13 +14,13 @@ import {
 } from "@/lib/chats";
 import type { ImagePayload } from "@/lib/composer";
 import { CHATS_SUBJECT } from "@/lib/persist-errors";
-import { useDebouncedPersist } from "./useDebouncedPersist";
 import {
   useDraftAttachments,
   type DraftAttachmentsApi,
   type PatchChatFn,
 } from "./useDraftAttachments";
 import { useLatestRef } from "./useLatestRef";
+import { useLoadedJsonStore } from "./useLoadedJsonStore";
 
 const ACTIVE_CHAT_STORAGE_KEY = "active-chat-id";
 
@@ -30,9 +30,9 @@ function rememberedActiveId(chats: Chat[]): string {
   return survived ? stored : (chats[0]?.id ?? "");
 }
 
-function useRememberActiveChat(activeId: string, loaded: RefObject<boolean>): void {
+function useRememberActiveChat(activeId: string, loaded: boolean): void {
   useEffect(() => {
-    if (!loaded.current || activeId === "") return;
+    if (!loaded || activeId === "") return;
     localStorage.setItem(ACTIVE_CHAT_STORAGE_KEY, activeId);
   }, [activeId, loaded]);
 }
@@ -74,7 +74,7 @@ export interface ChatsApi extends DraftAttachmentsApi {
   removeMessage: (id: string, index: number) => void;
   truncateMessages: (id: string, count: number) => void;
   clearMessages: (id: string) => void;
-  restoreMessages: (id: string, messages: ChatMessage[], lastInputTokens: number) => void;
+  restoreMessages: (id: string, messages: ChatMessage[]) => void;
   restoreChat: (chat: Chat, index: number) => void;
   flush: () => Promise<void>;
 }
@@ -96,77 +96,102 @@ export function useChats(defaultModel?: () => string): ChatsApi {
     (index: number, id?: string) => withDefaultModel(createChat(index, id), newChatModel.current),
     [newChatModel],
   );
-  const [chats, setChats] = useState<Chat[]>([]);
   const [activeId, setActiveId] = useState<string>("");
+  // The HUD needs a real chat even when the file is empty or unreadable: on
+  // `EMPTY_CHAT` (empty id) every send would go nowhere and every answer would
+  // be appended to a chat that does not exist, with no error anywhere.
+  const freshChats = useCallback(() => [makeChat(1)], [makeChat]);
+  const rememberActive = useCallback((initial: Chat[]) => {
+    setActiveId(rememberedActiveId(initial));
+  }, []);
+  const {
+    value: chats,
+    setValue: setChats,
+    loaded,
+    flush,
+  } = useLoadedJsonStore<Chat[]>({
+    load: loadChats,
+    save: saveChats,
+    deserialize: deserializeChats,
+    serialize: serializeChats,
+    subject: CHATS_SUBJECT,
+    initial: [],
+    fallback: freshChats,
+    onLoaded: rememberActive,
+  });
   const chatsRef = useLatestRef(chats);
-  const loaded = useRef(false);
-  const { markLoaded, flush } = useDebouncedPersist(
-    chats,
-    serializeChats,
-    saveChats,
-    CHATS_SUBJECT,
-  );
-
-  useEffect(() => {
-    let live = true;
-    void loadChats().then((json) => {
-      if (!live) return;
-      const initial = deserializeChats(json) ?? [makeChat(1)];
-      setChats(initial);
-      setActiveId(rememberedActiveId(initial));
-      markLoaded(initial);
-      loaded.current = true;
-    });
-    return () => {
-      live = false;
-    };
-  }, [makeChat, markLoaded]);
 
   const effectiveActiveId = activeId || (chats[0]?.id ?? "");
+  const activeIdRef = useLatestRef(effectiveActiveId);
   useRememberActiveChat(effectiveActiveId, loaded);
 
-  const patch = useCallback<PatchChatFn>((id, fn) => {
-    setChats((prev) => prev.map((c) => (c.id === id ? fn(c) : c)));
-  }, []);
+  const patch = useCallback<PatchChatFn>(
+    (id, fn) => {
+      setChats((prev) => prev.map((c) => (c.id === id ? fn(c) : c)));
+    },
+    [setChats],
+  );
 
   const draftAttachments = useDraftAttachments(chatsRef, patch);
 
   // Лимит проверяется и активный чат переключается ВНУТРИ апдейтера: второй
   // вызов до ре-рендера иначе проходил бы проверку по замыканию и уводил
   // `activeId` на несозданный чат.
+  //
+  // A new chat inherits the active chat's preset and selected pipelines. The
+  // model, context and materials stay at their defaults; the prepared prompt is
+  // rebuilt too, because its sources differ in the new chat. A full copy of the
+  // parameters and of the prepared snapshot is what `duplicateChat` is for.
   const newChat = useCallback(() => {
     const id = crypto.randomUUID();
+    const sourceId = activeIdRef.current;
     setChats((prev) => {
       if (prev.length >= CHAT_LIMIT) return prev;
       setActiveId(id);
-      return [...prev, makeChat(prev.length + 1, id)];
-    });
-  }, [makeChat]);
-
-  const duplicateChat = useCallback((sourceId: string) => {
-    const id = crypto.randomUUID();
-    setChats((prev) => {
-      if (prev.length >= CHAT_LIMIT) return prev;
+      const fresh = makeChat(prev.length + 1, id);
       const source = prev.find((c) => c.id === sourceId);
-      if (!source) return prev;
-      setActiveId(id);
-      return [...prev, createChatFrom(source, prev.length + 1, id)];
+      return [
+        ...prev,
+        {
+          ...fresh,
+          presetId: source?.presetId ?? fresh.presetId,
+          promptPipelineId: source?.promptPipelineId,
+          messagePipelineId: source?.messagePipelineId,
+        },
+      ];
     });
-  }, []);
+  }, [makeChat, activeIdRef, setChats]);
 
-  const removeChat = useCallback((id: string) => {
-    setChats((prev) => {
-      if (prev.length <= 1) return prev;
-      const idx = prev.findIndex((c) => c.id === id);
-      const next = prev.filter((c) => c.id !== id);
-      setActiveId((cur) => {
-        if (cur !== id) return cur;
-        const neighbor = next[Math.min(idx, next.length - 1)];
-        return neighbor ? neighbor.id : cur;
+  const duplicateChat = useCallback(
+    (sourceId: string) => {
+      const id = crypto.randomUUID();
+      setChats((prev) => {
+        if (prev.length >= CHAT_LIMIT) return prev;
+        const source = prev.find((c) => c.id === sourceId);
+        if (!source) return prev;
+        setActiveId(id);
+        return [...prev, createChatFrom(source, prev.length + 1, id)];
       });
-      return next;
-    });
-  }, []);
+    },
+    [setChats],
+  );
+
+  const removeChat = useCallback(
+    (id: string) => {
+      setChats((prev) => {
+        if (prev.length <= 1) return prev;
+        const idx = prev.findIndex((c) => c.id === id);
+        const next = prev.filter((c) => c.id !== id);
+        setActiveId((cur) => {
+          if (cur !== id) return cur;
+          const neighbor = next[Math.min(idx, next.length - 1)];
+          return neighbor ? neighbor.id : cur;
+        });
+        return next;
+      });
+    },
+    [setChats],
+  );
 
   const patchChat = useCallback(
     (id: string, fields: ChatPatch) => {
@@ -187,7 +212,7 @@ export function useChats(defaultModel?: () => string): ChatsApi {
         ),
       );
     },
-    [],
+    [setChats],
   );
 
   const appendUserMessage = useCallback(
@@ -230,7 +255,7 @@ export function useChats(defaultModel?: () => string): ChatsApi {
 
   const clearMessages = useCallback(
     (id: string) => {
-      patch(id, (c) => ({ ...c, messages: [], lastInputTokens: 0 }));
+      patch(id, (c) => ({ ...c, messages: [] }));
     },
     [patch],
   );
@@ -238,21 +263,24 @@ export function useChats(defaultModel?: () => string): ChatsApi {
   const active = chats.find((c) => c.id === effectiveActiveId) ?? chats[0] ?? EMPTY_CHAT;
 
   const restoreMessages = useCallback(
-    (id: string, messages: ChatMessage[], lastInputTokens: number) => {
-      patch(id, (c) => ({ ...c, messages, lastInputTokens }));
+    (id: string, messages: ChatMessage[]) => {
+      patch(id, (c) => ({ ...c, messages }));
     },
     [patch],
   );
 
-  const restoreChat = useCallback((chat: Chat, index: number) => {
-    setChats((prev) => {
-      if (prev.length >= CHAT_LIMIT || prev.some((c) => c.id === chat.id)) return prev;
-      const next = [...prev];
-      next.splice(Math.min(index, next.length), 0, chat);
-      setActiveId(chat.id);
-      return next;
-    });
-  }, []);
+  const restoreChat = useCallback(
+    (chat: Chat, index: number) => {
+      setChats((prev) => {
+        if (prev.length >= CHAT_LIMIT || prev.some((c) => c.id === chat.id)) return prev;
+        const next = [...prev];
+        next.splice(Math.min(index, next.length), 0, chat);
+        setActiveId(chat.id);
+        return next;
+      });
+    },
+    [setChats],
+  );
 
   return {
     chats,

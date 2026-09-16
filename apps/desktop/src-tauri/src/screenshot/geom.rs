@@ -72,7 +72,11 @@ pub fn intersection(first: Rect, second: Rect) -> Option<Rect> {
 
 /// Что перерисовать между двумя состояниями выделения: объединение старой и
 /// новой рамок, каждая расширена на толщину рамки.
-pub fn dirty_area(previous: Option<Rect>, current: Option<Rect>, frame_thickness: i32) -> Option<Rect> {
+pub fn dirty_area(
+    previous: Option<Rect>,
+    current: Option<Rect>,
+    frame_thickness: i32,
+) -> Option<Rect> {
     let previous = previous.map(|area| inflated(area, frame_thickness));
     let current = current.map(|area| inflated(area, frame_thickness));
     match (previous, current) {
@@ -86,7 +90,10 @@ pub fn dirty_area(previous: Option<Rect>, current: Option<Rect>, frame_thickness
 /// Точка, зажатая в границы экрана (правая и нижняя границы включительно —
 /// это координаты углов, а не пикселей).
 pub fn clamp_point(point: Point, width: i32, height: i32) -> Point {
-    Point { x: point.x.clamp(0, width), y: point.y.clamp(0, height) }
+    Point {
+        x: point.x.clamp(0, width),
+        y: point.y.clamp(0, height),
+    }
 }
 
 /// Выделение принято, если оно не меньше `min_side` по обеим сторонам.
@@ -106,7 +113,12 @@ pub fn unpack_pointer(packed: u32) -> Point {
 
 /// Байтовый диапазон строки `row` области `area` в буфере с шагом `stride`
 /// байт на строку и `channels` байт на пиксель.
-pub fn row_byte_range(area: Rect, row: usize, stride: usize, channels: usize) -> std::ops::Range<usize> {
+pub fn row_byte_range(
+    area: Rect,
+    row: usize,
+    stride: usize,
+    channels: usize,
+) -> std::ops::Range<usize> {
     let start = (area.top as usize + row) * stride + area.left as usize * channels;
     start..start + area.width() as usize * channels
 }

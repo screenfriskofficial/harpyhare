@@ -1,23 +1,31 @@
+use super::test_support::{assistant, user, CollectingSink};
 use super::*;
 use serde_json::json;
 
+#[test]
+fn anthropic_incomplete_stop_reasons_are_incomplete_answers() {
+    for reason in [
+        "max_tokens",
+        "model_context_window_exceeded",
+        "refusal",
+        "pause_turn",
+        "tool_use",
+    ] {
+        let event = json!({"type": "message_delta", "delta": {"stop_reason": reason}});
+        assert_eq!(
+            parse_anthropic_block(&event.to_string()),
+            vec![SseOut::Incomplete(format!("Anthropic: {reason}"))],
+            "reason: {reason}"
+        );
+    }
+    for reason in ["end_turn", "stop_sequence"] {
+        let event = json!({"type": "message_delta", "delta": {"stop_reason": reason}});
+        assert!(parse_anthropic_block(&event.to_string()).is_empty());
+    }
+}
+
 fn adaptive() -> Option<Value> {
     Some(json!({"type": "adaptive"}))
-}
-
-#[derive(Default)]
-struct TestSink {
-    text: String,
-    input_tokens: Vec<u32>,
-}
-
-impl LlmStreamSink for TestSink {
-    fn text_delta(&mut self, delta: &str) {
-        self.text.push_str(delta);
-    }
-    fn input_tokens(&mut self, total: u32) {
-        self.input_tokens.push(total);
-    }
 }
 
 #[test]
@@ -41,7 +49,6 @@ fn thinking_value_semantics() {
         adaptive: false,
         always_thinks: false,
         code_exec: true,
-        max_input_tokens: 0,
     };
     assert_eq!(thinking_value(Some(&info), "claude-newmodel-9", true), None);
 }
@@ -134,11 +141,7 @@ fn cache_breakpoint_lands_on_last_block() {
 
 #[test]
 fn request_body_shape_for_opus_includes_adaptive_thinking() {
-    let msgs = vec![ChatMessage {
-        role: "user".into(),
-        text: "вопрос".into(),
-        images: vec![],
-    }];
+    let msgs = vec![user("вопрос")];
     let body = build_request_body("claude-opus-4-8", "sys", &msgs, adaptive(), None);
     assert_eq!(body["model"], "claude-opus-4-8");
     assert_eq!(body["max_tokens"], 64000);
@@ -152,23 +155,7 @@ fn request_body_shape_for_opus_includes_adaptive_thinking() {
 
 #[test]
 fn request_body_preserves_multi_turn_history() {
-    let msgs = vec![
-        ChatMessage {
-            role: "user".into(),
-            text: "1+1?".into(),
-            images: vec![],
-        },
-        ChatMessage {
-            role: "assistant".into(),
-            text: "2".into(),
-            images: vec![],
-        },
-        ChatMessage {
-            role: "user".into(),
-            text: "а 2+2?".into(),
-            images: vec![],
-        },
-    ];
+    let msgs = vec![user("1+1?"), assistant("2"), user("а 2+2?")];
     let body = build_request_body("claude-opus-4-8", "sys", &msgs, adaptive(), None);
     assert_eq!(body["messages"].as_array().unwrap().len(), 3);
     assert_eq!(body["messages"][1]["role"], "assistant");
@@ -182,11 +169,7 @@ fn request_body_preserves_multi_turn_history() {
 
 #[test]
 fn thinking_none_omits_field_entirely() {
-    let msgs = vec![ChatMessage {
-        role: "user".into(),
-        text: "q".into(),
-        images: vec![],
-    }];
+    let msgs = vec![user("q")];
     let body = build_request_body(
         "claude-haiku-4-5",
         "sys",
@@ -199,11 +182,7 @@ fn thinking_none_omits_field_entirely() {
 
 #[test]
 fn thinking_off_sends_explicit_disabled() {
-    let msgs = vec![ChatMessage {
-        role: "user".into(),
-        text: "q".into(),
-        images: vec![],
-    }];
+    let msgs = vec![user("q")];
     let body = build_request_body(
         "claude-opus-4-8",
         "sys",
@@ -235,7 +214,6 @@ fn web_search_value_semantics() {
         adaptive: true,
         always_thinks: false,
         code_exec: false,
-        max_input_tokens: 0,
     };
     let tool = web_search_value(Some(&info), "claude-newmodel-9", true).unwrap();
     assert_eq!(tool["allowed_callers"], json!(["direct"]));
@@ -243,11 +221,7 @@ fn web_search_value_semantics() {
 
 #[test]
 fn web_search_tool_lands_in_body_tools() {
-    let msgs = vec![ChatMessage {
-        role: "user".into(),
-        text: "q".into(),
-        images: vec![],
-    }];
+    let msgs = vec![user("q")];
     let tool = web_search_value(None, "claude-opus-4-8", true);
     let body = build_request_body("claude-opus-4-8", "", &msgs, adaptive(), tool);
     assert_eq!(body["tools"][0]["type"], "web_search_20260209");
@@ -259,23 +233,7 @@ fn web_search_tool_lands_in_body_tools() {
 
 #[test]
 fn empty_messages_are_dropped_from_history() {
-    let msgs = vec![
-        ChatMessage {
-            role: "user".into(),
-            text: "1+1?".into(),
-            images: vec![],
-        },
-        ChatMessage {
-            role: "assistant".into(),
-            text: "".into(),
-            images: vec![],
-        },
-        ChatMessage {
-            role: "user".into(),
-            text: "а 2+2?".into(),
-            images: vec![],
-        },
-    ];
+    let msgs = vec![user("1+1?"), assistant(""), user("а 2+2?")];
     let body = build_request_body("claude-opus-4-8", "s", &msgs, adaptive(), None);
     let arr = body["messages"].as_array().unwrap();
     assert_eq!(arr.len(), 2, "пустой assistant выброшен");
@@ -285,11 +243,7 @@ fn empty_messages_are_dropped_from_history() {
 
 #[test]
 fn empty_system_stays_plain_string() {
-    let msgs = vec![ChatMessage {
-        role: "user".into(),
-        text: "q".into(),
-        images: vec![],
-    }];
+    let msgs = vec![user("q")];
     let body = build_request_body("claude-opus-4-8", "", &msgs, adaptive(), None);
     assert_eq!(body["system"], "");
 }
@@ -308,7 +262,7 @@ fn sse_parser_extracts_text_deltas_and_done() {
         })
         .collect();
     assert_eq!(texts, vec!["При", "вет!"]);
-    assert!(matches!(out.last(), Some(SseOut::Done(_))));
+    assert!(matches!(out.last(), Some(SseOut::Done)));
 }
 
 #[test]
@@ -383,7 +337,7 @@ async fn stream_ending_after_a_soft_finish_is_a_success() {
         .mount(&server)
         .await;
     let http = LlmHttp::direct(server.uri(), Credential::Bearer("k".into()), "T");
-    let mut sink = TestSink::default();
+    let mut sink = CollectingSink::default();
     http.post_sse(
         "/x",
         &json!({}),
@@ -409,14 +363,7 @@ fn empty_text_with_images_has_no_text_block() {
 }
 
 #[test]
-fn sse_message_start_usage_summed_with_cache() {
-    let mut p = SseParser::anthropic();
-    let block = "event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"usage\":{\"input_tokens\":100,\"cache_read_input_tokens\":2000,\"cache_creation_input_tokens\":30}}}\n\n";
-    assert_eq!(p.feed(block), vec![SseOut::InputTokens(2130)]);
-}
-
-#[test]
-fn sse_message_start_without_usage_ignored() {
+fn sse_message_start_carries_no_output() {
     let mut p = SseParser::anthropic();
     let block =
         "event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"id\":\"m\"}}\n\n";
@@ -478,12 +425,8 @@ async fn stream_collects_deltas_via_callback() {
 
     let client = AnthropicClient::new("sk-test".into()).with_base_url(server.uri());
     let cancel = tokio_util::sync::CancellationToken::new();
-    let msgs = vec![ChatMessage {
-        role: "user".into(),
-        text: "q".into(),
-        images: vec![],
-    }];
-    let mut sink = TestSink::default();
+    let msgs = vec![user("q")];
+    let mut sink = CollectingSink::default();
     client
         .stream_message(
             build_request_body("claude-opus-4-8", "s", &msgs, adaptive(), None),
@@ -512,16 +455,12 @@ async fn stream_times_out_on_silent_server() {
     let client = AnthropicClient::new("k".into())
         .with_base_url(server.uri())
         .with_read_timeout(std::time::Duration::from_millis(200));
-    let msgs = vec![ChatMessage {
-        role: "user".into(),
-        text: "q".into(),
-        images: vec![],
-    }];
+    let msgs = vec![user("q")];
     let err = client
         .stream_message(
             build_request_body("claude-opus-4-8", "s", &msgs, adaptive(), None),
             tokio_util::sync::CancellationToken::new(),
-            &mut TestSink::default(),
+            &mut CollectingSink::default(),
         )
         .await
         .unwrap_err();
@@ -543,12 +482,8 @@ async fn stream_eof_without_message_stop_is_error() {
         .mount(&server)
         .await;
     let client = AnthropicClient::new("k".into()).with_base_url(server.uri());
-    let msgs = vec![ChatMessage {
-        role: "user".into(),
-        text: "q".into(),
-        images: vec![],
-    }];
-    let mut sink = TestSink::default();
+    let msgs = vec![user("q")];
+    let mut sink = CollectingSink::default();
     let err = client
         .stream_message(
             build_request_body("claude-opus-4-8", "s", &msgs, adaptive(), None),
@@ -574,16 +509,12 @@ async fn stream_surfaces_api_error_message_from_body() {
         .mount(&server)
         .await;
     let client = AnthropicClient::new("k".into()).with_base_url(server.uri());
-    let msgs = vec![ChatMessage {
-        role: "user".into(),
-        text: "q".into(),
-        images: vec![],
-    }];
+    let msgs = vec![user("q")];
     let err = client
         .stream_message(
             build_request_body("claude-opus-4-8", "s", &msgs, adaptive(), None),
             tokio_util::sync::CancellationToken::new(),
-            &mut TestSink::default(),
+            &mut CollectingSink::default(),
         )
         .await
         .unwrap_err();
@@ -603,16 +534,12 @@ async fn stream_maps_401() {
         .mount(&server)
         .await;
     let client = AnthropicClient::new("bad".into()).with_base_url(server.uri());
-    let msgs = vec![ChatMessage {
-        role: "user".into(),
-        text: "q".into(),
-        images: vec![],
-    }];
+    let msgs = vec![user("q")];
     let err = client
         .stream_message(
             build_request_body("claude-opus-4-8", "s", &msgs, adaptive(), None),
             tokio_util::sync::CancellationToken::new(),
-            &mut TestSink::default(),
+            &mut CollectingSink::default(),
         )
         .await
         .unwrap_err();
@@ -640,16 +567,12 @@ async fn proxy_mode_authorizes_with_bearer_not_api_key() {
         .mount(&server)
         .await;
     let client = llm_proxy_client("itk_token".into(), server.uri());
-    let msgs = vec![ChatMessage {
-        role: "user".into(),
-        text: "q".into(),
-        images: vec![],
-    }];
+    let msgs = vec![user("q")];
     client
         .stream_message(
             build_request_body("claude-opus-4-8", "s", &msgs, adaptive(), None),
             tokio_util::sync::CancellationToken::new(),
-            &mut TestSink::default(),
+            &mut CollectingSink::default(),
         )
         .await
         .unwrap();
@@ -667,16 +590,12 @@ async fn proxy_mode_401_is_a_dead_access_code_with_the_relays_message() {
         .mount(&server)
         .await;
     let client = llm_proxy_client("itk_bad".into(), server.uri());
-    let msgs = vec![ChatMessage {
-        role: "user".into(),
-        text: "q".into(),
-        images: vec![],
-    }];
+    let msgs = vec![user("q")];
     let err = client
         .stream_message(
             build_request_body("claude-opus-4-8", "s", &msgs, adaptive(), None),
             tokio_util::sync::CancellationToken::new(),
-            &mut TestSink::default(),
+            &mut CollectingSink::default(),
         )
         .await
         .unwrap_err();
@@ -707,16 +626,12 @@ async fn stream_cancellation_stops_early() {
     let client = AnthropicClient::new("k".into()).with_base_url(server.uri());
     let cancel = tokio_util::sync::CancellationToken::new();
     cancel.cancel();
-    let msgs = vec![ChatMessage {
-        role: "user".into(),
-        text: "q".into(),
-        images: vec![],
-    }];
+    let msgs = vec![user("q")];
     let err = client
         .stream_message(
             build_request_body("claude-opus-4-8", "s", &msgs, adaptive(), None),
             cancel,
-            &mut TestSink::default(),
+            &mut CollectingSink::default(),
         )
         .await
         .unwrap_err();
@@ -784,4 +699,29 @@ fn sse_multiline_payload_preserves_empty_data_lines() {
         parser.feed("data:\ndata: next\ndata:\n\n"),
         vec![SseOut::TextDelta("\nnext\n".into())]
     );
+}
+
+/// The spec ends an event on any two consecutive line endings, so a server
+/// mixing `\r\n` and `\n` (or splitting them across chunks) still frames.
+#[test]
+fn sse_framing_accepts_mixed_line_endings_as_one_separator() {
+    let source = "data: a\n\r\ndata: b\r\n\ndata: c\r\r\ndata: d\n\n";
+    for chunk_size in 1..=source.len() {
+        let mut parser = SseParser::with_block_parser(echo_sse_payload);
+        let result: Vec<_> = source
+            .as_bytes()
+            .chunks(chunk_size)
+            .flat_map(|chunk| parser.feed_bytes(chunk))
+            .collect();
+        assert_eq!(
+            result,
+            vec![
+                SseOut::TextDelta("a".into()),
+                SseOut::TextDelta("b".into()),
+                SseOut::TextDelta("c".into()),
+                SseOut::TextDelta("d".into())
+            ],
+            "chunk size {chunk_size}"
+        );
+    }
 }

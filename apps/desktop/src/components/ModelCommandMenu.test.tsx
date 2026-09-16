@@ -1,5 +1,5 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { t } from "@/i18n";
 import type { ModelInfo } from "@/lib/models";
 import {
@@ -9,17 +9,6 @@ import {
   STT_PROVIDER_OPENAI,
 } from "@/test/providers";
 import { ModelCommandMenu } from "./ModelCommandMenu";
-
-class ResizeObserverStub {
-  observe = vi.fn();
-  unobserve = vi.fn();
-  disconnect = vi.fn();
-}
-
-beforeAll(() => {
-  Element.prototype.scrollIntoView = vi.fn();
-  globalThis.ResizeObserver = ResizeObserverStub;
-});
 
 afterEach(() => {
   cleanup();
@@ -33,7 +22,6 @@ const models: ModelInfo[] = [
     adaptive: true,
     alwaysThinks: false,
     codeExec: true,
-    maxInputTokens: 500000,
   },
   {
     id: "claude-haiku-4-5",
@@ -42,7 +30,6 @@ const models: ModelInfo[] = [
     adaptive: false,
     alwaysThinks: false,
     codeExec: false,
-    maxInputTokens: 200000,
   },
 ];
 
@@ -87,7 +74,6 @@ describe("ModelCommandMenu", () => {
     adaptive: true,
     alwaysThinks: false,
     codeExec: false,
-    maxInputTokens: 1048576,
   };
 
   const textProviders = [
@@ -276,7 +262,6 @@ describe("ModelCommandMenu", () => {
           adaptive: true,
           alwaysThinks: false,
           codeExec: true,
-          maxInputTokens: 0,
         },
       ],
     });
@@ -297,7 +282,6 @@ describe("ModelCommandMenu", () => {
           adaptive: true,
           alwaysThinks: false,
           codeExec: true,
-          maxInputTokens: 0,
         },
       ],
       modelProvidersMissingKey: [PROVIDER_OPENAI],
@@ -320,7 +304,6 @@ describe("ModelCommandMenu", () => {
           adaptive: true,
           alwaysThinks: false,
           codeExec: true,
-          maxInputTokens: 0,
         },
       ],
       modelsPending: false,

@@ -42,3 +42,18 @@ beforeEach(async () => {
   const { SOURCE_LANGUAGE } = await import("@/i18n");
   await i18next.changeLanguage(SOURCE_LANGUAGE);
 });
+
+// jsdom implements neither ResizeObserver nor pointer capture nor scrollIntoView,
+// and cmdk, Radix Select and the measuring hooks call them on every mount: one
+// stub here instead of a copy at the top of every component test.
+// Plain assignment, not `vi.stubGlobal`: a test file calling
+// `vi.unstubAllGlobals()` would otherwise drop the observer for its remaining tests.
+class ResizeObserverStub {
+  observe = vi.fn();
+  unobserve = vi.fn();
+  disconnect = vi.fn();
+}
+globalThis.ResizeObserver = ResizeObserverStub;
+Element.prototype.scrollIntoView = vi.fn();
+Element.prototype.hasPointerCapture = vi.fn(() => false);
+Element.prototype.releasePointerCapture = vi.fn();

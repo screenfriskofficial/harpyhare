@@ -1,9 +1,6 @@
 use serde::Serialize;
 
-use super::{
-    openrouter, xclis, ModelInfo, PROVIDER_ANTHROPIC, PROVIDER_OPENAI, PROVIDER_XAI,
-    UNKNOWN_MAX_INPUT_TOKENS,
-};
+use super::{openrouter, xclis, ModelInfo, PROVIDER_ANTHROPIC, PROVIDER_OPENAI, PROVIDER_XAI};
 
 /// A model the app can name before it holds any credential to verify it with.
 ///
@@ -324,6 +321,21 @@ pub fn spec(provider_id: &str) -> Option<&'static LlmProviderSpec> {
     PROVIDERS.iter().find(|p| p.id == provider_id)
 }
 
+/// Separates a vendor namespace from the upstream id in aggregator model ids
+/// (`xclis/claude-opus-4-6`, `openrouter/openai/gpt-4o-mini`).
+const NAMESPACE_SEPARATOR: char = '/';
+
+/// The vendor whose namespace prefixes `model_id` — the one offline fact about
+/// an aggregator model that survives a cold start with no catalogue, and the
+/// reason a saved aggregator chat never silently falls back to another vendor.
+pub fn namespace_owner(model_id: &str) -> Option<&'static LlmProviderSpec> {
+    PROVIDERS.iter().find(|p| {
+        model_id
+            .strip_prefix(p.id)
+            .is_some_and(|rest| rest.starts_with(NAMESPACE_SEPARATOR))
+    })
+}
+
 impl CatalogModel {
     pub fn to_model_info(self, provider: &str) -> ModelInfo {
         ModelInfo {
@@ -333,7 +345,6 @@ impl CatalogModel {
             adaptive: self.adaptive,
             always_thinks: self.always_thinks,
             code_exec: self.code_exec,
-            max_input_tokens: UNKNOWN_MAX_INPUT_TOKENS,
         }
     }
 }

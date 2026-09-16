@@ -9,14 +9,17 @@ use crate::sync::LockUnpoisoned;
 use serde_json::{json, Value};
 use tokio_util::sync::CancellationToken;
 
+use super::chat_completions;
 use super::http::{Credential, LlmHttp};
 use super::registry::LlmProviderSpec;
 use super::{
-    ChatMessage, LlmError, LlmProvider, LlmRequest, LlmStreamSink, ModelInfo, SseOut, SseParser,
-    LIST_MODELS_TIMEOUT, STREAM_IDLE_TIMEOUT, UNKNOWN_TOKEN_COUNT,
+    json_positive_u32, LlmError, LlmProvider, LlmRequest, LlmStreamSink, ModelInfo, SseOut,
+    SseParser, LIST_MODELS_TIMEOUT, STREAM_IDLE_TIMEOUT,
 };
 
 pub const PROVIDER_OPENROUTER: &str = "openrouter";
+/// How the vendor is named in error messages.
+const VENDOR_LABEL: &str = "OpenRouter";
 const MODEL_PREFIX: &str = "openrouter/";
 const MODELS_PATH: &str = "/v1/models?output_modalities=text";
 const CHAT_PATH: &str = "/v1/chat/completions";
@@ -34,13 +37,6 @@ fn has_string(value: &Value, needle: &str) -> bool {
     value
         .as_array()
         .is_some_and(|items| items.iter().any(|v| v.as_str() == Some(needle)))
-}
-
-fn positive_u32(value: &Value) -> Option<u32> {
-    value
-        .as_u64()
-        .and_then(|n| u32::try_from(n).ok())
-        .filter(|n| *n > 0)
 }
 
 fn catalog_entry(value: &Value) -> Option<CatalogEntry> {
@@ -68,10 +64,9 @@ fn catalog_entry(value: &Value) -> Option<CatalogEntry> {
             adaptive: supports_reasoning && !always_thinks,
             always_thinks,
             code_exec: false,
-            max_input_tokens: positive_u32(&value["context_length"]).unwrap_or(0),
         },
         images: has_string(&architecture["input_modalities"], "image"),
-        max_output_tokens: positive_u32(&value["top_provider"]["max_completion_tokens"]),
+        max_output_tokens: json_positive_u32(&value["top_provider"]["max_completion_tokens"]),
         reasoning,
     })
 }
@@ -113,25 +108,6 @@ fn reasoning_value(entry: &CatalogEntry, requested: bool) -> Option<Value> {
     Some(value)
 }
 
-fn message_value(message: &ChatMessage) -> Value {
-    let content = if message.images.is_empty() {
-        json!(message.text)
-    } else {
-        let mut blocks = Vec::new();
-        if !message.text.is_empty() {
-            blocks.push(json!({"type": "text", "text": message.text}));
-        }
-        blocks.extend(message.images.iter().map(|image| {
-            json!({
-                "type": "image_url",
-                "image_url": {"url": format!("data:{};base64,{}", image.media_type, image.data)}
-            })
-        }));
-        json!(blocks)
-    };
-    json!({"role": message.role, "content": content})
-}
-
 fn request_body(request: &LlmRequest, entry: Option<&CatalogEntry>) -> Result<Value, LlmError> {
     let model = request
         .model
@@ -143,23 +119,11 @@ fn request_body(request: &LlmRequest, entry: Option<&CatalogEntry>) -> Result<Va
             "OpenRouter: {model} does not support images. Select a vision model."
         )));
     }
-    let mut messages = Vec::new();
-    if !request.system.is_empty() {
-        messages.push(json!({"role": "system", "content": request.system}));
-    }
-    messages.extend(
-        request
-            .messages
-            .iter()
-            .filter(|m| !m.text.is_empty() || !m.images.is_empty())
-            .map(message_value),
-    );
     let mut body = json!({
         "model": model,
-        "messages": messages,
+        "messages": chat_completions::messages_json(request),
         "modalities": ["text"],
-        "stream": true,
-        "stream_options": {"include_usage": true}
+        "stream": true
     });
     if let Some(entry) = entry {
         if let Some(limit) = entry.max_output_tokens {
@@ -175,63 +139,10 @@ fn request_body(request: &LlmRequest, entry: Option<&CatalogEntry>) -> Result<Va
     Ok(body)
 }
 
-fn error_event(error: &Value) -> SseOut {
-    let message = format!(
-        "OpenRouter: {}",
-        error["message"].as_str().unwrap_or("request failed")
-    );
-    let code = error["code"]
-        .as_u64()
-        .and_then(|n| u16::try_from(n).ok())
-        .or_else(|| match error["code"].as_str() {
-            Some("rate_limit_exceeded" | "rate_limit_error") => Some(429),
-            Some("server_error") => Some(500),
-            _ => None,
-        });
-    match code {
-        Some(code) if code == 429 || code >= 500 => SseOut::Retryable { code, message },
-        _ => super::classified_stream_error(code.unwrap_or(200), error, message),
-    }
-}
-
+/// One Chat Completions event, parsed by the shared dialect under this
+/// vendor's name. Reasoning tokens are never answer text.
 fn parse_block(data: &str) -> Vec<SseOut> {
-    if data.trim() == "[DONE]" {
-        return vec![SseOut::Done(None)];
-    }
-    let Ok(value) = serde_json::from_str::<Value>(data) else {
-        return vec![SseOut::ApiError(
-            "OpenRouter: invalid streaming response".into(),
-        )];
-    };
-    if !value["error"].is_null() {
-        return vec![error_event(&value["error"])];
-    }
-    let mut out = Vec::new();
-    if let Some(tokens) = positive_u32(&value["usage"]["prompt_tokens"]) {
-        out.push(SseOut::InputTokens(tokens));
-    }
-    let choice = &value["choices"][0];
-    // Reasoning tokens are deliberately not treated as answer text.
-    if let Some(text) = choice["delta"]["content"]
-        .as_str()
-        .filter(|s| !s.is_empty())
-    {
-        out.push(SseOut::TextDelta(text.into()));
-    }
-    match choice["finish_reason"].as_str() {
-        Some("stop") => out.push(SseOut::Finished), // usage may arrive in the next chunk
-        Some("length") => out.push(SseOut::ApiError(
-            "OpenRouter: response reached the token limit".into(),
-        )),
-        Some("content_filter") => out.push(SseOut::ApiError(
-            "OpenRouter: response blocked by the model's content filter".into(),
-        )),
-        Some(reason) => out.push(SseOut::ApiError(format!(
-            "OpenRouter: unexpected finish reason ({reason})"
-        ))),
-        None => {}
-    }
-    out
+    chat_completions::parse_chunk(data, VENDOR_LABEL)
 }
 
 struct AnswerSink<'a> {
@@ -243,9 +154,6 @@ impl LlmStreamSink for AnswerSink<'_> {
     fn text_delta(&mut self, delta: &str) {
         self.has_text |= !delta.trim().is_empty();
         self.inner.text_delta(delta);
-    }
-    fn input_tokens(&mut self, total: u32) {
-        self.inner.input_tokens(total);
     }
 }
 
@@ -322,17 +230,11 @@ impl LlmProvider for OpenRouterClient {
             )
             .await?;
         if !sink.has_text {
-            return Err(LlmError::Api(
-                "OpenRouter: model returned no answer text".into(),
-            ));
+            return Err(LlmError::Api(format!(
+                "{VENDOR_LABEL}: model returned no answer text"
+            )));
         }
         Ok(())
-    }
-
-    async fn count_tokens(&self, _request: LlmRequest) -> Result<u32, LlmError> {
-        // No universal count endpoint. Actual prompt usage arrives with SSE;
-        // never create a paid completion just to estimate context usage.
-        Ok(UNKNOWN_TOKEN_COUNT)
     }
 
     async fn list_models(&self) -> Result<Vec<ModelInfo>, LlmError> {

@@ -38,7 +38,6 @@ export function NoteSuggestions({ rows, library, selectedRow, onOpen }: NoteSugg
               terms={row.terms}
               folderName={folderNameOf(library, row.doc.folderId)}
               selected={i === selectedRow}
-              inContext={false}
               option
               onOpen={() => {
                 onOpen(row.doc.id);

@@ -2,6 +2,9 @@ use super::*;
 use wiremock::matchers::{header, method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
+/// OpenRouter: the catalogue-backed row of the multipart dialect.
+mod openrouter;
+
 // Read from the registry rather than from copies: a vendor whose paths or
 // models move should make these tests follow it, not silently keep asserting
 // the old wire format against the new client.
@@ -16,9 +19,16 @@ fn openai() -> &'static registry::SttProviderSpec {
 /// moves drags its tests along instead of leaving them on a stale wire format.
 fn models_of(spec: &'static registry::SttProviderSpec) -> (&'static str, &'static str) {
     match spec.wire {
-        registry::SttWire::OpenAiMultipart { transcribe_model, translation, .. } => {
-            (transcribe_model, translation.expect("у тестируемого вендора есть перевод").model)
-        }
+        registry::SttWire::OpenAiMultipart {
+            transcribe_model,
+            translation,
+            ..
+        } => (
+            transcribe_model,
+            translation
+                .expect("у тестируемого вендора есть перевод")
+                .model,
+        ),
         registry::SttWire::Xai { .. } | registry::SttWire::Deepgram { .. } => {
             panic!("у этого вендора нет моделей в запросе")
         }
@@ -49,11 +59,17 @@ async fn transcribe_returns_text_on_success() {
     Mock::given(method("POST"))
         .and(path(groq().wire.path(false)))
         .and(header("authorization", "Bearer gsk_test"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({"text": "привет мир"})))
+        .respond_with(
+            ResponseTemplate::new(200).set_body_json(serde_json::json!({"text": "привет мир"})),
+        )
         .mount(&server)
         .await;
-    let stt = SttHttpClient::for_provider(registry::PROVIDER_GROQ, "gsk_test".into()).with_base_url(server.uri());
-    assert_eq!(stt.transcribe(&samples(), NO_KEYTERMS).await.unwrap(), "привет мир");
+    let stt = SttHttpClient::for_provider(registry::PROVIDER_GROQ, "gsk_test".into())
+        .with_base_url(server.uri());
+    assert_eq!(
+        stt.transcribe(&samples(), NO_KEYTERMS).await.unwrap(),
+        "привет мир"
+    );
 }
 
 #[tokio::test]
@@ -67,7 +83,8 @@ async fn transcribe_sends_language_field_by_default() {
         .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({"text": "ок"})))
         .mount(&server)
         .await;
-    let stt = SttHttpClient::for_provider(registry::PROVIDER_GROQ, "k".into()).with_base_url(server.uri());
+    let stt = SttHttpClient::for_provider(registry::PROVIDER_GROQ, "k".into())
+        .with_base_url(server.uri());
     assert_eq!(stt.transcribe(&samples(), NO_KEYTERMS).await.unwrap(), "ок");
 }
 
@@ -83,7 +100,10 @@ async fn empty_language_means_autodetect_field_omitted() {
     let stt = SttHttpClient::for_provider(registry::PROVIDER_GROQ, "k".into())
         .with_base_url(server.uri())
         .with_language(String::new());
-    assert_eq!(stt.transcribe(&samples(), NO_KEYTERMS).await.unwrap(), "auto");
+    assert_eq!(
+        stt.transcribe(&samples(), NO_KEYTERMS).await.unwrap(),
+        "auto"
+    );
 }
 
 #[tokio::test]
@@ -94,13 +114,18 @@ async fn translate_uses_translations_endpoint_and_large_v3() {
         .and(BodyHas("whisper-large-v3"))
         .and(BodyLacks("turbo"))
         .and(BodyLacks("language"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({"text": "hello"})))
+        .respond_with(
+            ResponseTemplate::new(200).set_body_json(serde_json::json!({"text": "hello"})),
+        )
         .mount(&server)
         .await;
     let stt = SttHttpClient::for_provider(registry::PROVIDER_GROQ, "k".into())
         .with_base_url(server.uri())
         .with_translate(true);
-    assert_eq!(stt.transcribe(&samples(), NO_KEYTERMS).await.unwrap(), "hello");
+    assert_eq!(
+        stt.transcribe(&samples(), NO_KEYTERMS).await.unwrap(),
+        "hello"
+    );
 }
 
 #[tokio::test]
@@ -112,11 +137,17 @@ async fn openai_transcribe_sends_gpt_4o_mini_with_language_and_no_temperature() 
         .and(BodyHas(models_of(openai()).0))
         .and(BodyHas("language"))
         .and(BodyLacks("temperature"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({"text": "map ок"})))
+        .respond_with(
+            ResponseTemplate::new(200).set_body_json(serde_json::json!({"text": "map ок"})),
+        )
         .mount(&server)
         .await;
-    let stt = SttHttpClient::for_provider(registry::PROVIDER_OPENAI, "sk_test".into()).with_base_url(server.uri());
-    assert_eq!(stt.transcribe(&samples(), NO_KEYTERMS).await.unwrap(), "map ок");
+    let stt = SttHttpClient::for_provider(registry::PROVIDER_OPENAI, "sk_test".into())
+        .with_base_url(server.uri());
+    assert_eq!(
+        stt.transcribe(&samples(), NO_KEYTERMS).await.unwrap(),
+        "map ок"
+    );
 }
 
 #[tokio::test]
@@ -131,7 +162,10 @@ async fn openai_empty_language_omits_language_field() {
     let stt = SttHttpClient::for_provider(registry::PROVIDER_OPENAI, "k".into())
         .with_base_url(server.uri())
         .with_language(String::new());
-    assert_eq!(stt.transcribe(&samples(), NO_KEYTERMS).await.unwrap(), "auto");
+    assert_eq!(
+        stt.transcribe(&samples(), NO_KEYTERMS).await.unwrap(),
+        "auto"
+    );
 }
 
 #[tokio::test]
@@ -141,13 +175,18 @@ async fn openai_translate_uses_whisper_1_on_translations_endpoint() {
         .and(path(openai().wire.path(true)))
         .and(BodyHas(models_of(openai()).1))
         .and(BodyLacks("language"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({"text": "hello"})))
+        .respond_with(
+            ResponseTemplate::new(200).set_body_json(serde_json::json!({"text": "hello"})),
+        )
         .mount(&server)
         .await;
     let stt = SttHttpClient::for_provider(registry::PROVIDER_OPENAI, "k".into())
         .with_base_url(server.uri())
         .with_translate(true);
-    assert_eq!(stt.transcribe(&samples(), NO_KEYTERMS).await.unwrap(), "hello");
+    assert_eq!(
+        stt.transcribe(&samples(), NO_KEYTERMS).await.unwrap(),
+        "hello"
+    );
 }
 
 #[tokio::test]
@@ -157,7 +196,8 @@ async fn openai_401_names_openai_key() {
         .respond_with(ResponseTemplate::new(401))
         .mount(&server)
         .await;
-    let stt = SttHttpClient::for_provider(registry::PROVIDER_OPENAI, "bad".into()).with_base_url(server.uri());
+    let stt = SttHttpClient::for_provider(registry::PROVIDER_OPENAI, "bad".into())
+        .with_base_url(server.uri());
     match stt.transcribe(&samples(), NO_KEYTERMS).await {
         Err(SttError::BadApiKey(label)) => assert_eq!(label, openai().key_label),
         other => panic!("ожидался BadApiKey, получено: {other:?}"),
@@ -177,7 +217,8 @@ async fn transcribe_stream_sends_chunked_body_and_parses_text() {
         )
         .mount(&server)
         .await;
-    let stt = SttHttpClient::for_provider(registry::PROVIDER_GROQ, "gsk_test".into()).with_base_url(server.uri());
+    let stt = SttHttpClient::for_provider(registry::PROVIDER_GROQ, "gsk_test".into())
+        .with_base_url(server.uri());
 
     // Конвейер отдаёт сырой PCM; WAV-заголовок подшивает сам клиент.
     let chunks: Vec<Result<Vec<u8>, std::io::Error>> = vec![
@@ -186,7 +227,11 @@ async fn transcribe_stream_sends_chunked_body_and_parses_text() {
     ];
     let body: AudioChunkStream = Box::pin(futures_util::stream::iter(chunks));
     let text = stt
-        .transcribe_stream(body, NO_KEYTERMS, tokio_util::sync::CancellationToken::new())
+        .transcribe_stream(
+            body,
+            NO_KEYTERMS,
+            tokio_util::sync::CancellationToken::new(),
+        )
         .await
         .unwrap();
     assert_eq!(text, "стрим ок");
@@ -200,13 +245,15 @@ async fn transcribe_stream_cancel_aborts() {
         .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({"text": "x"})))
         .mount(&server)
         .await;
-    let stt = SttHttpClient::for_provider(registry::PROVIDER_GROQ, "k".into()).with_base_url(server.uri());
+    let stt = SttHttpClient::for_provider(registry::PROVIDER_GROQ, "k".into())
+        .with_base_url(server.uri());
     let endless =
-        futures_util::stream::repeat_with(|| Ok::<Vec<u8>, std::io::Error>(vec![0u8; 512]))
-            .then(|c| async {
+        futures_util::stream::repeat_with(|| Ok::<Vec<u8>, std::io::Error>(vec![0u8; 512])).then(
+            |c| async {
                 tokio::time::sleep(std::time::Duration::from_millis(5)).await;
                 c
-            });
+            },
+        );
     let cancel = tokio_util::sync::CancellationToken::new();
     let c2 = cancel.clone();
     tokio::spawn(async move {
@@ -227,7 +274,8 @@ async fn transcribe_maps_401_to_bad_key() {
         .respond_with(ResponseTemplate::new(401))
         .mount(&server)
         .await;
-    let stt = SttHttpClient::for_provider(registry::PROVIDER_GROQ, "bad".into()).with_base_url(server.uri());
+    let stt = SttHttpClient::for_provider(registry::PROVIDER_GROQ, "bad".into())
+        .with_base_url(server.uri());
     match stt.transcribe(&samples(), NO_KEYTERMS).await {
         Err(SttError::BadApiKey(label)) => assert_eq!(label, groq().key_label),
         other => panic!("ожидался BadApiKey, получено: {other:?}"),
@@ -260,8 +308,12 @@ async fn transcribe_maps_429_and_5xx_to_retryable() {
             .respond_with(ResponseTemplate::new(code))
             .mount(&server)
             .await;
-        let stt = SttHttpClient::for_provider(registry::PROVIDER_GROQ, "k".into()).with_base_url(server.uri());
-        assert!(matches!(stt.transcribe(&samples(), NO_KEYTERMS).await, Err(SttError::Retryable(_))));
+        let stt = SttHttpClient::for_provider(registry::PROVIDER_GROQ, "k".into())
+            .with_base_url(server.uri());
+        assert!(matches!(
+            stt.transcribe(&samples(), NO_KEYTERMS).await,
+            Err(SttError::Retryable(_))
+        ));
     }
 }
 
@@ -269,11 +321,17 @@ async fn transcribe_maps_429_and_5xx_to_retryable() {
 async fn transcribe_200_without_text_field_is_error() {
     let server = MockServer::start().await;
     Mock::given(method("POST"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({"unexpected": true})))
+        .respond_with(
+            ResponseTemplate::new(200).set_body_json(serde_json::json!({"unexpected": true})),
+        )
         .mount(&server)
         .await;
-    let stt = SttHttpClient::for_provider(registry::PROVIDER_GROQ, "k".into()).with_base_url(server.uri());
-    assert!(matches!(stt.transcribe(&samples(), NO_KEYTERMS).await, Err(SttError::Other(_))));
+    let stt = SttHttpClient::for_provider(registry::PROVIDER_GROQ, "k".into())
+        .with_base_url(server.uri());
+    assert!(matches!(
+        stt.transcribe(&samples(), NO_KEYTERMS).await,
+        Err(SttError::Other(_))
+    ));
 }
 
 /// Таймаут при живой сети — «сервер не успел», а не «нет соединения»: второе
@@ -288,7 +346,31 @@ async fn transcribe_maps_timeout_to_retryable() {
     let stt = SttHttpClient::for_provider(registry::PROVIDER_GROQ, "k".into())
         .with_base_url(server.uri())
         .with_timeout(std::time::Duration::from_millis(200));
-    assert!(matches!(stt.transcribe(&samples(), NO_KEYTERMS).await, Err(SttError::Retryable(_))));
+    assert!(matches!(
+        stt.transcribe(&samples(), NO_KEYTERMS).await,
+        Err(SttError::Retryable(_))
+    ));
+}
+
+/// The cause chain reaches the user: reqwest's own text is «error sending
+/// request», and only its sources say whether it was DNS, TLS or a refused socket.
+#[tokio::test]
+async fn a_refused_connection_reports_its_cause_chain() {
+    let stt = SttHttpClient::for_provider(registry::PROVIDER_GROQ, "k".into())
+        .with_base_url("http://127.0.0.1:1".into());
+    match stt.transcribe(&samples(), NO_KEYTERMS).await {
+        Err(SttError::Network(message)) => {
+            assert!(
+                message.starts_with("ошибка подключения: "),
+                "got: {message}"
+            );
+            assert!(
+                message.matches(": ").count() >= 2,
+                "no cause chain: {message}"
+            );
+        }
+        other => panic!("ожидался Network, получено: {other:?}"),
+    }
 }
 
 #[test]
@@ -296,14 +378,23 @@ fn the_batch_timeout_grows_with_the_recording() {
     let stt = SttHttpClient::for_provider(registry::PROVIDER_GROQ, "k".into());
     let short = stt.batch_timeout(crate::audio::TARGET_SAMPLE_RATE as usize);
     let long = stt.batch_timeout(crate::audio::TARGET_SAMPLE_RATE as usize * 600);
-    assert_eq!(short, DEFAULT_REQUEST_TIMEOUT + std::time::Duration::from_secs(1));
-    assert_eq!(long, DEFAULT_REQUEST_TIMEOUT + std::time::Duration::from_secs(600));
+    assert_eq!(
+        short,
+        DEFAULT_REQUEST_TIMEOUT + std::time::Duration::from_secs(1)
+    );
+    assert_eq!(
+        long,
+        DEFAULT_REQUEST_TIMEOUT + std::time::Duration::from_secs(600)
+    );
 }
 
 #[tokio::test]
 async fn a_deepgram_row_is_refused_by_the_multipart_client_without_panicking() {
     let stt = SttHttpClient::for_provider(registry::PROVIDER_DEEPGRAM, "k".into());
-    assert!(matches!(stt.transcribe(&samples(), NO_KEYTERMS).await, Err(SttError::Other(_))));
+    assert!(matches!(
+        stt.transcribe(&samples(), NO_KEYTERMS).await,
+        Err(SttError::Other(_))
+    ));
 }
 
 fn xai() -> &'static registry::SttProviderSpec {
@@ -333,13 +424,18 @@ async fn xai_posts_to_its_own_endpoint_with_the_audio_part_last() {
         .and(path(xai().wire.path(false)))
         .and(BodyHas("name=\"language\""))
         .and(FilePartIsLast)
-        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({"text": "привет"})))
+        .respond_with(
+            ResponseTemplate::new(200).set_body_json(serde_json::json!({"text": "привет"})),
+        )
         .mount(&server)
         .await;
 
     let stt = SttHttpClient::for_provider(registry::PROVIDER_XAI, "xai-key".into())
         .with_base_url(server.uri());
-    assert_eq!(stt.transcribe(&samples(), NO_KEYTERMS).await.unwrap(), "привет");
+    assert_eq!(
+        stt.transcribe(&samples(), NO_KEYTERMS).await.unwrap(),
+        "привет"
+    );
 }
 
 #[tokio::test]
@@ -409,8 +505,8 @@ async fn xai_sends_each_declared_term_as_its_own_keyterm_field() {
         .mount(&server)
         .await;
 
-    let stt = SttHttpClient::for_provider(registry::PROVIDER_XAI, "k".into())
-        .with_base_url(server.uri());
+    let stt =
+        SttHttpClient::for_provider(registry::PROVIDER_XAI, "k".into()).with_base_url(server.uri());
     let declared = vec!["golang".to_string(), "gRPC".to_string()];
     assert_eq!(stt.transcribe(&samples(), &declared).await.unwrap(), "ок");
 }
@@ -472,8 +568,8 @@ async fn no_declared_terms_means_no_extra_fields_anywhere() {
         .mount(&server)
         .await;
 
-    let stt = SttHttpClient::for_provider(registry::PROVIDER_XAI, "k".into())
-        .with_base_url(server.uri());
+    let stt =
+        SttHttpClient::for_provider(registry::PROVIDER_XAI, "k".into()).with_base_url(server.uri());
     assert_eq!(stt.transcribe(&samples(), NO_KEYTERMS).await.unwrap(), "ок");
 }
 

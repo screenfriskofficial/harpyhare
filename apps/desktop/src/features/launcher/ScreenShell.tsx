@@ -6,10 +6,12 @@ export function ScreenShell({
   screen,
   actions,
   children,
+  scroll = true,
 }: {
   screen: ScreenId;
   actions?: ReactNode;
   children: ReactNode;
+  scroll?: boolean;
 }) {
   // Подписка на смену языка: сам текст приходит из реестра через общий `t`.
   useTranslation();
@@ -30,9 +32,13 @@ export function ScreenShell({
           <div className="flex shrink-0 items-center gap-1.5">{actions}</div>
         )}
       </header>
-      <div className="min-h-0 min-w-0 flex-1 overflow-y-auto pr-1.5">
-        <div className="flex flex-col gap-4 pb-1">{children}</div>
-      </div>
+      {scroll ? (
+        <div className="min-h-0 min-w-0 flex-1 overflow-y-auto pr-1.5">
+          <div className="flex flex-col gap-4 pb-1">{children}</div>
+        </div>
+      ) : (
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col">{children}</div>
+      )}
     </section>
   );
 }

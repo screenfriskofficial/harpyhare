@@ -46,6 +46,7 @@ export interface Settings {
   screen_permission_requested: boolean;
   window_width: number;
   window_height: number;
+  preview_width: number;
   resize_step: number;
   capture_device_uid: string;
   microphone_device_uid: string;
@@ -100,7 +101,6 @@ export interface EventMap {
   "llm-delta": { chatId: string; streamId: string; delta: string };
   "llm-done": { chatId: string; streamId: string };
   "llm-error": AppError & { chatId: string; streamId: string };
-  "llm-usage": { chatId: string; streamId: string; inputTokens: number };
   "update-available": UpdateInfo;
   "update-progress": UpdateProgress;
   "update-done": { version: string };

@@ -85,20 +85,26 @@ export function SettingBlock({
 export function SettingSelect({
   value,
   ariaLabel,
+  placeholder,
   disabled,
+  size = "sm",
   onValueChange,
   children,
 }: {
   value: string;
   ariaLabel: string;
+  /** Shown while `value` is empty, i.e. nothing is chosen yet. */
+  placeholder?: string;
   disabled?: boolean;
+  /** `sm` matches the settings rows; `default` matches an `Input` standing next to it. */
+  size?: "sm" | "default";
   onValueChange: (value: string) => void;
   children: ReactNode;
 }) {
   return (
     <Select value={value} disabled={disabled} onValueChange={onValueChange}>
-      <SelectTrigger size="sm" aria-label={ariaLabel} className="w-full min-w-0">
-        <SelectValue />
+      <SelectTrigger size={size} aria-label={ariaLabel} className="w-full min-w-0">
+        <SelectValue placeholder={placeholder} />
       </SelectTrigger>
       <SelectContent position="popper">{children}</SelectContent>
     </Select>

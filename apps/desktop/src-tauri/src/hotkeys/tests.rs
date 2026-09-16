@@ -1,7 +1,10 @@
 use super::*;
 
 fn binding(action: &str, combo: &str) -> HotkeyBinding {
-    HotkeyBinding { action: action.to_string(), combo: combo.to_string() }
+    HotkeyBinding {
+        action: action.to_string(),
+        combo: combo.to_string(),
+    }
 }
 
 fn digit_family_action(id: &'static str) -> HotkeyAction {
@@ -92,14 +95,22 @@ fn windows_defaults_avoid_the_super_key() {
 #[test]
 fn effective_falls_back_to_default_and_prefers_last_binding() {
     assert_eq!(effective(&[], ACTION_RECORD), primary_combo!("R").current());
-    assert_eq!(effective(&[binding(ACTION_RECORD, "Cmd+Shift+X")], ACTION_RECORD), "Cmd+Shift+X");
+    assert_eq!(
+        effective(&[binding(ACTION_RECORD, "Cmd+Shift+X")], ACTION_RECORD),
+        "Cmd+Shift+X"
+    );
     let twice = vec![binding(ACTION_RECORD, "F8"), binding(ACTION_RECORD, "F7")];
     assert_eq!(effective(&twice, ACTION_RECORD), "F7");
 }
 
 #[test]
 fn combo_conflict_ignores_modifier_order_and_case() {
-    assert!(conflict(ACTION_RECORD, "Cmd+Shift+X", ACTION_SEND, "Shift+Cmd+X"));
+    assert!(conflict(
+        ACTION_RECORD,
+        "Cmd+Shift+X",
+        ACTION_SEND,
+        "Shift+Cmd+X"
+    ));
     assert!(conflict(ACTION_RECORD, "cmd+x", ACTION_SEND, "Cmd+X"));
     assert!(conflict(ACTION_RECORD, "Cmd+KeyX", ACTION_SEND, "Cmd+X"));
     assert!(!conflict(ACTION_RECORD, "Cmd+X", ACTION_SEND, "Cmd+Y"));
@@ -107,29 +118,69 @@ fn combo_conflict_ignores_modifier_order_and_case() {
 
 #[test]
 fn arrow_and_plus_minus_families_share_modifier_without_conflict() {
-    assert!(!conflict(ACTION_RESIZE_WINDOW, "Cmd+Shift", ACTION_OPACITY, "Cmd+Shift"));
-    assert!(conflict(ACTION_RESIZE_WINDOW, "Cmd+Shift", ACTION_SCROLL_CHAT, "Cmd+Shift"));
+    assert!(!conflict(
+        ACTION_RESIZE_WINDOW,
+        "Cmd+Shift",
+        ACTION_OPACITY,
+        "Cmd+Shift"
+    ));
+    assert!(conflict(
+        ACTION_RESIZE_WINDOW,
+        "Cmd+Shift",
+        ACTION_SCROLL_CHAT,
+        "Cmd+Shift"
+    ));
 }
 
 #[test]
 fn combo_conflicts_with_family_it_falls_into() {
-    assert!(conflict(ACTION_SEND, "Cmd+ArrowUp", ACTION_MOVE_WINDOW, "Cmd"));
-    assert!(conflict(ACTION_SEND, "Cmd+Shift+Minus", ACTION_OPACITY, "Cmd+Shift"));
-    assert!(!conflict(ACTION_SEND, "Cmd+Enter", ACTION_MOVE_WINDOW, "Cmd"));
+    assert!(conflict(
+        ACTION_SEND,
+        "Cmd+ArrowUp",
+        ACTION_MOVE_WINDOW,
+        "Cmd"
+    ));
+    assert!(conflict(
+        ACTION_SEND,
+        "Cmd+Shift+Minus",
+        ACTION_OPACITY,
+        "Cmd+Shift"
+    ));
+    assert!(!conflict(
+        ACTION_SEND,
+        "Cmd+Enter",
+        ACTION_MOVE_WINDOW,
+        "Cmd"
+    ));
 }
 
 #[test]
 fn digit_family_conflicts_only_with_digit_combos() {
     assert!(conflict(ACTION_SEND, "Cmd+1", ACTION_QUICK_ACTION, "Cmd"));
-    assert!(conflict(ACTION_SEND, "Cmd+Digit9", ACTION_QUICK_ACTION, "Cmd"));
+    assert!(conflict(
+        ACTION_SEND,
+        "Cmd+Digit9",
+        ACTION_QUICK_ACTION,
+        "Cmd"
+    ));
     assert!(!conflict(ACTION_SEND, "Cmd+0", ACTION_QUICK_ACTION, "Cmd"));
-    assert!(!conflict(ACTION_SEND, "Cmd+Enter", ACTION_QUICK_ACTION, "Cmd"));
+    assert!(!conflict(
+        ACTION_SEND,
+        "Cmd+Enter",
+        ACTION_QUICK_ACTION,
+        "Cmd"
+    ));
     assert!(!conflict(ACTION_SEND, "Alt+1", ACTION_QUICK_ACTION, "Cmd"));
 }
 
 #[test]
 fn digit_family_shares_a_modifier_with_the_arrow_and_plus_minus_families() {
-    assert!(!conflict(ACTION_MOVE_WINDOW, "Cmd", ACTION_QUICK_ACTION, "Cmd"));
+    assert!(!conflict(
+        ACTION_MOVE_WINDOW,
+        "Cmd",
+        ACTION_QUICK_ACTION,
+        "Cmd"
+    ));
     assert!(!conflict(ACTION_OPACITY, "Cmd", ACTION_QUICK_ACTION, "Cmd"));
 }
 
@@ -143,16 +194,46 @@ fn two_digit_families_collide_on_a_shared_modifier() {
 
 #[test]
 fn transient_scopes_of_recording_and_teleprompter_may_share_a_combo() {
-    assert!(!conflict(ACTION_CANCEL_RECORDING, "Escape", ACTION_TELEPROMPTER_CLOSE, "Escape"));
-    assert!(conflict(ACTION_CANCEL_RECORDING, "Escape", ACTION_TOGGLE_WINDOW, "Escape"));
-    assert!(conflict(ACTION_TELEPROMPTER_CLOSE, "Space", ACTION_SEND, "Space"));
+    assert!(!conflict(
+        ACTION_CANCEL_RECORDING,
+        "Escape",
+        ACTION_TELEPROMPTER_CLOSE,
+        "Escape"
+    ));
+    assert!(conflict(
+        ACTION_CANCEL_RECORDING,
+        "Escape",
+        ACTION_TOGGLE_WINDOW,
+        "Escape"
+    ));
+    assert!(conflict(
+        ACTION_TELEPROMPTER_CLOSE,
+        "Space",
+        ACTION_SEND,
+        "Space"
+    ));
 }
 
 #[test]
 fn stream_cancel_shares_escape_with_the_other_transient_scopes() {
-    assert!(!conflict(ACTION_CANCEL_STREAM, "Escape", ACTION_CANCEL_RECORDING, "Escape"));
-    assert!(!conflict(ACTION_CANCEL_STREAM, "Escape", ACTION_TELEPROMPTER_CLOSE, "Escape"));
-    assert!(conflict(ACTION_CANCEL_STREAM, "Escape", ACTION_TOGGLE_WINDOW, "Escape"));
+    assert!(!conflict(
+        ACTION_CANCEL_STREAM,
+        "Escape",
+        ACTION_CANCEL_RECORDING,
+        "Escape"
+    ));
+    assert!(!conflict(
+        ACTION_CANCEL_STREAM,
+        "Escape",
+        ACTION_TELEPROMPTER_CLOSE,
+        "Escape"
+    ));
+    assert!(conflict(
+        ACTION_CANCEL_STREAM,
+        "Escape",
+        ACTION_TOGGLE_WINDOW,
+        "Escape"
+    ));
 }
 
 #[test]
@@ -174,11 +255,17 @@ fn normalize_drops_unknown_actions_and_duplicate_entries() {
 
 #[test]
 fn normalize_gives_a_combo_to_the_latest_claimant() {
-    let mut bindings =
-        vec![binding(ACTION_TOGGLE_WINDOW, "Cmd+Shift+X"), binding(ACTION_RECORD, "Cmd+Shift+X")];
+    let mut bindings = vec![
+        binding(ACTION_TOGGLE_WINDOW, "Cmd+Shift+X"),
+        binding(ACTION_RECORD, "Cmd+Shift+X"),
+    ];
     normalize(&mut bindings);
     assert_eq!(effective(&bindings, ACTION_RECORD), "Cmd+Shift+X");
-    assert_eq!(effective(&bindings, ACTION_TOGGLE_WINDOW), "", "прежний владелец остаётся без хоткея");
+    assert_eq!(
+        effective(&bindings, ACTION_TOGGLE_WINDOW),
+        "",
+        "прежний владелец остаётся без хоткея"
+    );
 }
 
 #[test]
@@ -212,14 +299,20 @@ fn migration_moves_legacy_fields_and_skips_untouched_defaults() {
     });
     migrate_legacy_fields(&mut raw);
     let object = raw.as_object().unwrap();
-    assert!(!object.contains_key("hotkey"), "старые поля убираются из json");
+    assert!(
+        !object.contains_key("hotkey"),
+        "старые поля убираются из json"
+    );
     assert_eq!(object.get("theme").and_then(|v| v.as_str()), Some("black"));
 
     let bindings: Vec<HotkeyBinding> =
         serde_json::from_value(object.get("hotkeys").cloned().unwrap()).unwrap();
     assert_eq!(
         bindings,
-        vec![binding(ACTION_RECORD, "Cmd+Shift+X"), binding(ACTION_SCREENSHOT, "Cmd+Shift+A")]
+        vec![
+            binding(ACTION_RECORD, "Cmd+Shift+X"),
+            binding(ACTION_SCREENSHOT, "Cmd+Shift+A")
+        ]
     );
 }
 
@@ -247,11 +340,17 @@ fn malformed_bindings_are_dropped_and_a_non_array_field_is_removed() {
         ]
     });
     drop_malformed_bindings(&mut raw);
-    assert_eq!(raw["hotkeys"], serde_json::json!([{"action": "record", "combo": "F8"}]));
+    assert_eq!(
+        raw["hotkeys"],
+        serde_json::json!([{"action": "record", "combo": "F8"}])
+    );
 
     let mut raw = serde_json::json!({"hotkeys": "F8"});
     drop_malformed_bindings(&mut raw);
-    assert!(raw.get("hotkeys").is_none(), "поле не того типа убирается целиком");
+    assert!(
+        raw.get("hotkeys").is_none(),
+        "поле не того типа убирается целиком"
+    );
 
     let mut raw = serde_json::json!({"auto_send": true});
     drop_malformed_bindings(&mut raw);
@@ -271,7 +370,12 @@ fn modifier_aliases_resolve_to_the_canonical_tokens() {
     assert_eq!(canonical_modifier("shift"), Some(MODIFIER_SHIFT));
     assert_eq!(canonical_modifier("Fn"), None);
     assert!(conflict(ACTION_RECORD, "Control+S", ACTION_SEND, "Ctrl+S"));
-    assert!(conflict(ACTION_RECORD, "Command+Option+S", ACTION_SEND, "Alt+Cmd+S"));
+    assert!(conflict(
+        ACTION_RECORD,
+        "Command+Option+S",
+        ACTION_SEND,
+        "Alt+Cmd+S"
+    ));
 }
 
 #[test]

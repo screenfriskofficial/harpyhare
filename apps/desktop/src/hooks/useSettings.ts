@@ -11,6 +11,7 @@ import { useSettingsStore, type LatePatch } from "@/hooks/useSettingsStore";
 import { applyUiLanguage } from "@/i18n";
 import type { Settings } from "@/ipc/types";
 import { onSaveError, SETTINGS_SUBJECT } from "@/lib/persist-errors";
+import { clampPreviewWidth } from "@/lib/shell-layout";
 import {
   applyChatFontSize,
   applyOpacity,
@@ -32,6 +33,8 @@ export interface SettingsApi {
   bumpChatFontSize: (dir: 1 | -1) => void;
   bumpWindowSize: (dim: WindowDimension, dir: 1 | -1) => void;
   applyNativeWindowSize: (width: number, height: number) => void;
+  /** Preview panel width: the edge dragged with the mouse, clamped to the current window. */
+  setPreviewWidth: (width: number) => void;
   /** Немедленная запись отложенного патча; реджектит при сбое диска. */
   flush: () => Promise<void>;
 }
@@ -173,6 +176,23 @@ function useApplyNativeWindowSize(
   );
 }
 
+function useSetPreviewWidth(
+  setSettings: Dispatch<SetStateAction<Settings>>,
+  schedulePersist: (patch: Partial<Settings>) => void,
+): (width: number) => void {
+  return useCallback(
+    (width) => {
+      setSettings((prev) => {
+        const next = clampPreviewWidth(width, prev.window_width);
+        if (next === prev.preview_width) return prev;
+        schedulePersist({ preview_width: next });
+        return { ...prev, preview_width: next };
+      });
+    },
+    [setSettings, schedulePersist],
+  );
+}
+
 export function useSettings(): SettingsApi {
   const {
     settings,
@@ -198,6 +218,7 @@ export function useSettings(): SettingsApi {
   const bumpChatFontSize = useBumpChatFontSize(setSettings, schedule);
   const bumpWindowSize = useBumpWindowSize(setSettings, schedule);
   const applyNativeWindowSize = useApplyNativeWindowSize(setSettings, schedule);
+  const setPreviewWidth = useSetPreviewWidth(setSettings, schedule);
 
   return {
     settings,
@@ -207,6 +228,7 @@ export function useSettings(): SettingsApi {
     bumpChatFontSize,
     bumpWindowSize,
     applyNativeWindowSize,
+    setPreviewWidth,
     flush,
   };
 }

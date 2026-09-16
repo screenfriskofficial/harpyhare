@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { internalError, isNetworkError, isRetryable, type AppError } from "./errors";
+import { errorMessage, internalError, isNetworkError, isRetryable, type AppError } from "./errors";
 
 const err = (code: AppError["code"]): AppError => ({ code, message: "текст" });
 
@@ -29,5 +29,18 @@ describe("isNetworkError", () => {
 describe("internalError", () => {
   it("заворачивает произвольный текст во внутренний код", () => {
     expect(internalError("сломалось")).toEqual({ code: "internal", message: "сломалось" });
+  });
+});
+
+describe("errorMessage", () => {
+  it("берёт message у Error и у AppError", () => {
+    expect(errorMessage(new Error("упало"))).toBe("упало");
+    expect(errorMessage({ code: "api", message: "отказ" })).toBe("отказ");
+  });
+
+  it("строку отдаёт как есть, остальное приводит к строке", () => {
+    expect(errorMessage("текст")).toBe("текст");
+    expect(errorMessage(42)).toBe("42");
+    expect(errorMessage(null)).toBe("null");
   });
 });

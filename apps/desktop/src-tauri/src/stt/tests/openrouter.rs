@@ -1,4 +1,4 @@
-use super::*;
+use super::super::*;
 use wiremock::matchers::{header, method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 

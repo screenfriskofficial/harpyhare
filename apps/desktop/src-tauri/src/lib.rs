@@ -13,7 +13,9 @@ pub mod events;
 pub mod global_shortcuts;
 pub mod hotkeys;
 pub mod llm;
+pub mod net;
 pub mod permissions;
+pub mod pipeline;
 pub mod platform;
 pub mod preferences;
 pub mod preflight;
@@ -41,7 +43,6 @@ use crate::app_state::App;
 
 const PREVIEW_URI_SCHEME: &str = "preview";
 
-#[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let specta_builder = bindings::builder();
     tauri::Builder::default()
@@ -64,7 +65,9 @@ pub fn run() {
         })
         .invoke_handler(specta_builder.invoke_handler())
         .on_window_event(|window, event| {
-            if window.label() == "launcher" && matches!(event, tauri::WindowEvent::Destroyed) {
+            if window.label() == window::LAUNCHER_WINDOW_LABEL
+                && matches!(event, tauri::WindowEvent::Destroyed)
+            {
                 preflight::cancel_active(window.app_handle());
             }
         })
@@ -74,6 +77,7 @@ pub fn run() {
 
 fn setup_app(handle: &AppHandle) {
     handle.manage(preflight::PreflightState::default());
+    handle.manage(pipeline::PipelineState::default());
     // Провайдер rustls нужен до первого TLS-клиента, а их здесь строит и
     // апдейтер (свой reqwest внутри плагина), который через `tls` не ходит.
     tls::ensure_crypto_provider();

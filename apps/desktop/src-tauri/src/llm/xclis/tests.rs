@@ -1,6 +1,27 @@
 use super::*;
+use crate::llm::test_support::{user, CollectingSink};
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
+
+#[test]
+fn incomplete_finish_reasons_are_incomplete_answers_instead_of_successful_partial_text() {
+    for reason in ["length", "content_filter", "tool_calls", "unknown"] {
+        let event = json!({"choices": [{"delta": {}, "finish_reason": reason}]});
+        assert!(
+            matches!(
+                parse_block(&event.to_string()).as_slice(),
+                [SseOut::Incomplete(_)]
+            ),
+            "reason: {reason}"
+        );
+    }
+}
+
+#[test]
+fn reasoning_without_an_answer_is_not_a_successful_json_completion() {
+    let value = json!({"choices": [{"message": {"content": "", "reasoning_content": "unfinished reasoning"}}]});
+    assert!(XclisClient::completion_text(&value).is_empty());
+}
 
 fn test_client(base_url: &str) -> XclisClient {
     let spec = crate::llm::registry::spec(PROVIDER_XCLIS).expect("Xclis provider");
@@ -11,27 +32,15 @@ fn served_of(ids: &[&str]) -> Vec<String> {
     ids.iter().map(|s| s.to_string()).collect()
 }
 
-#[derive(Default)]
-struct TestSink {
-    text: String,
-    input_tokens: Vec<u32>,
-}
-
-impl LlmStreamSink for TestSink {
-    fn text_delta(&mut self, delta: &str) {
-        self.text.push_str(delta);
-    }
-    fn input_tokens(&mut self, total: u32) {
-        self.input_tokens.push(total);
-    }
-}
-
 fn request(model: &str, thinking: bool) -> LlmRequest {
     LlmRequest {
         model: model.into(),
         system: String::new(),
-        messages: vec![ChatMessage { role: "user".into(), text: "q".into(), images: vec![] }],
-        options: crate::llm::RequestOptions { thinking, web_search: false },
+        messages: vec![user("q")],
+        options: crate::llm::RequestOptions {
+            thinking,
+            web_search: false,
+        },
     }
 }
 
@@ -47,8 +56,7 @@ impl wiremock::Match for BodyModelIs {
     }
 }
 
-const REJECTION_BODY: &str =
-    r#"{"error":{"message":"Model \"dead\" is not supported by any configured account in this group"}}"#;
+const REJECTION_BODY: &str = r#"{"error":{"message":"Model \"dead\" is not supported by any configured account in this group"}}"#;
 const EMPTY_BODY_ERROR: &str =
     r#"{"error":{"message":"messages: all messages have empty content"}}"#;
 
@@ -73,8 +81,14 @@ fn the_namespace_is_the_offline_ownership_claim() {
     let client = test_client("http://127.0.0.1:1");
     assert!(client.owns_model("xclis/claude-opus-4-6"));
     assert!(client.owns_model("xclis/anything-the-group-serves"));
-    assert!(!client.owns_model("claude-opus-4-6"), "чужие модели агрегатор не присваивает");
-    assert!(client.known_models().is_empty(), "офлайн-каталог по-прежнему пуст");
+    assert!(
+        !client.owns_model("claude-opus-4-6"),
+        "чужие модели агрегатор не присваивает"
+    );
+    assert!(
+        client.known_models().is_empty(),
+        "офлайн-каталог по-прежнему пуст"
+    );
 }
 
 /// До прихода живого каталога суффикс не дописывается НИКОМУ: вшитый список
@@ -85,8 +99,14 @@ fn the_namespace_is_the_offline_ownership_claim() {
 #[test]
 fn thinking_suffix_is_not_guessed_before_live_models_arrive() {
     let client = test_client("http://127.0.0.1:1");
-    assert_eq!(client.selected_model("xclis/claude-sonnet-5", true), "claude-sonnet-5");
-    assert_eq!(client.selected_model("xclis/gpt-5.6-sol", true), "gpt-5.6-sol");
+    assert_eq!(
+        client.selected_model("xclis/claude-sonnet-5", true),
+        "claude-sonnet-5"
+    );
+    assert_eq!(
+        client.selected_model("xclis/gpt-5.6-sol", true),
+        "gpt-5.6-sol"
+    );
 }
 
 /// А пришедший каталог включает суффикс ровно там, где двойник реально есть.
@@ -105,8 +125,14 @@ fn thinking_suffix_follows_the_shared_catalog() {
     let shared: ModelCatalog =
         Arc::new(Mutex::new(XclisClient::models_from(&live_catalog, &served)));
     let client = test_client("http://127.0.0.1:1").with_catalog(Arc::clone(&shared));
-    assert_eq!(client.selected_model("xclis/claude-opus-4-6", true), "claude-opus-4-6-thinking");
-    assert_eq!(client.selected_model("xclis/claude-sonnet-5", true), "claude-sonnet-5");
+    assert_eq!(
+        client.selected_model("xclis/claude-opus-4-6", true),
+        "claude-opus-4-6-thinking"
+    );
+    assert_eq!(
+        client.selected_model("xclis/claude-sonnet-5", true),
+        "claude-sonnet-5"
+    );
 
     let rebuilt = test_client("http://127.0.0.1:1").with_catalog(shared);
     assert_eq!(
@@ -137,9 +163,14 @@ async fn advertised_but_unserved_models_are_dropped_from_the_catalog() {
 
     let client = test_client(&server.uri());
     let catalog = json!({"data": [{"id": "alive"}, {"id": "dead"}]});
-    let served = client.served_ids(XclisClient::advertised_ids(&catalog)).await;
+    let served = client
+        .served_ids(XclisClient::advertised_ids(&catalog))
+        .await;
     let models = XclisClient::models_from(&catalog, &served);
-    assert_eq!(models.iter().map(|m| m.id.as_str()).collect::<Vec<_>>(), ["xclis/alive"]);
+    assert_eq!(
+        models.iter().map(|m| m.id.as_str()).collect::<Vec<_>>(),
+        ["xclis/alive"]
+    );
 }
 
 /// Вердикт живёт: второй `list_models` не шлёт ни одной пробы, пока TTL свеж.
@@ -177,10 +208,15 @@ fn thinking_capability_ignores_advertised_but_dead_twins() {
     // Живыми оказались базовые и только один из двух суффиксных.
     let served = served_of(&["opus", "opus-thinking", "sonnet"]);
     let models = XclisClient::models_from(&catalog, &served);
-    let adaptive: Vec<(&str, bool)> =
-        models.iter().map(|m| (m.id.as_str(), m.adaptive)).collect();
-    assert!(adaptive.contains(&("xclis/opus", true)), "живой двойник — способность есть");
-    assert!(adaptive.contains(&("xclis/sonnet", false)), "мёртвый двойник — способности нет");
+    let adaptive: Vec<(&str, bool)> = models.iter().map(|m| (m.id.as_str(), m.adaptive)).collect();
+    assert!(
+        adaptive.contains(&("xclis/opus", true)),
+        "живой двойник — способность есть"
+    );
+    assert!(
+        adaptive.contains(&("xclis/sonnet", false)),
+        "мёртвый двойник — способности нет"
+    );
 }
 
 /// Отказ в бою правит общий каталог: мёртвый двойник снимает способность
@@ -202,22 +238,40 @@ async fn a_rejection_in_flight_fixes_the_shared_catalog_and_is_remembered() {
     let client = test_client(&server.uri()).with_catalog(Arc::clone(&shared));
 
     let err = client
-        .stream(request("xclis/opus", true), CancellationToken::new(), &mut TestSink::default())
+        .stream(
+            request("xclis/opus", true),
+            CancellationToken::new(),
+            &mut CollectingSink::default(),
+        )
         .await
         .unwrap_err();
     assert!(matches!(err, LlmError::Api(_)), "got: {err:?}");
     {
         let catalog = shared.lock().unwrap();
-        let opus = catalog.iter().find(|m| m.id == "xclis/opus").expect("базовая осталась");
-        assert!(!opus.adaptive, "мёртвый двойник снимает способность рассуждать");
+        let opus = catalog
+            .iter()
+            .find(|m| m.id == "xclis/opus")
+            .expect("базовая осталась");
+        assert!(
+            !opus.adaptive,
+            "мёртвый двойник снимает способность рассуждать"
+        );
     }
     assert_eq!(client.cached_verdict("opus-thinking"), Some(false));
 
     client
-        .stream(request("xclis/sonnet", false), CancellationToken::new(), &mut TestSink::default())
+        .stream(
+            request("xclis/sonnet", false),
+            CancellationToken::new(),
+            &mut CollectingSink::default(),
+        )
         .await
         .unwrap_err();
-    assert!(shared.lock().unwrap().iter().all(|m| m.id != "xclis/sonnet"));
+    assert!(shared
+        .lock()
+        .unwrap()
+        .iter()
+        .all(|m| m.id != "xclis/sonnet"));
     assert_eq!(
         client.served_ids(served_of(&["sonnet"])).await,
         Vec::<String>::new(),
@@ -231,12 +285,14 @@ async fn a_rejection_in_flight_fixes_the_shared_catalog_and_is_remembered() {
 async fn unreachable_vendor_keeps_the_advertised_models() {
     let client = test_client("http://127.0.0.1:1");
     let catalog = json!({"data": [{"id": "alive"}]});
-    let served = client.served_ids(XclisClient::advertised_ids(&catalog)).await;
+    let served = client
+        .served_ids(XclisClient::advertised_ids(&catalog))
+        .await;
     assert_eq!(XclisClient::models_from(&catalog, &served).len(), 1);
 }
 
 #[test]
-fn chat_completion_chunks_carry_text_usage_and_a_soft_end() {
+fn chat_completion_chunks_carry_text_and_a_soft_end_and_skip_usage() {
     let mut parser = SseParser::with_block_parser(parse_block);
     let events = parser.feed_bytes(
         b"data: {\"choices\":[{\"delta\":{\"content\":\"ok\"},\"finish_reason\":\"stop\"}]}\r\n\r\ndata: {\"choices\":[],\"usage\":{\"prompt_tokens\":42}}\r\n\r\ndata: [DONE]\r\n\r\n",
@@ -246,25 +302,27 @@ fn chat_completion_chunks_carry_text_usage_and_a_soft_end() {
         vec![
             SseOut::TextDelta("ok".into()),
             SseOut::Finished,
-            SseOut::InputTokens(42),
-            SseOut::Done(None)
+            SseOut::Done
         ]
     );
 }
 
 #[test]
-fn stream_requests_usage_and_never_web_search() {
+fn stream_body_asks_for_no_usage_and_never_web_search() {
     let client = test_client("http://127.0.0.1:1");
     let body = client.chat_body(&request("xclis/opus", false)).unwrap();
-    assert_eq!(body["stream_options"]["include_usage"], true);
+    assert!(body["stream_options"].is_null());
     assert_eq!(body["model"], "opus");
     let mut with_search = request("xclis/opus", false);
     with_search.options.web_search = true;
-    assert!(matches!(client.chat_body(&with_search), Err(LlmError::Api(_))));
+    assert!(matches!(
+        client.chat_body(&with_search),
+        Err(LlmError::Api(_))
+    ));
 }
 
-/// Usage-чанк приходит ПОСЛЕ `finish_reason`: остановка на нём теряла бы
-/// токены, а EOF после `finish_reason` без `[DONE]` — штатный конец.
+/// A usage chunk may follow `finish_reason`; it is read past and ignored, and
+/// EOF after `finish_reason` without `[DONE]` is a normal end.
 #[tokio::test]
 async fn stream_keeps_reading_after_finish_reason_and_accepts_eof_without_done() {
     let server = MockServer::start().await;
@@ -279,13 +337,16 @@ async fn stream_keeps_reading_after_finish_reason_and_accepts_eof_without_done()
         .mount(&server)
         .await;
     let client = test_client(&server.uri());
-    let mut sink = TestSink::default();
+    let mut sink = CollectingSink::default();
     client
-        .stream(request("xclis/opus", false), CancellationToken::new(), &mut sink)
+        .stream(
+            request("xclis/opus", false),
+            CancellationToken::new(),
+            &mut sink,
+        )
         .await
         .unwrap();
     assert_eq!(sink.text, "Привет");
-    assert_eq!(sink.input_tokens, vec![7]);
 }
 
 /// Шлюз иногда игнорирует `stream: true` и отвечает обычным JSON.
@@ -301,13 +362,39 @@ async fn a_plain_json_answer_is_delivered_as_one_delta() {
         .mount(&server)
         .await;
     let client = test_client(&server.uri());
-    let mut sink = TestSink::default();
+    let mut sink = CollectingSink::default();
     client
-        .stream(request("xclis/opus", false), CancellationToken::new(), &mut sink)
+        .stream(
+            request("xclis/opus", false),
+            CancellationToken::new(),
+            &mut sink,
+        )
         .await
         .unwrap();
     assert_eq!(sink.text, "целиком");
-    assert_eq!(sink.input_tokens, vec![5]);
+}
+
+#[tokio::test]
+async fn truncated_json_answer_is_rejected_before_delivering_its_text() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path(CHAT_COMPLETIONS_PATH))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "choices": [{"message": {"content": "partial"}, "finish_reason": "length"}]
+        })))
+        .mount(&server)
+        .await;
+    let mut sink = CollectingSink::default();
+    let error = test_client(&server.uri())
+        .stream(
+            request("xclis/opus", false),
+            CancellationToken::new(),
+            &mut sink,
+        )
+        .await
+        .unwrap_err();
+    assert!(matches!(error, LlmError::Incomplete(_)));
+    assert!(sink.text.is_empty());
 }
 
 /// «Стоп» на нестриминговом ответе не ждёт всё тело.
@@ -328,15 +415,22 @@ async fn cancel_interrupts_a_slow_json_answer() {
     cancel.cancel();
     let started = Instant::now();
     let err = client
-        .stream(request("xclis/opus", false), cancel, &mut TestSink::default())
+        .stream(
+            request("xclis/opus", false),
+            cancel,
+            &mut CollectingSink::default(),
+        )
         .await
         .unwrap_err();
     assert!(matches!(err, LlmError::Cancelled));
-    assert!(started.elapsed() < Duration::from_secs(2), "отмена не должна ждать тело");
+    assert!(
+        started.elapsed() < Duration::from_secs(2),
+        "отмена не должна ждать тело"
+    );
 }
 
 #[tokio::test]
-async fn catalog_and_token_counter_use_the_anthropic_shaped_credentials() {
+async fn catalog_uses_the_anthropic_shaped_credentials() {
     use wiremock::matchers::header;
     let server = MockServer::start().await;
     Mock::given(method("GET"))
@@ -351,14 +445,10 @@ async fn catalog_and_token_counter_use_the_anthropic_shaped_credentials() {
         .respond_with(ResponseTemplate::new(400).set_body_string(EMPTY_BODY_ERROR))
         .mount(&server)
         .await;
-    Mock::given(method("POST"))
-        .and(path(COUNT_TOKENS_PATH))
-        .and(header("x-api-key", "key"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({"input_tokens": 12})))
-        .mount(&server)
-        .await;
     let client = test_client(&server.uri());
     let models = client.list_models().await.unwrap();
-    assert_eq!(models.iter().map(|m| m.id.as_str()).collect::<Vec<_>>(), ["xclis/opus"]);
-    assert_eq!(client.count_tokens(request("xclis/opus", false)).await.unwrap(), 12);
+    assert_eq!(
+        models.iter().map(|m| m.id.as_str()).collect::<Vec<_>>(),
+        ["xclis/opus"]
+    );
 }

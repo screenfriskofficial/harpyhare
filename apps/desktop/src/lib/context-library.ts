@@ -134,6 +134,12 @@ export function isPdfFileName(fileName: string): boolean {
   return /\.pdf$/i.test(fileName.trim());
 }
 
+/**
+ * The subset of `selectedIds` that still names a document. Ids go stale when a
+ * material is deleted or re-imported (a new UUID) in the launcher; every place
+ * that counts or shows «context attached» must look at this, not at the raw
+ * list, or it promises material the prompt never receives.
+ */
 export function libraryContextBlocks(lib: ContextLibrary, selectedIds: string[]): string[] {
   const byId = new Map(lib.docs.map((d) => [d.id, d]));
   return selectedIds

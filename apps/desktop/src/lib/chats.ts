@@ -1,6 +1,7 @@
 import { t } from "@/i18n";
 import type { Attachment, ImagePayload } from "@/lib/composer";
 import { DEFAULT_MODEL } from "@/lib/models";
+import type { PreparedContext } from "@/lib/pipeline-types";
 import { isRecord } from "@/lib/utils";
 
 export const CHAT_LIMIT = 6;
@@ -14,6 +15,13 @@ export interface ChatMessage {
   role: Role;
   text: string;
   images: ImagePayload[];
+  /**
+   * How many images this message carried before a restart dropped them.
+   * `serializeChats` strips image bytes to keep `chats.json` small; the bubble
+   * uses this count to say so, instead of silently showing text alone as if
+   * the model had never been shown anything.
+   */
+  droppedImages?: number;
 }
 
 export interface RequestOptions {
@@ -33,8 +41,15 @@ export interface Chat {
   model: string;
   webSearch: boolean;
   context: string;
-  libraryDocIds: string[];
-  lastInputTokens: number;
+  promptPipelineId?: string;
+  messagePipelineId?: string;
+  preparedPrompt?: PreparedPrompt;
+}
+
+/** A chat's cached preparation: reused while the fingerprint of everything the pipeline read still matches. */
+export interface PreparedPrompt extends PreparedContext {
+  pipelineId: string;
+  fingerprint: string;
 }
 
 const NEW_CHAT_DEFAULTS = {
@@ -45,7 +60,6 @@ const NEW_CHAT_DEFAULTS = {
   model: DEFAULT_MODEL,
   webSearch: false,
   context: "",
-  lastInputTokens: 0,
 } satisfies Partial<Chat>;
 
 function uid(): string {
@@ -63,7 +77,6 @@ export function createChat(index: number, id: string = uid()): Chat {
     messages: [],
     draftAttachments: [],
     // Массивы — свои у каждого чата: общая ссылка из константы делила бы их между чатами.
-    libraryDocIds: [],
     ...NEW_CHAT_DEFAULTS,
   };
 }
@@ -79,7 +92,9 @@ export function createChatFrom(source: Chat, index: number, id: string = uid()):
     model: source.model,
     webSearch: source.webSearch,
     context: source.context,
-    libraryDocIds: [...source.libraryDocIds],
+    promptPipelineId: source.promptPipelineId,
+    messagePipelineId: source.messagePipelineId,
+    preparedPrompt: source.preparedPrompt,
   };
 }
 
@@ -93,10 +108,16 @@ export type ChatPatch = Partial<
     | "model"
     | "webSearch"
     | "context"
-    | "libraryDocIds"
-    | "lastInputTokens"
+    | "promptPipelineId"
+    | "messagePipelineId"
+    | "preparedPrompt"
   >
 >;
+
+/** Present only when there is something to report: a zero would only bloat the file. */
+function droppedImagesField(count: number): Pick<ChatMessage, "droppedImages"> {
+  return count > 0 ? { droppedImages: count } : {};
+}
 
 export function chatRequestOptions(chat: Chat): RequestOptions {
   return { thinking: chat.thinkingEnabled, webSearch: chat.webSearch };
@@ -122,9 +143,15 @@ export function serializeChats(chats: Chat[]): string {
     model: c.model,
     webSearch: c.webSearch,
     context: c.context,
-    libraryDocIds: c.libraryDocIds,
-    lastInputTokens: c.lastInputTokens,
-    messages: c.messages.map((m) => ({ role: m.role, text: m.text, images: [] })),
+    promptPipelineId: c.promptPipelineId,
+    messagePipelineId: c.messagePipelineId,
+    preparedPrompt: c.preparedPrompt,
+    messages: c.messages.map((m) => ({
+      role: m.role,
+      text: m.text,
+      images: [],
+      ...droppedImagesField(m.images.length + (m.droppedImages ?? 0)),
+    })),
     draft: c.draft,
     draftAttachments: [],
   }));
@@ -134,10 +161,15 @@ export function serializeChats(chats: Chat[]): string {
 function restoreMessage(raw: unknown): ChatMessage | null {
   if (!isRecord(raw)) return null;
   const m = raw as Partial<ChatMessage>;
+  const dropped =
+    typeof m.droppedImages === "number" && Number.isFinite(m.droppedImages)
+      ? Math.max(0, Math.floor(m.droppedImages))
+      : 0;
   return {
     role: m.role === "assistant" ? "assistant" : "user",
     text: typeof m.text === "string" ? m.text : "",
     images: [],
+    ...droppedImagesField(dropped),
   };
 }
 
@@ -149,6 +181,9 @@ function restoreChat(c: unknown): Chat | null {
     title: typeof o.title === "string" ? o.title : t("chats.untitled"),
     titlePinned: typeof o.titlePinned === "boolean" ? o.titlePinned : NEW_CHAT_DEFAULTS.titlePinned,
     presetId: typeof o.presetId === "string" ? o.presetId : NO_PRESET_ID,
+    promptPipelineId: restorePipelineId(o.promptPipelineId),
+    messagePipelineId: restorePipelineId(o.messagePipelineId),
+    preparedPrompt: restorePreparedPrompt(o.preparedPrompt),
     thinkingEnabled:
       typeof o.thinkingEnabled === "boolean"
         ? o.thinkingEnabled
@@ -156,18 +191,34 @@ function restoreChat(c: unknown): Chat | null {
     model: typeof o.model === "string" && o.model !== "" ? o.model : NEW_CHAT_DEFAULTS.model,
     webSearch: typeof o.webSearch === "boolean" ? o.webSearch : NEW_CHAT_DEFAULTS.webSearch,
     context: typeof o.context === "string" ? o.context : NEW_CHAT_DEFAULTS.context,
-    libraryDocIds: Array.isArray(o.libraryDocIds)
-      ? o.libraryDocIds.filter((id): id is string => typeof id === "string")
-      : [],
-    lastInputTokens:
-      typeof o.lastInputTokens === "number" && Number.isFinite(o.lastInputTokens)
-        ? Math.max(0, o.lastInputTokens)
-        : 0,
     messages: Array.isArray(o.messages)
       ? o.messages.flatMap((m: unknown) => restoreMessage(m) ?? [])
       : [],
     draft: typeof o.draft === "string" ? o.draft : NEW_CHAT_DEFAULTS.draft,
     draftAttachments: [],
+  };
+}
+
+/** "No pipeline" is the absent field; an empty id written by an older build reads the same. */
+function restorePipelineId(raw: unknown): string | undefined {
+  return typeof raw === "string" && raw !== "" ? raw : undefined;
+}
+
+function restorePreparedPrompt(raw: unknown): PreparedPrompt | undefined {
+  if (!isRecord(raw)) return undefined;
+  const value = raw as Partial<PreparedPrompt>;
+  if (
+    typeof value.pipelineId !== "string" ||
+    typeof value.fingerprint !== "string" ||
+    typeof value.text !== "string" ||
+    !Array.isArray(value.keywordSources)
+  )
+    return undefined;
+  return {
+    pipelineId: value.pipelineId,
+    fingerprint: value.fingerprint,
+    text: value.text,
+    keywordSources: value.keywordSources.filter((item): item is string => typeof item === "string"),
   };
 }
 

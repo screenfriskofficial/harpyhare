@@ -111,7 +111,11 @@ pub fn hide_from_window_switcher(app: &AppHandle) {
             0,
         );
         let current = GetWindowLongPtrW(hwnd, GWL_EXSTYLE) as u32;
-        SetWindowLongPtrW(hwnd, GWL_EXSTYLE, switcher_hidden_ex_style(current) as isize);
+        SetWindowLongPtrW(
+            hwnd,
+            GWL_EXSTYLE,
+            switcher_hidden_ex_style(current) as isize,
+        );
         // The new frame style is applied only once the window is told the
         // frame changed.
         let _ = SetWindowPos(
@@ -256,4 +260,13 @@ pub fn open_url(url: &str) {
 
 pub fn open_microphone_privacy_pane() {
     open_audio_capture_privacy_pane();
+}
+
+/// No preflight on Windows: WASAPI reports a denied device when it is opened.
+pub fn microphone_capture_access() -> Option<bool> {
+    Some(true)
+}
+
+pub async fn request_microphone_capture_access() -> Result<bool, String> {
+    Ok(true)
 }

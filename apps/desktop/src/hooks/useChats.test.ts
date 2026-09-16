@@ -14,13 +14,21 @@ vi.mock("@/lib/notify", () => ({
   },
 }));
 
-import { CHAT_LIMIT } from "@/lib/chats";
+import { CHAT_LIMIT, type PreparedPrompt } from "@/lib/chats";
 import type { Attachment } from "@/lib/composer";
+import { DEFAULT_MODEL } from "@/lib/models";
 import { useChats } from "./useChats";
 
 const ATTACHMENT: Attachment = {
   payload: { media_type: "image/png", data: "AAAA" },
   preview: "data:image/png;base64,AAAA",
+};
+
+const PREPARED_PROMPT: PreparedPrompt = {
+  pipelineId: "prepare-context",
+  fingerprint: "source-revision",
+  text: "готовый системный промпт",
+  keywordSources: ["[keywords]: [Rust]"],
 };
 
 beforeEach(() => {
@@ -61,6 +69,119 @@ describe("useChats", () => {
     expect(result.current.chats.length).toBe(CHAT_LIMIT);
   });
 
+  it("newChat наследует препромпт и выбор схем, но не контекст или подготовленный снимок", async () => {
+    const { result } = renderHook(() => useChats());
+    await waitFor(() => {
+      expect(result.current.chats.length).toBe(1);
+    });
+    const sourceId = result.current.activeId;
+    act(() => {
+      result.current.patchChat(sourceId, {
+        presetId: "golang",
+        model: "claude-opus-4-8",
+        thinkingEnabled: true,
+        context: "справка",
+        promptPipelineId: PREPARED_PROMPT.pipelineId,
+        messagePipelineId: "process-message",
+        preparedPrompt: PREPARED_PROMPT,
+      });
+    });
+    act(() => {
+      result.current.newChat();
+    });
+    const fresh = result.current.active;
+    expect(fresh.id).not.toBe(sourceId);
+    expect(fresh.presetId).toBe("golang");
+    expect(fresh.promptPipelineId).toBe(PREPARED_PROMPT.pipelineId);
+    expect(fresh.messagePipelineId).toBe("process-message");
+    expect(fresh.preparedPrompt).toBeUndefined();
+    expect(fresh.model).toBe(DEFAULT_MODEL);
+    expect(fresh.thinkingEnabled).toBe(false);
+    expect(fresh.context).toBe("");
+  });
+
+  it("newChat берёт выбор схем именно из активного чата после переключения", async () => {
+    const { result } = renderHook(() => useChats());
+    await waitFor(() => {
+      expect(result.current.chats.length).toBe(1);
+    });
+    const firstId = result.current.activeId;
+    act(() => {
+      result.current.patchChat(firstId, {
+        promptPipelineId: "prepare-first",
+        messagePipelineId: "answer-first",
+      });
+    });
+    act(() => {
+      result.current.newChat();
+    });
+    const secondId = result.current.activeId;
+    act(() => {
+      result.current.patchChat(secondId, {
+        promptPipelineId: "prepare-second",
+        messagePipelineId: "answer-second",
+      });
+    });
+    act(() => {
+      result.current.selectChat(firstId);
+    });
+    act(() => {
+      result.current.newChat();
+    });
+    expect(result.current.active.promptPipelineId).toBe("prepare-first");
+    expect(result.current.active.messagePipelineId).toBe("answer-first");
+    expect(result.current.active.preparedPrompt).toBeUndefined();
+  });
+
+  it("duplicateChat сохраняет снимок подготовки при последующей замене снимка исходного чата", async () => {
+    const { result } = renderHook(() => useChats());
+    await waitFor(() => {
+      expect(result.current.chats.length).toBe(1);
+    });
+    const sourceId = result.current.activeId;
+    act(() => {
+      result.current.patchChat(sourceId, {
+        promptPipelineId: PREPARED_PROMPT.pipelineId,
+        messagePipelineId: "process-message",
+        preparedPrompt: PREPARED_PROMPT,
+      });
+      result.current.appendUserMessage(sourceId, "исходная история", []);
+    });
+    act(() => {
+      result.current.duplicateChat(sourceId);
+    });
+    const copyId = result.current.activeId;
+    expect(result.current.active.promptPipelineId).toBe(PREPARED_PROMPT.pipelineId);
+    expect(result.current.active.messagePipelineId).toBe("process-message");
+    expect(result.current.active.preparedPrompt).toEqual(PREPARED_PROMPT);
+    expect(result.current.active.messages).toEqual([]);
+    act(() => {
+      result.current.patchChat(sourceId, {
+        preparedPrompt: { ...PREPARED_PROMPT, fingerprint: "new-revision", text: "новый промпт" },
+      });
+    });
+    expect(result.current.chats.find((chat) => chat.id === copyId)?.preparedPrompt).toEqual(
+      PREPARED_PROMPT,
+    );
+  });
+
+  it("нечитаемый chats.json: тост, свежий чат в памяти и ни одной записи на диск", async () => {
+    loadChats.mockRejectedValue(new Error("EACCES"));
+    const { result } = renderHook(() => useChats());
+    await waitFor(() => {
+      expect(result.current.chats.length).toBe(1);
+    });
+    expect(result.current.activeId).not.toBe("");
+    expect(notify).toHaveBeenCalledTimes(1);
+    act(() => {
+      result.current.appendUserMessage(result.current.activeId, "вопрос", []);
+    });
+    act(() => {
+      vi.advanceTimersByTime(2000);
+    });
+    expect(saveChats).not.toHaveBeenCalled();
+  });
+
   it("duplicateChat создаёт чистый чат с настройками исходного и уважает лимит", async () => {
     const { result } = renderHook(() => useChats());
     await waitFor(() => {
@@ -75,7 +196,6 @@ describe("useChats", () => {
         webSearch: true,
         presetId: "golang",
         context: "справка",
-        libraryDocIds: ["doc-1"],
         draft: "недописанное",
       });
     });
@@ -93,7 +213,6 @@ describe("useChats", () => {
     expect(copy.webSearch).toBe(true);
     expect(copy.presetId).toBe("golang");
     expect(copy.context).toBe("справка");
-    expect(copy.libraryDocIds).toEqual(["doc-1"]);
     while (result.current.chats.length < CHAT_LIMIT)
       act(() => {
         result.current.newChat();
@@ -186,7 +305,7 @@ describe("useChats", () => {
     expect(result.current.active.messages).toEqual([]);
   });
 
-  it("clearMessages стирает историю и сбрасывает lastInputTokens, не трогая черновик", async () => {
+  it("clearMessages стирает историю, не трогая черновик", async () => {
     const { result } = renderHook(() => useChats());
     await waitFor(() => {
       expect(result.current.chats.length).toBe(1);
@@ -199,16 +318,12 @@ describe("useChats", () => {
       result.current.appendAssistantMessage(id, "ответ");
     });
     act(() => {
-      result.current.patchChat(id, { lastInputTokens: 1234 });
-    });
-    act(() => {
       result.current.patchChat(id, { draft: "недописанный промпт" });
     });
     act(() => {
       result.current.clearMessages(id);
     });
     expect(result.current.active.messages).toEqual([]);
-    expect(result.current.active.lastInputTokens).toBe(0);
     expect(result.current.active.draft).toBe("недописанный промпт");
   });
 
@@ -234,7 +349,6 @@ describe("useChats", () => {
     { field: "thinkingEnabled", initial: false, next: true },
     { field: "webSearch", initial: false, next: true },
     { field: "context", initial: "", next: "резюме кандидата" },
-    { field: "libraryDocIds", initial: [], next: ["doc-1"] },
   ] as const)("patchChat меняет $field только в своём чате", async ({ field, initial, next }) => {
     const { result } = renderHook(() => useChats());
     await waitFor(() => {
@@ -259,10 +373,10 @@ describe("useChats", () => {
     });
     const id = result.current.activeId;
     act(() => {
-      result.current.patchChat(id, { context: "контекст", libraryDocIds: ["a", "b"] });
+      result.current.patchChat(id, { context: "контекст", webSearch: true });
     });
     expect(result.current.active.context).toBe("контекст");
-    expect(result.current.active.libraryDocIds).toEqual(["a", "b"]);
+    expect(result.current.active.webSearch).toBe(true);
   });
 
   it("removeChat не даёт удалить последний и переключает активный", async () => {

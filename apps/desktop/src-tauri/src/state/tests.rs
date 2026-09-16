@@ -5,7 +5,10 @@ fn happy_path() {
     let mut m = RecorderState::Idle;
     assert_eq!(m.on(Event::PttPressed), Action::StartCapture);
     assert_eq!(m, RecorderState::Recording);
-    assert_eq!(m.on(Event::PttReleased { duration_secs: 2.0 }), Action::Transcribe);
+    assert_eq!(
+        m.on(Event::PttReleased { duration_secs: 2.0 }),
+        Action::Transcribe
+    );
     assert_eq!(m, RecorderState::Transcribing);
     assert_eq!(m.on(Event::TranscriptionFinished), Action::None);
     assert_eq!(m, RecorderState::Idle);
@@ -14,7 +17,10 @@ fn happy_path() {
 #[test]
 fn too_short_recording_is_discarded() {
     let mut m = RecorderState::Recording;
-    assert_eq!(m.on(Event::PttReleased { duration_secs: 0.2 }), Action::Discard);
+    assert_eq!(
+        m.on(Event::PttReleased { duration_secs: 0.2 }),
+        Action::Discard
+    );
     assert_eq!(m, RecorderState::Idle);
 }
 

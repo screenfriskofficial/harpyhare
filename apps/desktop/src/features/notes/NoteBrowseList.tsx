@@ -53,17 +53,10 @@ export function EmptyLibraryHint({ onPick }: { onPick: () => void }) {
 
 export interface NoteBrowseListProps {
   library: ContextLibrary;
-  inContext: ReadonlySet<string>;
   onOpen: (docId: string) => void;
-  onToggleContext: (docId: string) => void;
 }
 
-export function NoteBrowseList({
-  library,
-  inContext,
-  onOpen,
-  onToggleContext,
-}: NoteBrowseListProps) {
+export function NoteBrowseList({ library, onOpen }: NoteBrowseListProps) {
   const { t } = useTranslation();
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-1.5 overflow-y-auto pr-1.5">
@@ -79,12 +72,8 @@ export function NoteBrowseList({
               terms={NO_TERMS}
               folderName={null}
               selected={false}
-              inContext={inContext.has(doc.id)}
               onOpen={() => {
                 onOpen(doc.id);
-              }}
-              onToggleContext={() => {
-                onToggleContext(doc.id);
               }}
             />
           ))}

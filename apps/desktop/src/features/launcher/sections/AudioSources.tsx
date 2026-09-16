@@ -2,7 +2,8 @@ import { Headphones } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import type { PermissionsApi } from "@/hooks/usePermissions";
-import { notify } from "@/lib/notify";
+import { errorMessage } from "@/lib/errors";
+import { notifyError } from "@/lib/notify";
 import type { SectionProps } from "../contract";
 import { SettingRow, SettingSwitch } from "../fields";
 
@@ -16,7 +17,7 @@ export function AudioSources({
     try {
       await permissions.request("microphone");
     } catch (error) {
-      notify({ variant: "error", title: t("common.error"), message: String(error) });
+      notifyError(errorMessage(error));
     }
   };
   return (

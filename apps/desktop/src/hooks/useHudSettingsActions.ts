@@ -1,7 +1,7 @@
 import { useCallback, type RefObject } from "react";
 import { t } from "@/i18n";
 import type { Settings } from "@/ipc/types";
-import { notify } from "@/lib/notify";
+import { notifyError } from "@/lib/notify";
 import { OPENROUTER_STT_PROVIDER } from "@/lib/stt-providers";
 
 export interface HudSettingsActions {
@@ -25,13 +25,7 @@ export function useHudSettingsActions(
     (patch: Partial<Settings>) => {
       if (loading) return;
       void save({ ...settingsRef.current, ...patch }).then((err) => {
-        if (err) {
-          notify({
-            variant: "error",
-            title: t("common.error"),
-            message: t("errors.settingsSaveFailed", { error: err }),
-          });
-        }
+        if (err) notifyError(t("errors.settingsSaveFailed", { error: err }));
       });
     },
     [settingsRef, save, loading],

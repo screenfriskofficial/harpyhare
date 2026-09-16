@@ -102,6 +102,11 @@ body {
   margin: 0;
   height: 100%;
   background: transparent !important;
+  /* No rubber-banding of the page: a sideways swipe over a table at the end of
+     its scroll, or over anything that does not scroll, chained to the root and
+     bounced the whole HUD like a page in Safari — it looked as if the window
+     itself moved. The root has nothing to scroll; it must not bounce either. */
+  overscroll-behavior: none;
 }
 
 body {
@@ -210,8 +215,6 @@ svg.lucide {
 }
 .prose-answer p,
 .prose-answer li,
-.prose-answer th,
-.prose-answer td,
 .prose-answer h1,
 .prose-answer h2,
 .prose-answer h3,
@@ -265,6 +268,9 @@ svg.lucide {
   background: var(--code-surface);
   border: 1px solid var(--border);
   overflow-x: auto;
+  /* Sideways only: see `.table-scroll` — a lone `overflow-x: auto` would let the
+     wheel latch onto a block that has nothing to scroll vertically. */
+  overflow-y: hidden;
 }
 .prose-answer pre code {
   padding: 0;
@@ -367,9 +373,24 @@ svg.lucide {
   border-left: 2px solid var(--primary);
   color: var(--muted-foreground);
 }
+/*
+ * A table keeps its natural column widths and scrolls sideways inside its
+ * wrapper when the window is narrower than it. Cells therefore never break
+ * inside a word: with `overflow-wrap: anywhere` (the prose default above) the
+ * browser had a way to fit any table into the column and squeezed every
+ * column to a few letters — "Соб/ыти/е", "tra/ck_a/dde/d" — instead of
+ * scrolling. Wrapping at spaces stays, so a cell of prose still folds; only an
+ * identifier, a token or a header wider than the column widens the table.
+ */
 .prose-answer .table-scroll {
   margin: 0.6em 0;
   overflow-x: auto;
+  /* Sideways only. A lone `overflow-x: auto` computes `overflow-y` to `auto`
+     as well, and WebKit then latches the wheel gesture onto this wrapper as
+     soon as it can scroll at all — a wide table swallowed every scroll over
+     it, and the chat beneath stopped moving. `hidden` keeps the wrapper out
+     of vertical wheel handling, so the gesture reaches the chat ledger. */
+  overflow-y: hidden;
 }
 .prose-answer table {
   border-collapse: collapse;
@@ -379,10 +400,14 @@ svg.lucide {
   padding: 4px 9px;
   border: 1px solid var(--border);
   font-size: 0.93em;
+  vertical-align: top;
+  overflow-wrap: normal;
+  word-break: normal;
 }
 .prose-answer th {
   color: var(--foreground);
   background: oklch(1 0 0 / 4%);
+  white-space: nowrap;
 }
 .prose-answer hr {
   border: 0;

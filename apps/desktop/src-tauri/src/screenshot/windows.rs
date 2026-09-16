@@ -286,7 +286,10 @@ impl Overlay {
         if !self.started {
             return None;
         }
-        geom::non_empty(geom::normalized_rect(as_geom_point(self.anchor), as_geom_point(self.pointer)))
+        geom::non_empty(geom::normalized_rect(
+            as_geom_point(self.anchor),
+            as_geom_point(self.pointer),
+        ))
     }
 
     fn accepted(&self) -> Option<GeomRect> {
@@ -294,7 +297,11 @@ impl Overlay {
     }
 
     fn inside(&self, point: POINT) -> POINT {
-        as_win_point(geom::clamp_point(as_geom_point(point), self.width, self.height))
+        as_win_point(geom::clamp_point(
+            as_geom_point(point),
+            self.width,
+            self.height,
+        ))
     }
 
     fn begin(&mut self, point: POINT) {
@@ -324,19 +331,35 @@ impl Overlay {
 }
 
 fn as_geom_point(point: POINT) -> GeomPoint {
-    GeomPoint { x: point.x, y: point.y }
+    GeomPoint {
+        x: point.x,
+        y: point.y,
+    }
 }
 
 fn as_win_point(point: GeomPoint) -> POINT {
-    POINT { x: point.x, y: point.y }
+    POINT {
+        x: point.x,
+        y: point.y,
+    }
 }
 
 fn as_geom_rect(area: RECT) -> GeomRect {
-    GeomRect { left: area.left, top: area.top, right: area.right, bottom: area.bottom }
+    GeomRect {
+        left: area.left,
+        top: area.top,
+        right: area.right,
+        bottom: area.bottom,
+    }
 }
 
 fn as_win_rect(area: GeomRect) -> RECT {
-    RECT { left: area.left, top: area.top, right: area.right, bottom: area.bottom }
+    RECT {
+        left: area.left,
+        top: area.top,
+        right: area.right,
+        bottom: area.bottom,
+    }
 }
 
 fn pointer_position(lparam: LPARAM) -> POINT {
@@ -495,14 +518,20 @@ unsafe extern "system" fn overlay_proc(
         WM_LBUTTONDOWN => {
             let previous = state.selection();
             state.begin(pointer_position(lparam));
-            request_redraw(window, geom::dirty_area(previous, state.selection(), FRAME_THICKNESS_PX));
+            request_redraw(
+                window,
+                geom::dirty_area(previous, state.selection(), FRAME_THICKNESS_PX),
+            );
             LRESULT(MESSAGE_HANDLED)
         }
         WM_MOUSEMOVE => {
             if state.dragging {
                 let previous = state.selection();
                 state.drag(pointer_position(lparam));
-                request_redraw(window, geom::dirty_area(previous, state.selection(), FRAME_THICKNESS_PX));
+                request_redraw(
+                    window,
+                    geom::dirty_area(previous, state.selection(), FRAME_THICKNESS_PX),
+                );
             }
             LRESULT(MESSAGE_HANDLED)
         }

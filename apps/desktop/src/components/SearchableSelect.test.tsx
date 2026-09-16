@@ -1,22 +1,8 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { SearchableSelect } from "./SearchableSelect";
 
-beforeEach(() => {
-  Element.prototype.scrollIntoView = vi.fn();
-  vi.stubGlobal(
-    "ResizeObserver",
-    class {
-      observe = vi.fn();
-      unobserve = vi.fn();
-      disconnect = vi.fn();
-    },
-  );
-});
-afterEach(() => {
-  cleanup();
-  vi.unstubAllGlobals();
-});
+afterEach(cleanup);
 
 function setup() {
   const onValueChange = vi.fn();

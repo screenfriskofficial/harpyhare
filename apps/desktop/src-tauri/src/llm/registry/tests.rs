@@ -32,11 +32,19 @@ fn provider_ids_are_unique() {
 
 #[test]
 fn model_ids_are_unique_across_all_providers() {
-    let mut ids: Vec<&str> = PROVIDERS.iter().flat_map(|p| p.catalog).map(|m| m.id).collect();
+    let mut ids: Vec<&str> = PROVIDERS
+        .iter()
+        .flat_map(|p| p.catalog)
+        .map(|m| m.id)
+        .collect();
     ids.sort_unstable();
     let before = ids.len();
     ids.dedup();
-    assert_eq!(ids.len(), before, "один id модели заявлен двумя вендорами — роутер не разберётся");
+    assert_eq!(
+        ids.len(),
+        before,
+        "один id модели заявлен двумя вендорами — роутер не разберётся"
+    );
 }
 
 #[test]
@@ -53,16 +61,12 @@ fn every_declared_family_matches_something_in_the_catalog() {
 }
 
 #[test]
-fn catalog_models_are_tagged_with_their_provider_and_unknown_window() {
+fn catalog_models_are_tagged_with_their_provider() {
     for p in PROVIDERS {
         let models = p.models();
         assert_eq!(models.len(), p.catalog.len());
         for m in &models {
             assert_eq!(m.provider, p.id, "модель {} не помечена вендором", m.id);
-            assert_eq!(
-                m.max_input_tokens, UNKNOWN_MAX_INPUT_TOKENS,
-                "окно контекста берётся только из живого API"
-            );
         }
     }
 }
@@ -99,14 +103,20 @@ fn the_global_default_is_the_first_providers_default() {
 #[test]
 fn default_model_is_offered_by_some_provider() {
     assert!(
-        PROVIDERS.iter().flat_map(|p| p.catalog).any(|m| m.id == super::super::DEFAULT_MODEL),
+        PROVIDERS
+            .iter()
+            .flat_map(|p| p.catalog)
+            .any(|m| m.id == super::super::DEFAULT_MODEL),
         "дефолт нового чата обязан быть в каталоге — иначе селект открывается пустым"
     );
 }
 
 #[test]
 fn lookup_finds_declared_providers_and_nothing_else() {
-    assert_eq!(spec(PROVIDER_ANTHROPIC).map(|p| p.id), Some(PROVIDER_ANTHROPIC));
+    assert_eq!(
+        spec(PROVIDER_ANTHROPIC).map(|p| p.id),
+        Some(PROVIDER_ANTHROPIC)
+    );
     assert_eq!(spec(PROVIDER_OPENAI).map(|p| p.id), Some(PROVIDER_OPENAI));
     assert!(spec("нет такого").is_none());
     assert!(catalog_models("нет такого").is_empty());
@@ -114,7 +124,10 @@ fn lookup_finds_declared_providers_and_nothing_else() {
 
 #[test]
 fn anthropic_catalog_matches_what_the_llm_port_hands_out_as_fallback() {
-    assert_eq!(super::super::fallback_models(), catalog_models(PROVIDER_ANTHROPIC));
+    assert_eq!(
+        super::super::fallback_models(),
+        catalog_models(PROVIDER_ANTHROPIC)
+    );
 }
 
 #[test]
@@ -126,7 +139,10 @@ fn a_dialect_shared_by_several_vendors_needs_no_code_per_vendor() {
         .filter(|p| matches!(p.wire, LlmWire::Responses { .. }))
         .map(|p| p.id)
         .collect();
-    assert!(shared.len() >= 2, "диалект Responses обслуживает больше одного вендора");
+    assert!(
+        shared.len() >= 2,
+        "диалект Responses обслуживает больше одного вендора"
+    );
     assert!(shared.contains(&PROVIDER_OPENAI));
     assert!(shared.contains(&super::super::PROVIDER_XAI));
 }
@@ -134,8 +150,16 @@ fn a_dialect_shared_by_several_vendors_needs_no_code_per_vendor() {
 #[test]
 fn every_row_declares_a_reachable_https_host() {
     for p in PROVIDERS {
-        assert!(p.wire.base_url().starts_with("https://"), "{} обязан ходить по https", p.id);
-        assert!(!p.wire.key_label().is_empty(), "у {} пустой key_label", p.id);
+        assert!(
+            p.wire.base_url().starts_with("https://"),
+            "{} обязан ходить по https",
+            p.id
+        );
+        assert!(
+            !p.wire.key_label().is_empty(),
+            "у {} пустой key_label",
+            p.id
+        );
     }
 }
 
@@ -171,8 +195,10 @@ fn a_row_needs_nothing_but_data_to_be_well_formed() {
     assert_eq!(models.len(), 1);
     assert_eq!(models[0].provider, "gemini");
     assert_eq!(models[0].id, "gemini-3-pro");
-    assert_eq!(models[0].max_input_tokens, UNKNOWN_MAX_INPUT_TOKENS);
-    assert!(GEMINI.families.iter().all(|f| GEMINI.catalog.iter().any(|m| m.id.contains(f))));
+    assert!(GEMINI
+        .families
+        .iter()
+        .all(|f| GEMINI.catalog.iter().any(|m| m.id.contains(f))));
 }
 
 /// Состав моделей Xclis задаётся группой аккаунта на его стороне и меняется без
@@ -184,8 +210,14 @@ fn xclis_promises_nothing_offline() {
         .iter()
         .find(|p| p.id == xclis::PROVIDER_XCLIS)
         .expect("строка Xclis в реестре");
-    assert!(xclis.catalog.is_empty(), "каталог Xclis известен только из живого /v1/models");
-    assert!(xclis.default_model.is_empty(), "дефолт Xclis тоже приходит из живого каталога");
+    assert!(
+        xclis.catalog.is_empty(),
+        "каталог Xclis известен только из живого /v1/models"
+    );
+    assert!(
+        xclis.default_model.is_empty(),
+        "дефолт Xclis тоже приходит из живого каталога"
+    );
 }
 
 /// У relay нет роута под Chat Completions Xclis, а у самого диалекта — прокси-
@@ -193,7 +225,14 @@ fn xclis_promises_nothing_offline() {
 /// держателя кода доступа. Перевернуть флаг можно только вместе с диалектом.
 #[test]
 fn the_xclis_dialect_cannot_be_proxied() {
-    for p in PROVIDERS.iter().filter(|p| matches!(p.wire, LlmWire::Xclis { .. })) {
-        assert!(!p.proxied, "{}: диалект Xclis не умеет ходить через relay", p.id);
+    for p in PROVIDERS
+        .iter()
+        .filter(|p| matches!(p.wire, LlmWire::Xclis { .. }))
+    {
+        assert!(
+            !p.proxied,
+            "{}: диалект Xclis не умеет ходить через relay",
+            p.id
+        );
     }
 }

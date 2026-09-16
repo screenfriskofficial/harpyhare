@@ -1,0 +1,28 @@
+/* React Flow on the app's tokens. Shared by every canvas: pipelines, system-design previews. */
+.flow-canvas .react-flow {
+  --xy-background-color: var(--background);
+  --xy-background-pattern-color: var(--border);
+  --xy-edge-stroke: var(--muted-foreground);
+  --xy-edge-stroke-selected: var(--ring);
+  --xy-connectionline-stroke: var(--ring);
+  --xy-handle-background-color: var(--muted-foreground);
+  --xy-handle-border-color: var(--card);
+  --xy-controls-button-background-color: var(--card);
+  --xy-controls-button-background-color-hover: var(--surface-active);
+  --xy-controls-button-color: var(--foreground);
+  --xy-controls-button-border-color: var(--border);
+  --xy-controls-box-shadow: none;
+  --xy-edge-label-background-color: var(--card);
+  --xy-edge-label-color: var(--foreground);
+  --xy-attribution-background-color: var(--card);
+  font-family: var(--font-sans);
+}
+.flow-canvas .react-flow__edge-text {
+  font-size: var(--text-hint);
+}
+.flow-canvas .react-flow__attribution {
+  font-size: var(--text-hint);
+}
+.flow-canvas .react-flow__attribution a {
+  color: var(--muted-foreground);
+}

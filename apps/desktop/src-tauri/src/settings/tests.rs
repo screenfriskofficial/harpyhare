@@ -171,6 +171,22 @@ fn clamp_limits_window_size() {
 }
 
 #[test]
+fn clamp_limits_preview_width() {
+    let mut s = Settings {
+        preview_width: 10.0,
+        ..Default::default()
+    };
+    s.clamp();
+    assert_eq!(s.preview_width, limits::window::PREVIEW_WIDTH.min);
+    s.preview_width = 9000.0;
+    s.clamp();
+    assert_eq!(s.preview_width, limits::window::PREVIEW_WIDTH.max);
+    s.preview_width = f64::INFINITY;
+    s.clamp();
+    assert_eq!(s.preview_width, limits::window::PREVIEW_WIDTH.default);
+}
+
+#[test]
 fn load_missing_window_size_defaults() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("s.json");
@@ -178,6 +194,7 @@ fn load_missing_window_size_defaults() {
     let s = Settings::load(&path).unwrap();
     assert_eq!(s.window_width, 960.0);
     assert_eq!(s.window_height, 680.0);
+    assert_eq!(s.preview_width, 570.0);
     assert_eq!(s.resize_step, 20);
     assert_eq!(s.capture_device_uid, "");
     assert_eq!(s.theme, "gray");
@@ -293,9 +310,12 @@ fn load_missing_stt_and_screen_share_fields_default() {
     assert_eq!(s.stt_language, "ru");
     assert!(!s.stt_translate);
     assert!(!s.screen_share_visible);
-    assert_eq!(s.stt_provider, STT_PROVIDER_GROQ);
+    assert_eq!(s.stt_provider, crate::stt::registry::PROVIDER_GROQ);
     assert!(s.openrouter_api_key.is_empty());
-    assert_eq!(s.openrouter_stt_model, crate::stt::registry::DEFAULT_OPENROUTER_MODEL);
+    assert_eq!(
+        s.openrouter_stt_model,
+        crate::stt::registry::DEFAULT_OPENROUTER_MODEL
+    );
 }
 
 #[test]
@@ -305,10 +325,10 @@ fn clamp_resets_unknown_stt_provider() {
         ..Default::default()
     };
     s.clamp();
-    assert_eq!(s.stt_provider, STT_PROVIDER_GROQ);
-    s.stt_provider = STT_PROVIDER_OPENAI.into();
+    assert_eq!(s.stt_provider, crate::stt::registry::PROVIDER_GROQ);
+    s.stt_provider = crate::stt::registry::PROVIDER_OPENAI.into();
     s.clamp();
-    assert_eq!(s.stt_provider, STT_PROVIDER_OPENAI);
+    assert_eq!(s.stt_provider, crate::stt::registry::PROVIDER_OPENAI);
 }
 
 fn env_of<'a>(values: &'a [(&'a str, &'a str)]) -> impl Fn(&str) -> Option<String> + 'a {
@@ -567,7 +587,10 @@ fn save_load_roundtrip_with_owner_only_perms() {
     assert_eq!(loaded.groq_api_key, "gsk_test");
     assert_eq!(loaded.openrouter_api_key, "sk-or-test");
     assert_eq!(loaded.openrouter_stt_model, "vendor/custom-stt-model");
-    assert_eq!(loaded.stt_provider, crate::stt::registry::PROVIDER_OPENROUTER);
+    assert_eq!(
+        loaded.stt_provider,
+        crate::stt::registry::PROVIDER_OPENROUTER
+    );
     assert_eq!(loaded.chat_font_size, 15.0);
     assert_eq!(loaded.window_opacity, 0.5);
     assert!(loaded.auto_send);
@@ -813,7 +836,10 @@ fn openrouter_model_clamp_defaults_only_blank_ids_and_preserves_dynamic_choices(
         ..Default::default()
     };
     settings.clamp();
-    assert_eq!(settings.openrouter_stt_model, crate::stt::registry::DEFAULT_OPENROUTER_MODEL);
+    assert_eq!(
+        settings.openrouter_stt_model,
+        crate::stt::registry::DEFAULT_OPENROUTER_MODEL
+    );
     settings.openrouter_stt_model = " vendor/new-model ".into();
     settings.clamp();
     assert_eq!(settings.openrouter_stt_model, "vendor/new-model");

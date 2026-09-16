@@ -10,7 +10,8 @@ use tauri::{AppHandle, Manager};
 use tokio_util::sync::CancellationToken;
 
 use crate::app_state::{
-    build_capture, current_settings, llm_provider, stt_engine, stt_keyterms, App, SttStream,
+    build_capture, current_settings, llm_provider, stt_engine, stt_keyterms, with_settings, App,
+    SttStream,
 };
 use crate::diagnostics::{self, DiagnosticOrigin, Trace};
 use crate::error::{AppError, ErrorCode};
@@ -137,12 +138,7 @@ pub fn install_default_output_device_listener(app: &AppHandle) {
 }
 
 fn handle_default_output_device_changed(app: &AppHandle) {
-    let follows_system_default = app
-        .state::<App>()
-        .settings
-        .lock_unpoisoned()
-        .capture_device_uid
-        .is_empty();
+    let follows_system_default = with_settings(app, |s| s.capture_device_uid.is_empty());
     if follows_system_default {
         request_capture_rebuild(app);
     }
@@ -197,7 +193,7 @@ pub fn ensure_capture(app: &AppHandle) -> bool {
 fn rebuild_capture_now(app: &AppHandle) {
     let never_built = app.state::<App>().capture.lock_unpoisoned().is_none();
     let would_prompt = crate::permissions::AUDIO_REQUIRES_PERMISSION
-        && !current_settings(app).audio_permission_requested;
+        && !with_settings(app, |s| s.audio_permission_requested);
     if never_built && would_prompt {
         return;
     }

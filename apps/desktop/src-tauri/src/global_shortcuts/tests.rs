@@ -32,8 +32,11 @@ fn modifier_combo_parses() {
 
 #[test]
 fn escape_parses_for_cancel() {
-    let s = parse_hotkey(&crate::hotkeys::effective(&[], crate::hotkeys::ACTION_CANCEL_RECORDING))
-        .expect("Escape должна парситься");
+    let s = parse_hotkey(&crate::hotkeys::effective(
+        &[],
+        crate::hotkeys::ACTION_CANCEL_RECORDING,
+    ))
+    .expect("Escape должна парситься");
     assert_eq!(s.key, Code::Escape);
 }
 

@@ -92,7 +92,10 @@ async fn fetch() -> Result<PresetPool, String> {
 
 async fn fetch_raw() -> reqwest::Result<String> {
     crate::tls::ensure_crypto_provider();
-    let client = reqwest::Client::builder().timeout(FETCH_TIMEOUT).build()?;
+    let client = reqwest::Client::builder()
+        .user_agent(crate::net::APP_USER_AGENT)
+        .timeout(FETCH_TIMEOUT)
+        .build()?;
     client
         .get(PRESETS_URL)
         .send()

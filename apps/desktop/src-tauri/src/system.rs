@@ -33,4 +33,3 @@ pub async fn install_update(app: AppHandle) -> Result<(), String> {
 pub fn get_app_version() -> String {
     env!("CARGO_PKG_VERSION").into()
 }
-

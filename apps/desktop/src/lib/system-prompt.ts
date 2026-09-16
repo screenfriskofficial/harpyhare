@@ -1,23 +1,20 @@
 import { t } from "@/i18n";
 import type { Chat } from "./chats";
-import { libraryContextBlocks, type ContextLibrary } from "./context-library";
 import { stripKeywordBlocks } from "./keywords";
 import { presetText, type PromptPreset } from "./presets";
 
 const SYSTEM_BLOCKS_SEPARATOR = "\n\n";
 
-export type PromptChat = Pick<Chat, "presetId" | "libraryDocIds" | "context">;
+export type PromptChat = Pick<Chat, "presetId" | "context">;
 
-/** Every piece of text a chat contributes to its system prompt, raw. */
-export function chatPromptSources(
-  presets: PromptPreset[],
-  chat: PromptChat,
-  library: ContextLibrary,
-): string[] {
+/**
+ * Every piece of text a chat contributes to its system prompt, raw. Library
+ * materials are not among them: a prompt pipeline chooses those.
+ */
+export function chatPromptSources(presets: PromptPreset[], chat: PromptChat): string[] {
   const context = chat.context.trim();
   return [
     presetText(presets, chat.presetId),
-    ...libraryContextBlocks(library, chat.libraryDocIds),
     context === "" ? "" : `${t("prompt.userContextHeader")}\n${context}`,
   ].filter((s) => s !== "");
 }

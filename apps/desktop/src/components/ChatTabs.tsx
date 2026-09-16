@@ -2,6 +2,7 @@ import { CopyPlus, Plus, X } from "lucide-react";
 import { memo, useEffect, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { IconButton } from "@/components/IconButton";
+import { NoticeDot } from "@/components/NoticeDot";
 import { ShortcutTooltip } from "@/components/ShortcutTooltip";
 import { CHAT_LIMIT, type Chat } from "@/lib/chats";
 import { formatCombo } from "@/lib/hotkeys";
@@ -136,13 +137,7 @@ function ChatTab({
           <X className="hidden size-4 group-hover:block group-focus-visible:block" />
         )}
         {(isStreaming || hasUnread) && (
-          <span
-            className={cn(
-              "absolute -top-0.5 -right-0.5 size-1.5 rounded-full bg-primary",
-              isStreaming && "animate-pulse",
-            )}
-            aria-hidden
-          />
+          <NoticeDot className={cn("-top-0.5 -right-0.5", isStreaming && "animate-pulse")} />
         )}
       </button>
     </ShortcutTooltip>

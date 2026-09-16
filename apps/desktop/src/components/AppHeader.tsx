@@ -4,7 +4,7 @@ import { useTranslation } from "react-i18next";
 import { ChatTabs } from "@/components/ChatTabs";
 import { HotkeysPopover } from "@/components/HotkeysPopover";
 import { ModeSwitch } from "@/components/ModeSwitch";
-import { StatusBar, type ContextUsage } from "@/components/StatusBar";
+import { StatusBar } from "@/components/StatusBar";
 import { DOCK_BUTTON_CLASS, type ToolbarDockItem } from "@/components/ToolbarDock";
 import { DiagnosticsButton } from "@/features/diagnostics/DiagnosticsPanel";
 import type { HotkeyBinding, RecorderState } from "@/ipc/types";
@@ -29,7 +29,6 @@ export interface AppHeaderProps {
   mode: AppModeId;
   canCopy: boolean;
   canTeleprompt: boolean;
-  contextUsage: ContextUsage | null;
   screenShareVisible: boolean;
   onSelectChat: (id: string) => void;
   onRemoveChat: (id: string) => void;
@@ -60,7 +59,6 @@ export const AppHeader = memo(function AppHeader({
   mode,
   canCopy,
   canTeleprompt,
-  contextUsage,
   screenShareVisible,
   onSelectChat,
   onRemoveChat,
@@ -160,7 +158,6 @@ export const AppHeader = memo(function AppHeader({
   return (
     <StatusBar
       state={recorderState}
-      contextUsage={contextUsage}
       dockItems={dockItems}
       modeSwitch={
         <ModeSwitch

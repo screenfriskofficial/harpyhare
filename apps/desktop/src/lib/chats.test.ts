@@ -6,9 +6,16 @@ import {
   deserializeChats,
   serializeChats,
   type Chat,
+  type PreparedPrompt,
 } from "./chats";
 
 const img = { media_type: "image/png", data: "AAAA" };
+const preparedPrompt: PreparedPrompt = {
+  pipelineId: "prepare-interview",
+  fingerprint: "source-revision-1",
+  text: "Подготовленный системный промпт\nс материалами",
+  keywordSources: ["[keywords]: [Kafka, Rust]", "материал кандидата"],
+};
 
 function chatWith(messages: Chat["messages"], extra: Partial<Chat> = {}): Chat {
   return {
@@ -23,8 +30,6 @@ function chatWith(messages: Chat["messages"], extra: Partial<Chat> = {}): Chat {
     model: "claude-opus-4-8",
     webSearch: false,
     context: "",
-    libraryDocIds: [],
-    lastInputTokens: 0,
     ...extra,
   };
 }
@@ -50,6 +55,23 @@ describe("createChat", () => {
 });
 
 describe("createChatFrom", () => {
+  it("сохраняет выбранные схемы и готовый снимок без истории и черновика", () => {
+    const source = chatWith([{ role: "user", text: "прошлый вопрос", images: [] }], {
+      draft: "черновик",
+      promptPipelineId: preparedPrompt.pipelineId,
+      messagePipelineId: "answer-and-polish",
+      preparedPrompt,
+    });
+    const copy = createChatFrom(source, 2);
+    expect(copy.promptPipelineId).toBe(preparedPrompt.pipelineId);
+    expect(copy.messagePipelineId).toBe("answer-and-polish");
+    expect(copy.preparedPrompt).toEqual(preparedPrompt);
+    expect(copy.messages).toEqual([]);
+    expect(copy.draft).toBe("");
+    source.preparedPrompt = { ...preparedPrompt, text: "новая подготовка исходного чата" };
+    expect(copy.preparedPrompt?.text).toBe(preparedPrompt.text);
+  });
+
   it("копирует параметры запроса и контекст, но не содержимое", () => {
     const source = chatWith([{ role: "user", text: "вопрос", images: [img] }], {
       title: "Мой чат",
@@ -61,8 +83,6 @@ describe("createChatFrom", () => {
       model: "claude-opus-4-8",
       webSearch: true,
       context: "справка",
-      libraryDocIds: ["a", "b"],
-      lastInputTokens: 4242,
     });
     const copy = createChatFrom(source, 3);
     expect(copy.id).not.toBe(source.id);
@@ -71,14 +91,11 @@ describe("createChatFrom", () => {
     expect(copy.messages).toEqual([]);
     expect(copy.draft).toBe("");
     expect(copy.draftAttachments).toEqual([]);
-    expect(copy.lastInputTokens).toBe(0);
     expect(copy.presetId).toBe("golang");
     expect(copy.thinkingEnabled).toBe(true);
     expect(copy.model).toBe("claude-opus-4-8");
     expect(copy.webSearch).toBe(true);
     expect(copy.context).toBe("справка");
-    expect(copy.libraryDocIds).toEqual(["a", "b"]);
-    expect(copy.libraryDocIds).not.toBe(source.libraryDocIds);
   });
 });
 
@@ -100,6 +117,106 @@ describe("chatTitle", () => {
 });
 
 describe("serialize/deserialize", () => {
+  it("сохраняет обе схемы и подготовленный снимок с fingerprint и терминами", () => {
+    const chat = chatWith([{ role: "user", text: "вопрос", images: [] }], {
+      promptPipelineId: preparedPrompt.pipelineId,
+      messagePipelineId: "answer-and-polish",
+      preparedPrompt,
+    });
+    const json = serializeChats([chat]);
+    const disk: unknown = JSON.parse(json);
+    expect(Array.isArray(disk)).toBe(true);
+    const restored = deserializeChats(json)?.[0];
+    expect(restored?.promptPipelineId).toBe(preparedPrompt.pipelineId);
+    expect(restored?.messagePipelineId).toBe("answer-and-polish");
+    expect(restored?.preparedPrompt).toEqual(preparedPrompt);
+    expect(restored?.preparedPrompt).not.toBe(preparedPrompt);
+    expect(restored?.messages).toEqual(chat.messages);
+  });
+
+  it("старые чаты сохраняют прежние источники без автоматического выбора схем", () => {
+    const restored = deserializeChats(
+      JSON.stringify([
+        {
+          id: "legacy",
+          presetId: "golang",
+          context: "свой контекст",
+          messages: [{ role: "assistant", text: "старый ответ", images: [] }],
+        },
+      ]),
+    )?.[0];
+    expect(restored?.promptPipelineId).toBeUndefined();
+    expect(restored?.messagePipelineId).toBeUndefined();
+    expect(restored?.preparedPrompt).toBeUndefined();
+    expect(restored?.presetId).toBe("golang");
+    expect(restored?.context).toBe("свой контекст");
+    expect(restored?.messages[0]?.text).toBe("старый ответ");
+    const saved: unknown = JSON.parse(serializeChats(restored ? [restored] : []));
+    expect(saved).not.toHaveProperty("0.promptPipelineId");
+    expect(saved).not.toHaveProperty("0.messagePipelineId");
+    expect(saved).not.toHaveProperty("0.preparedPrompt");
+  });
+
+  it("невалидные типы выбранных схем не становятся рабочими ссылками", () => {
+    const restored = deserializeChats(
+      JSON.stringify([
+        {
+          id: "chat",
+          promptPipelineId: 42,
+          messagePipelineId: { id: "wrong" },
+        },
+      ]),
+    )?.[0];
+    expect(restored?.promptPipelineId).toBeUndefined();
+    expect(restored?.messagePipelineId).toBeUndefined();
+  });
+
+  it("пустой id схемы читается как «без схемы», а не как ссылка на пустую строку", () => {
+    const restored = deserializeChats(
+      JSON.stringify([{ id: "chat", promptPipelineId: "", messagePipelineId: "" }]),
+    )?.[0];
+    expect(restored?.promptPipelineId).toBeUndefined();
+    expect(restored?.messagePipelineId).toBeUndefined();
+  });
+
+  it.each([
+    { name: "null", value: null },
+    { name: "массив", value: [] },
+    { name: "текст вместо объекта", value: "prepared" },
+    { name: "нет pipelineId", value: { fingerprint: "f", text: "t", keywordSources: [] } },
+    { name: "нет fingerprint", value: { pipelineId: "p", text: "t", keywordSources: [] } },
+    { name: "нет текста", value: { pipelineId: "p", fingerprint: "f", keywordSources: [] } },
+    { name: "неверный тип текста", value: { ...preparedPrompt, text: 42 } },
+    { name: "термины не массив", value: { ...preparedPrompt, keywordSources: "Rust" } },
+  ])("отбрасывает повреждённый артефакт ($name), сохраняя чат и выбор схемы", ({ value }) => {
+    const restored = deserializeChats(
+      JSON.stringify([
+        {
+          id: "chat",
+          promptPipelineId: preparedPrompt.pipelineId,
+          preparedPrompt: value,
+          messages: [{ role: "user", text: "история остаётся", images: [] }],
+        },
+      ]),
+    )?.[0];
+    expect(restored?.preparedPrompt).toBeUndefined();
+    expect(restored?.promptPipelineId).toBe(preparedPrompt.pipelineId);
+    expect(restored?.messages[0]?.text).toBe("история остаётся");
+  });
+
+  it("в терминах артефакта оставляет только строковые источники", () => {
+    const restored = deserializeChats(
+      JSON.stringify([
+        {
+          id: "chat",
+          preparedPrompt: { ...preparedPrompt, keywordSources: [null, "[keywords]: [Rust]", 42] },
+        },
+      ]),
+    )?.[0];
+    expect(restored?.preparedPrompt?.keywordSources).toEqual(["[keywords]: [Rust]"]);
+    expect(restored?.preparedPrompt?.text).toBe(preparedPrompt.text);
+  });
+
   it("стрипает картинки из сообщений и черновые вложения", () => {
     const chats = [
       chatWith(
@@ -120,6 +237,24 @@ describe("serialize/deserialize", () => {
     expect(parsed[0]?.messages[0]?.text).toBe("что тут?");
     expect(parsed[0]?.draft).toBe("недописанное");
     expect(parsed[0]?.draftAttachments).toEqual([]);
+  });
+
+  it("после перезапуска сообщение помнит, сколько картинок потеряло", () => {
+    const chats = [chatWith([{ role: "user", text: "что тут?", images: [img, img] }])];
+    const restored = deserializeChats(serializeChats(chats));
+    expect(restored?.[0]?.messages[0]).toEqual({
+      role: "user",
+      text: "что тут?",
+      images: [],
+      droppedImages: 2,
+    });
+    // A second restart does not reset the counter: the images are gone, but the count must be kept.
+    const again = deserializeChats(serializeChats(restored ?? []));
+    expect(again?.[0]?.messages[0]?.droppedImages).toBe(2);
+    // A message without images gets no field at all — the file must not grow from zeros.
+    expect(
+      JSON.parse(serializeChats([chatWith([{ role: "user", text: "x", images: [] }])])) as unknown,
+    ).toEqual([expect.objectContaining({ messages: [{ role: "user", text: "x", images: [] }] })]);
   });
 
   it("round-trip восстанавливает чаты с пустыми вложениями", () => {

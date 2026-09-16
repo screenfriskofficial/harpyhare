@@ -150,14 +150,25 @@ fn oversized_base64_is_rejected_before_it_is_decoded() {
     // 4 символа base64 на 3 байта: строка длиннее лимита в 4/3 раза заведомо
     // не влезет, и декодировать её целиком незачем.
     let too_long = "A".repeat((PDF_MAX_BYTES as usize / 3 + 1) * 4);
-    assert_eq!(read_pdf_base64(&too_long).unwrap_err(), too_large_message(PDF_MAX_BYTES));
+    assert_eq!(
+        read_pdf_base64(&too_long).unwrap_err(),
+        too_large_message(PDF_MAX_BYTES)
+    );
 }
 
 #[test]
 fn bounded_reader_accepts_the_limit_but_stops_an_unbounded_source() {
     const LIMIT: u64 = 16;
-    assert_eq!(read_limited(&[b'x'; LIMIT as usize][..], LIMIT).unwrap().len(), LIMIT as usize);
-    assert_eq!(read_limited(std::io::repeat(b'x'), LIMIT).unwrap_err(), too_large_message(LIMIT));
+    assert_eq!(
+        read_limited(&[b'x'; LIMIT as usize][..], LIMIT)
+            .unwrap()
+            .len(),
+        LIMIT as usize
+    );
+    assert_eq!(
+        read_limited(std::io::repeat(b'x'), LIMIT).unwrap_err(),
+        too_large_message(LIMIT)
+    );
 }
 
 #[test]

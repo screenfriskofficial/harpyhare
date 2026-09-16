@@ -24,7 +24,14 @@ function useElapsedSeconds(startedAt: number) {
   return seconds;
 }
 
-export function ThinkingIndicator({ startedAt }: { startedAt: number | undefined }) {
+/** `label` replaces the plain caption while something other than the model itself is at work. */
+export function ThinkingIndicator({
+  startedAt,
+  label,
+}: {
+  startedAt: number | undefined;
+  label?: string;
+}) {
   // Фолбэк защёлкивается один раз: `Date.now()` в пропсе давал бы новый старт
   // на каждый рендер, интервал пересоздавался бы, и счётчик вечно показывал 0с.
   const [mountedAt] = useState(() => Date.now());
@@ -42,7 +49,7 @@ export function ThinkingIndicator({ startedAt }: { startedAt: number | undefined
     <div className="flex animate-in items-baseline gap-2 duration-200 fade-in motion-reduce:animate-none">
       <StatusOrb state="solving" />
       <span className="thinking-shimmer text-body font-medium" aria-live="polite">
-        {t("hud.thinking")}
+        {label ?? t("hud.thinking")}
       </span>
       <span className="font-mono text-caption text-muted-foreground/60 tabular-nums" aria-hidden>
         {elapsed}
