@@ -54,6 +54,47 @@ fn thinking_value_semantics() {
 }
 
 #[test]
+fn thinking_off_never_sends_disabled_to_models_that_reject_it() {
+    for model in ["claude-opus-5-5", "claude-sonnet-5-5", "claude-newmodel-9"] {
+        assert_eq!(thinking_value(None, model, false), None, "{model}");
+        assert_eq!(
+            output_config_value(None, model, false),
+            Some(json!({"effort": "low"})),
+            "{model}"
+        );
+        assert_eq!(
+            thinking_value(None, model, true),
+            Some(json!({"type": "adaptive"})),
+            "{model}"
+        );
+        assert_eq!(output_config_value(None, model, true), None, "{model}");
+    }
+}
+
+#[test]
+fn thinking_off_keeps_disabled_where_it_is_accepted() {
+    for model in [
+        "claude-opus-4-6",
+        "claude-opus-4-8",
+        "claude-opus-4-8-20260101",
+        "claude-opus-5",
+        "claude-sonnet-4-6",
+        "claude-sonnet-5",
+    ] {
+        assert_eq!(
+            thinking_value(None, model, false),
+            Some(json!({"type": "disabled"})),
+            "{model}"
+        );
+        assert_eq!(output_config_value(None, model, false), None, "{model}");
+    }
+    // Haiku has no adaptive thinking and Fable always thinks: no effort either.
+    for model in ["claude-haiku-4-5-20251001", "claude-fable-5-1"] {
+        assert_eq!(output_config_value(None, model, false), None, "{model}");
+    }
+}
+
+#[test]
 fn model_info_parses_capabilities() {
     let v = json!({
         "id": "claude-haiku-4-5-20251001",

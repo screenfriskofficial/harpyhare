@@ -64,6 +64,21 @@ const CACHE_TYPE_EPHEMERAL: &str = "ephemeral";
 const HAIKU_PREFIX: &str = "claude-haiku";
 const ALWAYS_THINKING_PREFIXES: [&str; 2] = ["claude-fable", "claude-mythos"];
 
+/// Adaptive models that still accept `thinking: {type: "disabled"}`. Opus 5.5
+/// and Sonnet 5.5 answer it with a 400 (`"thinking.type.disabled" is not
+/// supported for this model`), and so does every newer line so far. An
+/// allowlist on purpose: a model missing from it gets low-effort adaptive
+/// thinking instead of none, a model wrongly on it fails every request.
+const DISABLE_THINKING_MODELS: [&str; 6] = [
+    "claude-opus-4-6",
+    "claude-opus-4-7",
+    "claude-opus-4-8",
+    "claude-opus-5",
+    "claude-sonnet-4-6",
+    "claude-sonnet-5",
+];
+const EFFORT_LOW: &str = "low";
+
 /// Idle-таймаут чтения стрима — между двумя чанками, а не на весь ответ.
 /// Модели с длинным молчаливым рассуждением (gpt-5.5-pro, часть моделей
 /// Xclis) думают дольше минуты, не присылая ни байта; прежние 60 с роняли
@@ -243,6 +258,15 @@ fn always_thinks(id: &str) -> bool {
     ALWAYS_THINKING_PREFIXES.iter().any(|p| id.starts_with(p))
 }
 
+/// Matches dated snapshots too: `claude-opus-4-8-20260101` is `claude-opus-4-8`.
+fn accepts_disabled_thinking(id: &str) -> bool {
+    let base = id
+        .rsplit_once('-')
+        .filter(|(_, date)| date.len() == 8 && date.bytes().all(|b| b.is_ascii_digit()))
+        .map_or(id, |(base, _)| base);
+    DISABLE_THINKING_MODELS.contains(&base)
+}
+
 fn model_info_from_json(v: &Value) -> Option<ModelInfo> {
     let id = v["id"].as_str()?.to_string();
     let display_name = v["display_name"].as_str().unwrap_or(&id).to_string();
@@ -274,11 +298,24 @@ pub fn thinking_value(info: Option<&ModelInfo>, model_id: &str, requested: bool)
     }
     if requested {
         adaptive.then(|| json!({"type": THINKING_ADAPTIVE}))
-    } else if adaptive {
+    } else if adaptive && accepts_disabled_thinking(model_id) {
         Some(json!({"type": THINKING_DISABLED}))
     } else {
         None
     }
+}
+
+/// Thinking off on a model that cannot switch it off: `thinking_value` omits
+/// the field (adaptive by default there), and this keeps that thinking short.
+pub fn output_config_value(
+    info: Option<&ModelInfo>,
+    model_id: &str,
+    requested: bool,
+) -> Option<Value> {
+    let adaptive = info.map_or_else(|| fallback_adaptive(model_id), |m| m.adaptive);
+    let always = info.map_or_else(|| always_thinks(model_id), |m| m.always_thinks);
+    (!requested && adaptive && !always && !accepts_disabled_thinking(model_id))
+        .then(|| json!({"effort": EFFORT_LOW}))
 }
 
 pub fn web_search_value(
@@ -451,10 +488,15 @@ impl AnthropicClient {
             .cloned()
     }
 
-    fn capability_fields(&self, request: &LlmRequest) -> (Option<Value>, Option<Value>) {
+    fn capability_fields(
+        &self,
+        request: &LlmRequest,
+    ) -> (Option<Value>, Option<Value>, Option<Value>) {
         let info = self.cached_model(&request.model);
+        let thinking = request.options.thinking;
         (
-            thinking_value(info.as_ref(), &request.model, request.options.thinking),
+            thinking_value(info.as_ref(), &request.model, thinking),
+            output_config_value(info.as_ref(), &request.model, thinking),
             web_search_value(info.as_ref(), &request.model, request.options.web_search),
         )
     }
@@ -496,14 +538,17 @@ impl LlmProvider for AnthropicClient {
         cancel: CancellationToken,
         sink: &mut dyn LlmStreamSink,
     ) -> Result<(), LlmError> {
-        let (thinking, web_search) = self.capability_fields(&request);
-        let body = build_request_body(
+        let (thinking, output_config, web_search) = self.capability_fields(&request);
+        let mut body = build_request_body(
             &request.model,
             &request.system,
             &request.messages,
             thinking,
             web_search,
         );
+        if let Some(config) = output_config {
+            body["output_config"] = config;
+        }
         self.stream_message(body, cancel, sink).await
     }
 
