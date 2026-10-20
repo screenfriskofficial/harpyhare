@@ -51,7 +51,8 @@ rustls = { version = "0.23.40", default-features = false, features = ["ring", "s
 # Корни доверия для WebSocket-клиента Deepgram: `ClientConfig` собирается один раз
 # на клиент, а не на каждое нажатие PTT (см. stt/deepgram.rs).
 rustls-native-certs = "0.8"
-async-trait = "0.1.89"
+# 0.1.92 is the first whose generated methods pass clippy `double_must_use` (Rust 1.99).
+async-trait = "0.1.92"
 dotenvy = "0.15.7"
 ringbuf = "0.4.8"
 tauri-plugin-updater = "2.10.1"

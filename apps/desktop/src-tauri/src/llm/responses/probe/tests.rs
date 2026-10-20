@@ -132,7 +132,12 @@ fn verdicts_survive_a_restart() {
     let levels = vec!["none".to_string(), "low".to_string()];
     ModelProbes::persisted(path.clone()).remember(
         "openai",
-        &[("gpt-y".into(), Verdict::Reasoning { levels: levels.clone() })],
+        &[(
+            "gpt-y".into(),
+            Verdict::Reasoning {
+                levels: levels.clone(),
+            },
+        )],
         5,
     );
     assert_eq!(
@@ -146,5 +151,8 @@ fn an_unreadable_cache_is_a_cold_start() {
     let dir = tempfile::tempdir().expect("tempdir");
     let path = dir.path().join("model-probes.json");
     std::fs::write(&path, "{не json").expect("write");
-    assert_eq!(ModelProbes::persisted(path).fresh("openai", "gpt-y", 0), None);
+    assert_eq!(
+        ModelProbes::persisted(path).fresh("openai", "gpt-y", 0),
+        None
+    );
 }

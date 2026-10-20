@@ -43,7 +43,11 @@ fn a_vendor_without_a_key_is_simply_absent() {
 fn the_router_is_never_left_without_a_provider() {
     let empty = settings::Settings::default();
     let catalog: llm::ModelCatalog = Arc::new(Mutex::new(Vec::new()));
-    let client = build_llm_client(&empty, catalog, &llm::responses::probe::ModelProbes::in_memory());
+    let client = build_llm_client(
+        &empty,
+        catalog,
+        &llm::responses::probe::ModelProbes::in_memory(),
+    );
     assert_eq!(client.provider_id(), llm::PROVIDER_ANTHROPIC);
     assert!(
         !client.known_models().is_empty(),

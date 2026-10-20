@@ -50,7 +50,10 @@ const THINKING_ENABLED: &str = "enabled";
 /// Under `MAX_TOKENS`, as the API requires, and deep enough to be the
 /// «Расширенное рассуждение» claude.ai offers on those models.
 const THINKING_BUDGET_TOKENS: u32 = 16_000;
-const _: () = assert!(THINKING_BUDGET_TOKENS < MAX_TOKENS, "the API rejects a budget ≥ max_tokens");
+const _: () = assert!(
+    THINKING_BUDGET_TOKENS < MAX_TOKENS,
+    "the API rejects a budget ≥ max_tokens"
+);
 /// The level a Claude model reasons at when a request names none, as the
 /// documentation states it — the Models API does not report it. The offline
 /// table records the models that differ (Opus 5.5 and Haiku 5.5: `medium`).

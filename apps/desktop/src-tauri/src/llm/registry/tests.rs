@@ -37,7 +37,11 @@ fn every_provider_is_well_formed() {
                 m.id
             );
             if let Some(default) = m.default_effort {
-                assert!(m.efforts.contains(&default), "{}: {default:?} не в лестнице", m.id);
+                assert!(
+                    m.efforts.contains(&default),
+                    "{}: {default:?} не в лестнице",
+                    m.id
+                );
             }
         }
     }

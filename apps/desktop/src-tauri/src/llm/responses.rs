@@ -213,9 +213,9 @@ pub(crate) fn newest_first_without_snapshots(mut live: Vec<LiveModel>) -> Vec<St
 pub(crate) fn display_name_from_id(id: &str) -> String {
     fn capitalized(s: &str) -> String {
         let mut chars = s.chars();
-        chars.next().map_or_else(String::new, |c| {
-            c.to_uppercase().chain(chars).collect()
-        })
+        chars
+            .next()
+            .map_or_else(String::new, |c| c.to_uppercase().chain(chars).collect())
     }
     let mut parts = id.split('-');
     let head = parts.next().unwrap_or_default();

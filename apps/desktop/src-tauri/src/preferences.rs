@@ -123,8 +123,7 @@ fn rebuild_changed_api_clients(st: &App, old: &settings::Settings, new: &setting
         tauri::async_runtime::spawn(async move { rebuilt.warm_up().await });
     }
     if llm_client_needs_rebuild(old, new) {
-        *st.llm.lock_unpoisoned() =
-            build_llm_client(new, Arc::clone(&st.models), &st.model_probes);
+        *st.llm.lock_unpoisoned() = build_llm_client(new, Arc::clone(&st.models), &st.model_probes);
     }
 }
 

@@ -72,7 +72,9 @@ fn an_always_reasoning_model_never_gets_the_off_value() {
         assert_ne!(sent, Some(json!({ "effort": effort_off })), "{}", always.id);
         assert_eq!(
             sent,
-            always.default_effort.map(|e| json!({ "effort": e.as_str() })),
+            always
+                .default_effort
+                .map(|e| json!({ "effort": e.as_str() })),
             "{}",
             always.id
         );
@@ -299,7 +301,13 @@ fn the_live_list_is_newest_first_without_pinned_snapshots() {
     ]);
     assert_eq!(
         ids,
-        ["gpt-6-sol", "o9-2027-01-01", "gpt-4o", "gpt-3.5-turbo-16k", "gpt-4"]
+        [
+            "gpt-6-sol",
+            "o9-2027-01-01",
+            "gpt-4o",
+            "gpt-3.5-turbo-16k",
+            "gpt-4"
+        ]
     );
 }
 
@@ -388,7 +396,12 @@ mod listing {
         answer_probe(
             &server,
             "tts-1",
-            refusal(404, "model_not_found", None, "The model `tts-1` does not exist."),
+            refusal(
+                404,
+                "model_not_found",
+                None,
+                "The model `tts-1` does not exist.",
+            ),
         )
         .await;
 
@@ -398,7 +411,10 @@ mod listing {
         assert_eq!(ids, ["gpt-new", "gpt-plain"], "tts-1 не чат — его нет");
 
         let new = &models[0];
-        assert!(new.adaptive && !new.always_thinks, "умеет «none» — тумблер жив");
+        assert!(
+            new.adaptive && !new.always_thinks,
+            "умеет «none» — тумблер жив"
+        );
         assert_eq!(new.efforts, [Effort::Low, Effort::Medium, Effort::Max]);
         assert_eq!(new.display_name, "GPT New");
         let plain = &models[1];
@@ -436,7 +452,9 @@ mod listing {
         let server = server_listing(json!([{"id": "gpt-5", "created": 1}])).await;
         Mock::given(method("POST"))
             .and(path("/v1/responses"))
-            .and(body_partial_json(json!({"reasoning": {"effort": "minimal"}})))
+            .and(body_partial_json(
+                json!({"reasoning": {"effort": "minimal"}}),
+            ))
             .respond_with(refusal(
                 400,
                 "unsupported_parameter",
