@@ -11,7 +11,6 @@ describe("isRetryable", () => {
 
   it("не предлагает повтор для смысловых отказов", () => {
     expect(isRetryable(err("badApiKey"))).toBe(false);
-    expect(isRetryable(err("badAccessCode"))).toBe(false);
     expect(isRetryable(err("silence"))).toBe(false);
     expect(isRetryable(err("permission"))).toBe(false);
     expect(isRetryable(null)).toBe(false);

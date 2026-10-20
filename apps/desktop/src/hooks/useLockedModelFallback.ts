@@ -20,10 +20,10 @@ export interface LockedProviders {
 
 /**
  * Which vendors the pickers show locked — and the one consequence of a lock.
- * A vendor's key may be removed (or the access code unlinked) after a chat
- * has settled on its model: the picker draws such a model locked, but it
- * stayed SELECTED, and a send went to a foreign provider with an id it did
- * not know. The chat is moved onto a model the user can actually call.
+ * A vendor's key may be removed after a chat has settled on its model: the
+ * picker draws such a model locked, but it stayed SELECTED, and a send went to
+ * a foreign provider with an id it did not know. The chat is moved onto a
+ * model the user can actually call.
  */
 export function useLockedModelFallback({
   settings,
@@ -40,7 +40,7 @@ export function useLockedModelFallback({
     if (settingsLoading) return;
     const owner = models.find((m) => m.id === chatModel)?.provider;
     if (owner === undefined || !lockedAnswerProviders.includes(owner)) return;
-    patchChat(chatId, { model: defaultModelFor(lockedAnswerProviders, models) });
+    patchChat(chatId, { model: defaultModelFor(lockedAnswerProviders) });
   }, [settingsLoading, models, chatModel, chatId, lockedAnswerProviders, patchChat]);
 
   return { lockedAnswerProviders, lockedSttProviders };

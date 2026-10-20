@@ -248,11 +248,12 @@ pub async fn probe_connectivity(app: AppHandle) -> bool {
 
 #[tauri::command]
 #[specta::specta]
-pub async fn list_models(app: AppHandle) -> Vec<llm::ModelInfo> {
-    match llm_provider(&app).list_models().await {
-        Ok(models) if !models.is_empty() => models,
-        _ => app.state::<App>().models.lock_unpoisoned().clone(),
+pub async fn list_models(app: AppHandle) -> llm::ModelListing {
+    let mut listing = llm_provider(&app).model_listing().await;
+    if listing.models.is_empty() {
+        listing.models = app.state::<App>().models.lock_unpoisoned().clone();
     }
+    listing
 }
 
 #[cfg(test)]

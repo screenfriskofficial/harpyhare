@@ -34,7 +34,7 @@ describe("useLockedModelFallback", () => {
   it("чат на модели запертого вендора переезжает на доступную модель по умолчанию", () => {
     const patchChat = setup(modelOf(PROVIDER_ANTHROPIC));
     expect(patchChat).toHaveBeenCalledWith("c1", {
-      model: defaultModelFor(modelProvidersMissingKey(settings), FALLBACK_MODELS),
+      model: defaultModelFor(modelProvidersMissingKey(settings)),
     });
   });
 

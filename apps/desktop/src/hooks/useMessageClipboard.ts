@@ -1,7 +1,6 @@
 import { useCallback, type RefObject } from "react";
 import { t } from "@/i18n";
 import { copyImageToClipboard } from "@/ipc/commands";
-import { lastMessageOf } from "@/lib/chat-messages";
 import type { ChatMessage } from "@/lib/chats";
 import { copyTextReportingError } from "@/lib/clipboard-text";
 import { imagePngBase64, messageCopyImage, messageCopyText } from "@/lib/message-clipboard";
@@ -10,7 +9,6 @@ import type { ChatsApi } from "./useChats";
 
 export interface MessageClipboard {
   copyMessage: (index: number) => void;
-  copyLastAnswer: () => void;
 }
 
 /** The text, or the image when there is none: a screenshot without a caption has nothing else to copy. */
@@ -29,7 +27,7 @@ function copyMessageToClipboard(message: ChatMessage): void {
     });
 }
 
-/** Copying out of the active chat: a message by its index, or the last answer. */
+/** Copying a message of the active chat by its index. */
 export function useMessageClipboard(chatsRef: RefObject<ChatsApi>): MessageClipboard {
   const copyMessage = useCallback(
     (index: number) => {
@@ -38,9 +36,5 @@ export function useMessageClipboard(chatsRef: RefObject<ChatsApi>): MessageClipb
     },
     [chatsRef],
   );
-  const copyLastAnswer = useCallback(() => {
-    const answer = lastMessageOf(chatsRef.current.active.messages, "assistant");
-    if (answer) void copyTextReportingError(answer.text);
-  }, [chatsRef]);
-  return { copyMessage, copyLastAnswer };
+  return { copyMessage };
 }

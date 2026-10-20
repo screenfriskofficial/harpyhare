@@ -41,7 +41,7 @@ tokio-util = "0.7.18"
 # Дефолтная фича `rustls` у reqwest тянет ВТОРОЙ криптопровайдер (`aws-lc-rs`,
 # C-сборка в каждом холодном CI) поверх `ring`, который уже нужен апдейтеру и
 # tokio-tungstenite. `rustls-no-provider` оставляет один `ring` на весь граф.
-reqwest = { version = "0.13.4", default-features = false, features = ["rustls-no-provider", "charset", "http2", "system-proxy", "json", "multipart", "stream", "query"] }
+reqwest = { version = "0.13.4", default-features = false, features = ["rustls-no-provider", "charset", "http2", "system-proxy", "json", "stream", "query"] }
 # Deepgram — единственный STT-вендор с реальным временем: аудио уходит по
 # WebSocket ещё во время удержания клавиши, а не батчем после отпускания.
 tokio-tungstenite = { version = "0.28", features = ["rustls-tls-native-roots"] }

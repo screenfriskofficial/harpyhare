@@ -1,11 +1,11 @@
-import { useCallback, useState } from "react";
+import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useContextLibrary } from "@/hooks/useContextLibrary";
 import { usePipelines } from "@/hooks/usePipelines";
 import { useSettingsStore } from "@/hooks/useSettingsStore";
 import { useUpdater } from "@/hooks/useUpdater";
 import { applyUiLanguage } from "@/i18n";
-import { clearAccessToken, launchMainWindow, redeemAccessCode } from "@/ipc/commands";
+import { launchMainWindow } from "@/ipc/commands";
 import type { Settings } from "@/ipc/types";
 import { errorMessage } from "@/lib/errors";
 import { notifyError } from "@/lib/notify";
@@ -20,33 +20,13 @@ function applyLauncherVisuals(settings: Settings): void {
 
 export function LauncherApp() {
   const { t } = useTranslation();
-  const { settings, loading, save, reload } = useSettingsStore(applyLauncherVisuals);
+  const { settings, loading, save } = useSettingsStore(applyLauncherVisuals);
   const updater = useUpdater();
   const contextLibrary = useContextLibrary();
   const pipelines = usePipelines();
   const readiness = useLauncherReadiness(settings);
   const [launching, setLaunching] = useState(false);
   const [saving, setSaving] = useState(false);
-
-  const redeem = useCallback(
-    async (code: string): Promise<string | null> => {
-      const failure = await redeemAccessCode(code);
-      if (failure === null) await reload();
-      return failure;
-    },
-    [reload],
-  );
-
-  // Токен доступа принадлежит бэкенду: `set_settings` его не принимает, поэтому
-  // отвязка идёт отдельной командой, а стор перечитывает применённые настройки.
-  const unlink = useCallback(async (): Promise<void> => {
-    try {
-      await clearAccessToken();
-      await reload();
-    } catch (e) {
-      notifyError(errorMessage(e));
-    }
-  }, [reload]);
 
   const persist = async (next: Settings): Promise<boolean> => {
     setSaving(true);
@@ -99,8 +79,6 @@ export function LauncherApp() {
       readiness={readiness}
       launching={launching}
       saving={saving}
-      onRedeem={redeem}
-      onUnlink={unlink}
       onCheckUpdates={updater.checkNow}
       onSave={handleSave}
       onPrepare={persist}

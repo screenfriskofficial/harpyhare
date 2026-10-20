@@ -658,7 +658,7 @@ async fn run_transcription(
 #[derive(Debug)]
 enum StreamVerdict {
     Deliver(String),
-    /// Ключ или код доступа неверны — батч ответил бы тем же; в фолбэк не идём.
+    /// Ключ неверен — батч ответил бы тем же; в фолбэк не идём.
     Fail(stt::SttError),
     FallBack,
 }
@@ -666,9 +666,7 @@ enum StreamVerdict {
 fn stream_verdict(outcome: Result<String, stt::SttError>) -> StreamVerdict {
     match outcome {
         Ok(text) => StreamVerdict::Deliver(text),
-        Err(e @ (stt::SttError::BadApiKey(_) | stt::SttError::BadAccessCode(_))) => {
-            StreamVerdict::Fail(e)
-        }
+        Err(e @ stt::SttError::BadApiKey(_)) => StreamVerdict::Fail(e),
         Err(e @ stt::SttError::Http(_))
             if !matches!(
                 crate::error::CodedError::code(&e),

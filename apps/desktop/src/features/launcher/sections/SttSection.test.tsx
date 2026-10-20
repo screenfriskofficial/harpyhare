@@ -1,30 +1,19 @@
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { DEFAULT_SETTINGS } from "@/ipc/types";
 import type { PermissionsApi } from "@/hooks/usePermissions";
+import { STT_PROVIDER_DEEPGRAM } from "@/test/providers";
 import type { SetSetting } from "../contract";
 
 vi.mock("./AudioRouting", () => ({ AudioRouting: () => null }));
 vi.mock("./AudioSources", () => ({ AudioSources: () => null }));
-vi.mock("@/hooks/useSttModels", () => ({
-  useSttModels: () => ({
-    models: [
-      { id: "openai/gpt-4o-mini-transcribe", name: "OpenAI: GPT-4o Mini Transcribe" },
-      { id: "mistralai/voxtral", name: "Mistral: Voxtral" },
-    ],
-    loaded: true,
-    pending: false,
-    failed: false,
-    refresh: vi.fn(),
-  }),
-}));
 import { SttSection } from "./SttSection";
 
 afterEach(cleanup);
 
 function setup(provider: string) {
   const set = vi.fn<SetSetting>();
-  // Source controls are tested separately and do not participate in model selection.
+  // Source controls are tested separately and do not participate in vendor selection.
   const permissions = {} as PermissionsApi;
   render(
     <SttSection
@@ -36,30 +25,18 @@ function setup(provider: string) {
   return set;
 }
 
-describe("STT model settings", () => {
-  it("shows a searchable model field for OpenRouter and persists the selected ID", async () => {
-    const set = setup("openrouter");
-    fireEvent.click(screen.getByRole("combobox", { name: "Модель OpenRouter" }));
-    fireEvent.change(screen.getByPlaceholderText("Найти модель распознавания…"), {
-      target: { value: "mistralai/voxtral" },
-    });
-    await waitFor(() => {
-      expect(screen.getAllByRole("option")).toHaveLength(1);
-    });
-    fireEvent.click(screen.getByText("Mistral: Voxtral"));
-    expect(set).toHaveBeenCalledWith("openrouter_stt_model", "mistralai/voxtral");
+describe("STT settings", () => {
+  it("names the selected vendor and keeps the language choosable", () => {
+    setup(STT_PROVIDER_DEEPGRAM);
+    expect(screen.getByRole("combobox", { name: "Провайдер распознавания" }).textContent).toContain(
+      "Deepgram",
+    );
+    const language = screen.getByRole("combobox", { name: "Язык распознавания" });
+    expect(language.hasAttribute("disabled")).toBe(false);
   });
-  it("keeps fixed-model providers simple and supports searching providers", async () => {
-    const set = setup("groq");
-    expect(screen.queryByRole("combobox", { name: "Модель OpenRouter" })).toBeNull();
-    fireEvent.click(screen.getByRole("combobox", { name: "Провайдер распознавания" }));
-    fireEvent.change(screen.getByPlaceholderText("Найти провайдера…"), {
-      target: { value: "openrouter" },
-    });
-    await waitFor(() => {
-      expect(screen.getAllByRole("option")).toHaveLength(1);
-    });
-    fireEvent.click(screen.getByText("OpenRouter"));
-    expect(set).toHaveBeenCalledWith("stt_provider", "openrouter");
+
+  it("has no translation toggle: the vendor offers no translation", () => {
+    setup(STT_PROVIDER_DEEPGRAM);
+    expect(screen.queryByRole("switch", { name: "Перевод на английский" })).toBeNull();
   });
 });

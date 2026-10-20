@@ -19,6 +19,9 @@ const GPT: ModelInfo = {
   adaptive: true,
   alwaysThinks: false,
   codeExec: true,
+  efforts: [],
+  budgetThinking: false,
+  defaultEffort: null,
 };
 
 afterEach(cleanup);

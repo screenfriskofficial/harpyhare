@@ -44,11 +44,10 @@ describe("useMessageClipboard", () => {
     expect(copyText).toHaveBeenCalledTimes(1);
   });
 
-  it("copyLastAnswer берёт последний ответ ассистента, несуществующий индекс молчит", () => {
-    const { copyLastAnswer, copyMessage } = setup();
-    copyLastAnswer();
-    expect(copyText).toHaveBeenCalledWith("последний ответ");
+  it("несуществующий индекс молчит", () => {
+    const { copyMessage } = setup();
     copyMessage(42);
-    expect(copyText).toHaveBeenCalledTimes(1);
+    expect(copyText).not.toHaveBeenCalled();
+    expect(copyImage).not.toHaveBeenCalled();
   });
 });

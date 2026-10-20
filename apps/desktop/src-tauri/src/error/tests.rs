@@ -9,10 +9,6 @@ fn llm_errors_map_to_codes() {
         ErrorCode::BadApiKey
     );
     assert_eq!(
-        LlmError::BadAccessCode("x".into()).code(),
-        ErrorCode::BadAccessCode
-    );
-    assert_eq!(
         LlmError::Retryable(503).code(),
         ErrorCode::ServiceUnavailable
     );
@@ -27,11 +23,7 @@ fn llm_errors_map_to_codes() {
 
 #[test]
 fn stt_errors_map_to_codes() {
-    assert_eq!(SttError::BadApiKey("Groq").code(), ErrorCode::BadApiKey);
-    assert_eq!(
-        SttError::BadAccessCode("x".into()).code(),
-        ErrorCode::BadAccessCode
-    );
+    assert_eq!(SttError::BadApiKey("Deepgram").code(), ErrorCode::BadApiKey);
     assert_eq!(SttError::Retryable(429).code(), ErrorCode::RateLimited);
     assert_eq!(SttError::Network("x".into()).code(), ErrorCode::Network);
     assert_eq!(SttError::Cancelled.code(), ErrorCode::Cancelled);
@@ -47,6 +39,6 @@ fn app_error_carries_code_and_display_message() {
 
 #[test]
 fn codes_serialize_as_camel_case() {
-    let json = serde_json::to_string(&AppError::new(ErrorCode::BadAccessCode, "нет")).unwrap();
-    assert_eq!(json, r#"{"code":"badAccessCode","message":"нет"}"#);
+    let json = serde_json::to_string(&AppError::new(ErrorCode::BadApiKey, "нет")).unwrap();
+    assert_eq!(json, r#"{"code":"badApiKey","message":"нет"}"#);
 }

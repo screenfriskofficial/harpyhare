@@ -6,7 +6,7 @@ import { DiagnosticsPanel } from "@/features/diagnostics/DiagnosticsPanel";
 import { useModels } from "@/hooks/useModels";
 import { useOfficialPresets } from "@/hooks/useOfficialPresets";
 import type { Settings } from "@/ipc/types";
-import { visibleApiKeys, availableAnswerProviders } from "@/lib/api-keys";
+import { availableAnswerProviders } from "@/lib/api-keys";
 import { DEFAULT_MODEL, MODEL_PROVIDERS, selectableModels } from "@/lib/models";
 import { pipelineInput } from "@/lib/pipelines";
 import { mergePresets } from "@/lib/presets";
@@ -46,8 +46,6 @@ export function LauncherPanel({
   updater,
   launching,
   saving,
-  onRedeem,
-  onUnlink,
   onCheckUpdates,
   onSave,
   onPrepare,
@@ -86,7 +84,6 @@ export function LauncherPanel({
       presets: presets.map((p) => ({ id: p.id, name: p.name })),
       quickActions: draft.quick_actions.map((a) => ({ id: a.id, title: a.title })),
       contextDocs: contextLibrary.library.docs.map((d) => ({ id: d.id, name: d.name })),
-      apiKeys: visibleApiKeys(draft),
       recordToggle: draft.record_toggle,
     }),
     [presets, draft, contextLibrary.library.docs],
@@ -123,12 +120,6 @@ export function LauncherPanel({
     setScreen(target);
     if (tab !== undefined) setSettingsTab(tab);
   };
-
-  useEffect(() => {
-    setDraft((d) =>
-      d.access_token === settings.access_token ? d : { ...d, access_token: settings.access_token },
-    );
-  }, [settings.access_token]);
 
   useDraftAutosave(draft, launching || preflight.busy, onSave);
 
@@ -225,8 +216,6 @@ export function LauncherPanel({
                 draft={draft}
                 set={set}
                 tab={settingsTab}
-                onRedeem={onRedeem}
-                onUnlink={onUnlink}
                 onTabChange={setSettingsTab}
               />
             )}

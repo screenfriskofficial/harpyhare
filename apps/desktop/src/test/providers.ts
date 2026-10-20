@@ -4,6 +4,4 @@
  */
 export const PROVIDER_ANTHROPIC = "anthropic";
 export const PROVIDER_OPENAI = "openai";
-export const PROVIDER_XAI = "xai";
-export const STT_PROVIDER_GROQ = "groq";
-export const STT_PROVIDER_OPENAI = "openai";
+export const STT_PROVIDER_DEEPGRAM = "deepgram";

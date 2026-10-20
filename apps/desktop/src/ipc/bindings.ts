@@ -11,12 +11,11 @@ export const commands = {
 	sendToClaude: (messages: ChatMessage[], chatId: string, streamId: string, system: string, model: string, options: RequestOptions) => __TAURI_INVOKE<void>("send_to_claude", { messages, chatId, streamId, system, model, options }),
 	cancelStream: (chatId: string, streamId: string) => __TAURI_INVOKE<void>("cancel_stream", { chatId, streamId }),
 	probeConnectivity: () => __TAURI_INVOKE<boolean>("probe_connectivity"),
-	listModels: () => __TAURI_INVOKE<ModelInfo[]>("list_models"),
+	listModels: () => __TAURI_INVOKE<ModelListing>("list_models"),
 	loadPipelines: () => __TAURI_INVOKE<string>("load_pipelines"),
 	savePipelines: (json: string) => __TAURI_INVOKE<null>("save_pipelines", { json }),
 	runPipelineStep: (runId: string, nodeId: string, messages: ChatMessage[], system: string, model: string, options: RequestOptions) => __TAURI_INVOKE<string>("run_pipeline_step", { runId, nodeId, messages, system, model, options }),
 	cancelPipelineRun: (runId: string) => __TAURI_INVOKE<void>("cancel_pipeline_run", { runId }),
-	listOpenrouterSttModels: () => __TAURI_INVOKE<SttModelInfo[]>("list_openrouter_stt_models"),
 	loadChats: () => __TAURI_INVOKE<string>("load_chats"),
 	saveChats: (json: string) => __TAURI_INVOKE<null>("save_chats", { json }),
 	loadContextLibrary: () => __TAURI_INVOKE<string>("load_context_library"),
@@ -41,14 +40,6 @@ export const commands = {
 	 *  than the installation.
 	 */
 	setSttKeyterms: (keyterms: string[]) => __TAURI_INVOKE<void>("set_stt_keyterms", { keyterms }),
-	redeemAccessCode: (code: string, idempotencyKey: string) => __TAURI_INVOKE<null>("redeem_access_code", { code, idempotencyKey }),
-	/**
-	 *  Единственный способ отвязать код доступа. Через `set_settings` это сделать
-	 *  нельзя намеренно: тот сохраняет токен из текущего состояния, а не из снимка
-	 *  лаунчера (см. комментарий там). Возвращает применённые настройки, как и
-	 *  `set_settings`, — фронт принимает их как новое состояние.
-	 */
-	clearAccessToken: () => __TAURI_INVOKE<Settings>("clear_access_token"),
 	setWindowSize: (width: number | null, height: number | null) => __TAURI_INVOKE<void>("set_window_size", { width, height }),
 	closeApp: () => __TAURI_INVOKE<void>("close_app"),
 	collapseMainWindow: () => __TAURI_INVOKE<void>("collapse_main_window"),
@@ -85,19 +76,21 @@ export const commands = {
 /* Constants */
 export const DEFAULT_MODEL = "claude-haiku-4-5-20251001" as const;
 
+export const EFFORT_LEVELS = ["low","medium","high","xhigh","max"] as const;
+
 export const HOTKEY_ACTIONS = [{"defaultCombo":{"macos":"Cmd+R","windows":"Ctrl+R"},"group":"record","hint":"Нажмите, чтобы начать запись, и ещё раз, чтобы закончить.","id":"record","kind":"combo","label":"Записать системный звук","scope":"global"},{"defaultCombo":{"macos":"Escape","windows":"Escape"},"group":"record","hint":"Слушается только пока идёт запись.","id":"cancel_recording","kind":"combo","label":"Отменить запись","scope":"recording"},{"defaultCombo":{"macos":"Cmd+Enter","windows":"Ctrl+Enter"},"group":"send","hint":"Работает из любого места окна, не только из поля ввода.","id":"send","kind":"combo","label":"Отправить","scope":"hud"},{"defaultCombo":{"macos":"Escape","windows":"Escape"},"group":"send","hint":"Слушается, только пока пишется ответ.","id":"cancel_stream","kind":"combo","label":"Остановить ответ","scope":"streaming"},{"defaultCombo":{"macos":"Cmd+Shift+S","windows":"Ctrl+Shift+S"},"group":"send","hint":"Выделенная область уходит вложением в чат.","id":"screenshot","kind":"combo","label":"Снимок области экрана","scope":"global"},{"defaultCombo":{"macos":"Cmd","windows":"Ctrl"},"group":"send","hint":"Модификатор с цифрой: 1…9 по порядку кнопок.","id":"quick_action","kind":"modifier_digits","label":"Быстрое действие","scope":"hud"},{"defaultCombo":{"macos":"Cmd+Shift+D","windows":"Ctrl+Shift+D"},"group":"send","hint":"Поднимает окно и ставит каретку в конец текста.","id":"focus_prompt","kind":"combo","label":"Сфокусировать поле ввода","scope":"global"},{"defaultCombo":{"macos":"Cmd+Shift+H","windows":"Ctrl+Shift+H"},"group":"window","hint":"Сжимает окно в компактный статус и обратно, работает из любого приложения.","id":"toggle_window","kind":"combo","label":"Свернуть или развернуть","scope":"global"},{"defaultCombo":{"macos":"F12","windows":"F12"},"group":"window","hint":"Сжимает окно в компактный статус в правом верхнем углу экрана, повторное нажатие разворачивает.","id":"panic","kind":"combo","label":"Клавиша паники","scope":"global"},{"defaultCombo":{"macos":"Cmd","windows":"Ctrl"},"group":"window","hint":"Модификатор со стрелками.","id":"move_window","kind":"modifier_arrows","label":"Передвинуть","scope":"hud"},{"defaultCombo":{"macos":"Cmd+Shift","windows":"Ctrl+Shift"},"group":"window","hint":"Модификатор со стрелками.","id":"resize_window","kind":"modifier_arrows","label":"Изменить размер","scope":"hud"},{"defaultCombo":{"macos":"Cmd+Shift","windows":"Ctrl+Shift"},"group":"window","hint":"Модификатор с плюсом и минусом.","id":"opacity","kind":"modifier_plus_minus","label":"Прозрачность","scope":"hud"},{"defaultCombo":{"macos":"Cmd","windows":"Ctrl"},"group":"chat","hint":"Модификатор с квадратными скобками.","id":"chat_font_size","kind":"modifier_brackets","label":"Размер шрифта","scope":"hud"},{"defaultCombo":{"macos":"Alt","windows":"Alt"},"group":"chat","hint":"Модификатор со стрелками вверх и вниз.","id":"scroll_chat","kind":"modifier_arrows","label":"Скролл переписки","scope":"hud"},{"defaultCombo":{"macos":"Cmd+Shift+N","windows":"Ctrl+Shift+N"},"group":"chat","hint":"Новый чат с параметрами текущего, работает из любого приложения.","id":"duplicate_chat","kind":"combo","label":"Дубликат чата","scope":"global"},{"defaultCombo":{"macos":"Cmd+Shift+M","windows":"Ctrl+Shift+M"},"group":"chat","hint":"Выбор голосовой модели и модели ответа.","id":"model_menu","kind":"combo","label":"Меню моделей","scope":"hud"},{"defaultCombo":{"macos":"Cmd+T","windows":"Ctrl+T"},"group":"chat","hint":"Крупный текст ответа поверх экрана.","id":"teleprompter","kind":"combo","label":"Суфлёр","scope":"global"},{"defaultCombo":{"macos":"Cmd+Shift+L","windows":"Ctrl+Shift+L"},"group":"notes","hint":"Переключает окно между чатом и заметками.","id":"toggle_mode","kind":"combo","label":"Режим заметок","scope":"hud"},{"defaultCombo":{"macos":"Escape","windows":"Escape"},"group":"teleprompter","hint":"Слушается только пока суфлёр открыт.","id":"teleprompter_close","kind":"combo","label":"Закрыть суфлёр","scope":"teleprompter"},{"defaultCombo":{"macos":"Space","windows":"Space"},"group":"teleprompter","hint":"Останавливает автопрокрутку.","id":"teleprompter_pause","kind":"combo","label":"Пауза суфлёра","scope":"teleprompter"}] as const;
 
-export const LLM_PROVIDERS = [{"catalog":[{"adaptive":true,"alwaysThinks":false,"codeExec":true,"displayName":"Claude Opus 4.8","id":"claude-opus-4-8"},{"adaptive":true,"alwaysThinks":false,"codeExec":true,"displayName":"Claude Sonnet 5","id":"claude-sonnet-5"},{"adaptive":false,"alwaysThinks":false,"codeExec":false,"displayName":"Claude Haiku 4.5","id":"claude-haiku-4-5-20251001"}],"defaultModel":"claude-haiku-4-5-20251001","families":["opus","sonnet","haiku"],"id":"anthropic","keyId":"anthropic","label":"Claude","proxied":true},{"catalog":[{"adaptive":true,"alwaysThinks":false,"codeExec":true,"displayName":"GPT-5.6 Terra","id":"gpt-5.6-terra"},{"adaptive":true,"alwaysThinks":false,"codeExec":true,"displayName":"GPT-5.6 Sol","id":"gpt-5.6-sol"},{"adaptive":true,"alwaysThinks":false,"codeExec":true,"displayName":"GPT-5.6 Luna","id":"gpt-5.6-luna"},{"adaptive":true,"alwaysThinks":true,"codeExec":true,"displayName":"GPT-5.5 Pro","id":"gpt-5.5-pro"},{"adaptive":true,"alwaysThinks":false,"codeExec":true,"displayName":"GPT-5.4 mini","id":"gpt-5.4-mini"}],"defaultModel":"gpt-5.4-mini","families":[],"id":"openai","keyId":"openai","label":"OpenAI","proxied":true},{"catalog":[{"adaptive":true,"alwaysThinks":false,"codeExec":true,"displayName":"Grok 4.6","id":"grok-4.6"},{"adaptive":true,"alwaysThinks":false,"codeExec":true,"displayName":"Grok 4.5","id":"grok-4.5"},{"adaptive":true,"alwaysThinks":false,"codeExec":true,"displayName":"Grok 4.3","id":"grok-4.3"}],"defaultModel":"grok-4.3","families":[],"id":"xai","keyId":"xai","label":"Grok","proxied":true},{"catalog":[],"defaultModel":"","families":[],"id":"xclis","keyId":"xclis","label":"Xclis","proxied":false},{"catalog":[],"defaultModel":"","families":[],"id":"openrouter","keyId":"openrouter","label":"OpenRouter","proxied":false}] as const;
+export const LLM_PROVIDERS = [{"catalog":[{"adaptive":true,"alwaysThinks":true,"budgetThinking":false,"codeExec":true,"defaultEffort":"medium","displayName":"Claude Opus 5.5","efforts":["low","medium","high","xhigh","max"],"id":"claude-opus-5-5"},{"adaptive":true,"alwaysThinks":true,"budgetThinking":false,"codeExec":true,"defaultEffort":"high","displayName":"Claude Sonnet 5.5","efforts":["low","medium","high","xhigh","max"],"id":"claude-sonnet-5-5"},{"adaptive":true,"alwaysThinks":true,"budgetThinking":false,"codeExec":true,"defaultEffort":"medium","displayName":"Claude Haiku 5.5","efforts":["low","medium","high","xhigh","max"],"id":"claude-haiku-5-5"},{"adaptive":false,"alwaysThinks":false,"budgetThinking":true,"codeExec":false,"defaultEffort":null,"displayName":"Claude Haiku 4.5","efforts":[],"id":"claude-haiku-4-5-20251001"}],"defaultModel":"claude-haiku-4-5-20251001","id":"anthropic","keyId":"anthropic","label":"Claude"},{"catalog":[{"adaptive":true,"alwaysThinks":true,"budgetThinking":false,"codeExec":true,"defaultEffort":"medium","displayName":"GPT-6.1 Sol","efforts":["low","medium","high","xhigh","max"],"id":"gpt-6.1-sol"},{"adaptive":true,"alwaysThinks":false,"budgetThinking":false,"codeExec":true,"defaultEffort":"medium","displayName":"GPT-6 Sol","efforts":["low","medium","high","xhigh","max"],"id":"gpt-6-sol"},{"adaptive":true,"alwaysThinks":false,"budgetThinking":false,"codeExec":true,"defaultEffort":"medium","displayName":"GPT-6 Luna","efforts":["low","medium","high","xhigh","max"],"id":"gpt-6-luna"},{"adaptive":true,"alwaysThinks":true,"budgetThinking":false,"codeExec":true,"defaultEffort":"medium","displayName":"GPT-5.5 Pro","efforts":["medium","high","xhigh"],"id":"gpt-5.5-pro"},{"adaptive":true,"alwaysThinks":false,"budgetThinking":false,"codeExec":true,"defaultEffort":"medium","displayName":"GPT-5.4 mini","efforts":["low","medium","high","xhigh"],"id":"gpt-5.4-mini"}],"defaultModel":"gpt-5.4-mini","id":"openai","keyId":"openai","label":"OpenAI"}] as const;
 
 export const MODIFIER_COMBOS = {"macos":["Cmd","Ctrl","Alt","Cmd+Shift","Ctrl+Shift","Alt+Shift"],"windows":["Ctrl","Alt","Ctrl+Shift","Alt+Shift"]} as const;
 
 export const QUICK_ACTION_LIMIT = 9 as const;
 
-export const SETTINGS_DEFAULTS = {"access_token":"","anthropic_api_key":"","audio_permission_requested":false,"auto_preview_html":true,"auto_send":false,"buffer_enabled":true,"buffer_seconds":4,"capture_device_uid":"","capture_microphone":false,"capture_system_audio":true,"chat_font_size":13.5,"deepgram_api_key":"","groq_api_key":"","hotkeys":[],"microphone_device_uid":"","move_step":20,"openai_api_key":"","openrouter_api_key":"","openrouter_stt_model":"openai/gpt-4o-mini-transcribe","preview_width":570.0,"prompt_presets":[],"quick_action_attachments":false,"quick_actions":[{"id":"detail","prompt":"Расскажи более подробно.","title":"Подробнее"},{"id":"brief","prompt":"Ответь короче, только суть.","title":"Короче"},{"id":"code","prompt":"Покажи пример кода.","title":"Пример кода"}],"record_toggle":true,"resize_step":20,"screen_permission_requested":false,"screen_share_visible":false,"scroll_step":120,"skipped_version":"","stt_language":"ru","stt_provider":"groq","stt_translate":false,"teleprompter_font_size":28.0,"teleprompter_resume":true,"teleprompter_speed":40.0,"theme":"gray","ui_language":"","window_height":680.0,"window_opacity":0.9,"window_width":960.0,"xai_api_key":"","xclis_api_key":""} as const;
+export const SETTINGS_DEFAULTS = {"anthropic_api_key":"","audio_permission_requested":false,"auto_preview_html":true,"auto_send":false,"buffer_enabled":true,"buffer_seconds":4,"capture_device_uid":"","capture_microphone":false,"capture_system_audio":true,"chat_font_size":13.5,"deepgram_api_key":"","hotkeys":[],"microphone_device_uid":"","move_step":20,"openai_api_key":"","preview_width":570.0,"prompt_presets":[],"quick_action_attachments":false,"quick_actions":[{"id":"detail","prompt":"Расскажи более подробно.","title":"Подробнее"},{"id":"brief","prompt":"Ответь короче, только суть.","title":"Короче"},{"id":"code","prompt":"Покажи пример кода.","title":"Пример кода"}],"record_toggle":true,"resize_step":20,"screen_permission_requested":false,"screen_share_visible":false,"scroll_step":120,"skipped_version":"","stt_language":"ru","stt_provider":"deepgram","teleprompter_font_size":28.0,"teleprompter_resume":true,"teleprompter_speed":40.0,"theme":"gray","ui_language":"","window_height":680.0,"window_opacity":0.9,"window_width":960.0} as const;
 
 export const SETTINGS_LIMITS = {"bufferSeconds":{"default":4,"max":10,"min":1},"chatFontSize":{"default":13.5,"max":20.0,"min":10.0},"moveStep":{"default":20,"max":200,"min":1},"previewWidth":{"default":570.0,"max":1600.0,"min":260.0},"resizeStep":{"default":20,"max":200,"min":1},"scrollStep":{"default":120,"max":1000,"min":10},"teleprompterFontSize":{"default":28.0,"max":48.0,"min":20.0},"teleprompterSpeed":{"default":40.0,"max":150.0,"min":10.0},"windowHeight":{"default":680.0,"max":1100.0,"min":520.0},"windowOpacity":{"default":0.9,"max":1.0,"min":0.2},"windowWidth":{"default":960.0,"max":1600.0,"min":300.0}} as const;
 
-export const STT_PROVIDERS = [{"id":"groq","keyId":"groq","label":"Groq · Whisper","proxied":true,"supportsTranslate":true},{"id":"openai","keyId":"openai","label":"OpenAI · gpt-4o mini","proxied":true,"supportsTranslate":true},{"id":"xai","keyId":"xai","label":"Grok · Speech-to-Text","proxied":true,"supportsTranslate":false},{"id":"deepgram","keyId":"deepgram","label":"Deepgram · Nova-3","proxied":false,"supportsTranslate":false},{"id":"openrouter","keyId":"openrouter","label":"OpenRouter","proxied":false,"supportsTranslate":false}] as const;
+export const STT_PROVIDERS = [{"id":"deepgram","keyId":"deepgram","label":"Deepgram · Nova-3"}] as const;
 
 export const UI_LANGUAGES = ["ru","en"] as const;
 
@@ -124,6 +117,15 @@ export type AudioLevel = {
 };
 
 export type AudioSource = "system" | "microphone";
+
+/**
+ *  A vendor whose live catalogue did not come — its models in the picker are
+ *  then the offline table, and `error` says why.
+ */
+export type CatalogFailure = {
+	provider: string,
+	error: AppError,
+};
 
 export type ChatMessage = {
 	role: string,
@@ -161,7 +163,6 @@ export type DiagnosticRecord = {
 	origin: DiagnosticOrigin,
 	provider: string,
 	model: string,
-	viaRelay: boolean,
 	captureMs: number | null,
 	processingMs: number | null,
 	firstTextMs: number | null,
@@ -177,7 +178,16 @@ export type DiagnosticReport = {
 	records: DiagnosticRecord[],
 };
 
-export type ErrorCode = "network" | "badApiKey" | "badAccessCode" | "retryable" | "api" | "cancelled" | "permission" | "silence" | "internal" | "billing" | "dailyLimit" | "rateLimited" | "serviceUnavailable" | "timeout" | "accessDenied" | "modelUnavailable" | "requestTooLarge" | 
+/**
+ *  How hard a reasoning model works on an answer — one ladder for every
+ *  vendor. The serialized names are the wire values themselves: Anthropic's
+ *  `output_config.effort` and the Responses `reasoning.effort` both take these
+ *  words verbatim, so no vendor needs a translation table. What each model
+ *  accepts is `ModelInfo.efforts`.
+ */
+export type Effort = "low" | "medium" | "high" | "xhigh" | "max";
+
+export type ErrorCode = "network" | "badApiKey" | "retryable" | "api" | "cancelled" | "permission" | "silence" | "internal" | "billing" | "rateLimited" | "serviceUnavailable" | "timeout" | "accessDenied" | "modelUnavailable" | "requestTooLarge" | 
 /**
  *  The model stopped before the end of its answer (length limit, context
  *  overflow, refusal). What arrived is real text, but not a whole answer.
@@ -245,6 +255,20 @@ export type ModelInfo = {
 	adaptive: boolean,
 	alwaysThinks: boolean,
 	codeExec: boolean,
+	/**  Effort levels the model accepts, weakest first; empty when it takes none. */
+	efforts: Effort[],
+	/**
+	 *  Reasons only through manual extended thinking with a token budget —
+	 *  an on/off switch, no levels (Haiku 4.5, Sonnet 4.5).
+	 */
+	budgetThinking: boolean,
+	/**  The level a request carries when the chat picked none; one of `efforts`. */
+	defaultEffort: Effort | null,
+};
+
+export type ModelListing = {
+	models: ModelInfo[],
+	failures: CatalogFailure[],
 };
 
 export type PermissionKind = "audio" | "microphone" | "screen";
@@ -291,6 +315,8 @@ export type RecorderState = "idle" | "recording" | "transcribing";
 export type RequestOptions = {
 	thinking?: boolean,
 	webSearch?: boolean,
+	/**  `None` — the model's default level (`ModelInfo.default_effort`). */
+	effort?: Effort | null,
 };
 
 export type ResizeDim = "width" | "height";
@@ -307,13 +333,8 @@ export type ScreenshotReady = {
 
 export type Settings = {
 	anthropic_api_key?: string,
-	groq_api_key?: string,
 	openai_api_key?: string,
-	xai_api_key?: string,
 	deepgram_api_key?: string,
-	openrouter_api_key?: string,
-	xclis_api_key?: string,
-	access_token?: string,
 	prompt_presets?: PromptPreset[],
 	hotkeys?: HotkeyBinding[],
 	/**
@@ -328,9 +349,7 @@ export type Settings = {
 	chat_font_size?: number | null,
 	skipped_version?: string,
 	stt_language?: string,
-	stt_translate?: boolean,
 	stt_provider?: string,
-	openrouter_stt_model?: string,
 	screen_share_visible?: boolean,
 	teleprompter_speed?: number | null,
 	teleprompter_font_size?: number | null,
@@ -352,11 +371,6 @@ export type Settings = {
 	buffer_seconds?: number,
 	quick_actions?: QuickAction[],
 	quick_action_attachments?: boolean,
-};
-
-export type SttModelInfo = {
-	id: string,
-	name: string,
 };
 
 export type TranscriptReady = {

@@ -19,13 +19,8 @@ export interface QuickAction {
 
 export interface Settings {
   anthropic_api_key: string;
-  groq_api_key: string;
   openai_api_key: string;
-  xai_api_key: string;
   deepgram_api_key: string;
-  openrouter_api_key: string;
-  xclis_api_key: string;
-  access_token: string;
   prompt_presets: PromptPreset[];
   hotkeys: HotkeyBinding[];
   record_toggle: boolean;
@@ -36,9 +31,7 @@ export interface Settings {
   chat_font_size: number;
   skipped_version: string;
   stt_language: string;
-  stt_translate: boolean;
   stt_provider: string;
-  openrouter_stt_model: string;
   screen_share_visible: boolean;
   teleprompter_speed: number;
   teleprompter_font_size: number;

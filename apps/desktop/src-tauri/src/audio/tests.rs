@@ -119,21 +119,6 @@ fn stream_resampler_16k_is_passthrough() {
 }
 
 #[test]
-fn wav_streaming_header_shape() {
-    let h = wav_header_streaming();
-    assert_eq!(&h[0..4], b"RIFF");
-    assert_eq!(&h[8..12], b"WAVE");
-    assert_eq!(&h[36..40], b"data");
-    assert_eq!(u32::from_le_bytes(h[4..8].try_into().unwrap()), 0xFFFF_FFFF);
-    assert_eq!(
-        u32::from_le_bytes(h[40..44].try_into().unwrap()),
-        0xFFFF_FFFF
-    );
-    assert_eq!(u32::from_le_bytes(h[24..28].try_into().unwrap()), 16000);
-    assert_eq!(u16::from_le_bytes(h[22..24].try_into().unwrap()), 1);
-}
-
-#[test]
 fn f32_to_i16le_bytes_matches_wav_encoder() {
     let samples = vec![0.0f32, 0.5, -0.5, 1.0, -1.0];
     let bytes = f32_to_i16le_bytes(&samples);

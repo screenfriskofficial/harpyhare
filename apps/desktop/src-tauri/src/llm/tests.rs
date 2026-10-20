@@ -28,70 +28,110 @@ fn adaptive() -> Option<Value> {
     Some(json!({"type": "adaptive"}))
 }
 
-#[test]
-fn thinking_value_semantics() {
-    assert_eq!(
-        thinking_value(None, "claude-opus-4-8", true),
-        Some(json!({"type": "adaptive"}))
-    );
-    assert_eq!(
-        thinking_value(None, "claude-opus-4-8", false),
-        Some(json!({"type": "disabled"}))
-    );
-    assert_eq!(thinking_value(None, "claude-haiku-4-5", true), None);
-    assert_eq!(thinking_value(None, "claude-haiku-4-5", false), None);
-    assert_eq!(thinking_value(None, "claude-fable-5", true), None);
-    assert_eq!(thinking_value(None, "claude-fable-5", false), None);
-    let info = ModelInfo {
-        provider: PROVIDER_ANTHROPIC.into(),
-        id: "claude-newmodel-9".into(),
-        display_name: "New".into(),
-        adaptive: false,
-        always_thinks: false,
-        code_exec: true,
-    };
-    assert_eq!(thinking_value(Some(&info), "claude-newmodel-9", true), None);
+/// `/v1/models` as it answered on 2026-10-20, trimmed to what reasoning reads.
+fn live(id: &str, thinking: Value, efforts: &[&str]) -> ModelInfo {
+    let effort: serde_json::Map<String, Value> = efforts
+        .iter()
+        .map(|e| (e.to_string(), json!({"supported": true})))
+        .collect();
+    model_info_from_json(&json!({
+        "id": id,
+        "capabilities": {"thinking": {"types": thinking}, "effort": effort}
+    }))
+    .unwrap()
+}
+
+const EVERY_LEVEL: [&str; 5] = ["low", "medium", "high", "xhigh", "max"];
+
+fn opus_5_5() -> ModelInfo {
+    live(
+        "claude-opus-5-5",
+        json!({"adaptive": {"supported": true}, "disabled": {"supported": false},
+               "enabled": {"supported": false}}),
+        &EVERY_LEVEL,
+    )
+}
+
+fn haiku_4_5() -> ModelInfo {
+    live(
+        "claude-haiku-4-5-20251001",
+        json!({"adaptive": {"supported": false}, "disabled": {"supported": true},
+               "enabled": {"supported": true}}),
+        &[],
+    )
 }
 
 #[test]
-fn thinking_off_never_sends_disabled_to_models_that_reject_it() {
-    for model in ["claude-opus-5-5", "claude-sonnet-5-5", "claude-newmodel-9"] {
-        assert_eq!(thinking_value(None, model, false), None, "{model}");
-        assert_eq!(
-            output_config_value(None, model, false),
-            Some(json!({"effort": "low"})),
-            "{model}"
-        );
-        assert_eq!(
-            thinking_value(None, model, true),
-            Some(json!({"type": "adaptive"})),
-            "{model}"
-        );
-        assert_eq!(output_config_value(None, model, true), None, "{model}");
-    }
-}
-
-#[test]
-fn thinking_off_keeps_disabled_where_it_is_accepted() {
-    for model in [
-        "claude-opus-4-6",
-        "claude-opus-4-8",
-        "claude-opus-4-8-20260101",
-        "claude-opus-5",
-        "claude-sonnet-4-6",
-        "claude-sonnet-5",
+fn a_model_with_levels_always_reasons_like_on_claude_ai() {
+    // claude.ai offers Opus 5.5, Haiku 5.5 and the rest Low…Max and nothing
+    // else — no «off», even where the API would take `disabled`.
+    for (id, disabled) in [
+        ("claude-opus-5-5", false),
+        ("claude-haiku-5-5", true),
+        ("claude-fable-5-1", false),
     ] {
-        assert_eq!(
-            thinking_value(None, model, false),
-            Some(json!({"type": "disabled"})),
-            "{model}"
+        let m = live(
+            id,
+            json!({"adaptive": {"supported": true}, "disabled": {"supported": disabled}}),
+            &EVERY_LEVEL,
         );
-        assert_eq!(output_config_value(None, model, false), None, "{model}");
+        assert!(m.always_thinks, "{id}");
+        assert_eq!(thinking_value(Some(&m), id, false), adaptive(), "{id}");
+        assert_eq!(thinking_value(Some(&m), id, true), adaptive(), "{id}");
     }
-    // Haiku has no adaptive thinking and Fable always thinks: no effort either.
-    for model in ["claude-haiku-4-5-20251001", "claude-fable-5-1"] {
-        assert_eq!(output_config_value(None, model, false), None, "{model}");
+}
+
+#[test]
+fn disabled_is_never_sent() {
+    for m in [opus_5_5(), haiku_4_5()] {
+        for requested in [false, true] {
+            let thinking = thinking_value(Some(&m), &m.id, requested);
+            assert_ne!(thinking, Some(json!({"type": "disabled"})), "{}", m.id);
+        }
     }
+    assert_eq!(thinking_value(None, "claude-opus-4-8", false), None);
+}
+
+#[test]
+fn a_budget_model_is_a_switch_with_extended_thinking_behind_it() {
+    // claude.ai: Haiku 4.5 → «Extended — Always uses deep reasoning», a toggle.
+    let haiku = haiku_4_5();
+    assert!(haiku.budget_thinking && !haiku.adaptive && !haiku.always_thinks);
+    assert!(haiku.efforts.is_empty() && haiku.default_effort.is_none());
+    assert_eq!(thinking_value(Some(&haiku), &haiku.id, false), None);
+    assert_eq!(
+        thinking_value(Some(&haiku), &haiku.id, true),
+        Some(json!({"type": "enabled", "budget_tokens": THINKING_BUDGET_TOKENS}))
+    );
+}
+
+#[test]
+fn a_model_that_does_not_reason_gets_no_thinking_field() {
+    let plain = live(
+        "claude-newmodel-9",
+        json!({"adaptive": {"supported": false}, "enabled": {"supported": false}}),
+        &[],
+    );
+    assert!(!plain.always_thinks);
+    assert_eq!(thinking_value(Some(&plain), &plain.id, true), None);
+}
+
+#[test]
+fn the_default_level_is_the_documented_one() {
+    assert_eq!(opus_5_5().default_effort, Some(Effort::Medium));
+    let sonnet = live(
+        "claude-sonnet-5-5",
+        json!({"adaptive": {"supported": true}}),
+        &EVERY_LEVEL,
+    );
+    assert_eq!(sonnet.default_effort, Some(Effort::High));
+    // A model the offline table does not know: the API's own default, `high`.
+    let opus_4_7 = live(
+        "claude-opus-4-7",
+        json!({"adaptive": {"supported": true}}),
+        &EVERY_LEVEL,
+    );
+    assert_eq!(opus_4_7.default_effort, Some(Effort::High));
 }
 
 #[test]
@@ -109,12 +149,95 @@ fn model_info_parses_capabilities() {
     let m = model_info_from_json(&v).unwrap();
     assert_eq!(m.display_name, "Claude Haiku 4.5");
     assert!(!m.adaptive);
+    assert!(m.budget_thinking);
     assert!(!m.always_thinks);
     assert!(!m.code_exec);
+    assert!(m.efforts.is_empty());
     let m = model_info_from_json(&json!({"id": "claude-sonnet-5"})).unwrap();
     assert!(m.adaptive);
     assert!(m.code_exec);
     assert_eq!(m.display_name, "claude-sonnet-5");
+}
+
+#[test]
+fn effort_levels_come_from_capabilities_one_by_one() {
+    // Opus 4.6 as the live catalogue reports it: no `xhigh`.
+    let v = json!({
+        "id": "claude-opus-4-6",
+        "capabilities": {"effort": {
+            "supported": true,
+            "low": {"supported": true}, "medium": {"supported": true},
+            "high": {"supported": true}, "xhigh": {"supported": false},
+            "max": {"supported": true}
+        }}
+    });
+    assert_eq!(
+        model_info_from_json(&v).unwrap().efforts,
+        [Effort::Low, Effort::Medium, Effort::High, Effort::Max]
+    );
+}
+
+fn with_effort(thinking: bool, effort: Effort) -> RequestOptions {
+    RequestOptions {
+        thinking,
+        web_search: false,
+        effort: Some(effort),
+    }
+}
+
+#[test]
+fn the_chosen_level_is_sent_and_without_one_the_default_is() {
+    let opus = opus_5_5();
+    assert_eq!(
+        effort_config_value(Some(&opus), &opus.id, &with_effort(false, Effort::Xhigh)),
+        Some(json!({"effort": "xhigh"})),
+        "уровень — единственный контрол, тумблер ему не мешает"
+    );
+    // What the picker shows checked when the chat picked nothing.
+    assert_eq!(
+        effort_config_value(Some(&opus), &opus.id, &RequestOptions::default()),
+        Some(json!({"effort": "medium"}))
+    );
+}
+
+#[test]
+fn a_level_the_model_does_not_take_falls_back_to_its_default() {
+    // Sonnet 4.6 as the live catalogue reports it: no `xhigh`.
+    let sonnet = live(
+        "claude-sonnet-4-6",
+        json!({"adaptive": {"supported": true}, "disabled": {"supported": true}}),
+        &["low", "medium", "high", "max"],
+    );
+    assert_eq!(
+        effort_config_value(Some(&sonnet), &sonnet.id, &with_effort(true, Effort::Xhigh)),
+        Some(json!({"effort": "high"}))
+    );
+}
+
+#[test]
+fn a_budget_model_never_gets_a_level() {
+    let haiku = haiku_4_5();
+    assert_eq!(
+        effort_config_value(Some(&haiku), &haiku.id, &with_effort(true, Effort::High)),
+        None
+    );
+}
+
+#[test]
+fn without_a_live_catalogue_the_offline_one_vouches_for_the_level() {
+    assert_eq!(
+        effort_config_value(None, "claude-opus-5-5", &with_effort(true, Effort::Xhigh)),
+        Some(json!({"effort": "xhigh"}))
+    );
+    assert_eq!(
+        effort_config_value(None, DEFAULT_MODEL, &with_effort(true, Effort::Low)),
+        None,
+        "Haiku 4.5 — рассуждение с бюджетом, уровней у неё нет"
+    );
+    assert_eq!(
+        effort_config_value(None, "claude-unknown-9", &with_effort(true, Effort::Low)),
+        None
+    );
 }
 
 #[tokio::test]
@@ -222,16 +345,17 @@ fn thinking_none_omits_field_entirely() {
 }
 
 #[test]
-fn thinking_off_sends_explicit_disabled() {
+fn reasoning_lands_in_the_body_as_adaptive() {
     let msgs = vec![user("q")];
+    let opus = opus_5_5();
     let body = build_request_body(
-        "claude-opus-4-8",
+        &opus.id,
         "sys",
         &msgs,
-        thinking_value(None, "claude-opus-4-8", false),
+        thinking_value(Some(&opus), &opus.id, false),
         None,
     );
-    assert_eq!(body["thinking"]["type"], "disabled");
+    assert_eq!(body["thinking"]["type"], "adaptive");
 }
 
 #[test]
@@ -243,10 +367,21 @@ fn web_search_value_semantics() {
     );
     assert_eq!(
         web_search_value(None, "claude-haiku-4-5", true),
-        Some(json!({
-            "type": "web_search_20260209", "name": "web_search", "max_uses": 5,
-            "allowed_callers": ["direct"]
-        }))
+        Some(json!({"type": "web_search_20250305", "name": "web_search", "max_uses": 5}))
+    );
+    // The live catalogue reports code execution for Haiku 4.5: that must not
+    // earn it the dynamic tool, which it can only call with `allowed_callers`.
+    let live_haiku = model_info_from_json(&json!({
+        "id": "claude-haiku-4-5-20251001",
+        "capabilities": {
+            "thinking": {"types": {"adaptive": {"supported": false}}},
+            "code_execution": {"supported": true}
+        }
+    }))
+    .unwrap();
+    assert_eq!(
+        web_search_value(Some(&live_haiku), &live_haiku.id, true),
+        Some(json!({"type": "web_search_20250305", "name": "web_search", "max_uses": 5}))
     );
     let info = ModelInfo {
         provider: PROVIDER_ANTHROPIC.into(),
@@ -255,6 +390,9 @@ fn web_search_value_semantics() {
         adaptive: true,
         always_thinks: false,
         code_exec: false,
+        efforts: vec![],
+        budget_thinking: false,
+        default_effort: None,
     };
     let tool = web_search_value(Some(&info), "claude-newmodel-9", true).unwrap();
     assert_eq!(tool["allowed_callers"], json!(["direct"]));
@@ -356,39 +494,6 @@ fn sse_parser_joins_multiline_data_and_skips_comments() {
     let mut p = SseParser::anthropic();
     let out = p.feed(": keep-alive\ndata: {\"type\":\"content_block_delta\",\ndata: \"delta\":{\"type\":\"text_delta\",\"text\":\"b\"}}\n\n");
     assert_eq!(out, vec![SseOut::TextDelta("b".into())]);
-}
-
-#[tokio::test]
-async fn stream_ending_after_a_soft_finish_is_a_success() {
-    use wiremock::matchers::method;
-    use wiremock::{Mock, MockServer, ResponseTemplate};
-    fn soft_finish(data: &str) -> Vec<SseOut> {
-        match data {
-            "end" => vec![SseOut::Finished],
-            other => vec![SseOut::TextDelta(other.to_string())],
-        }
-    }
-    let server = MockServer::start().await;
-    Mock::given(method("POST"))
-        .respond_with(
-            ResponseTemplate::new(200)
-                .insert_header("content-type", "text/event-stream")
-                .set_body_raw(b"data: hi\n\ndata: end\n\n".to_vec(), "text/event-stream"),
-        )
-        .mount(&server)
-        .await;
-    let http = LlmHttp::direct(server.uri(), Credential::Bearer("k".into()), "T");
-    let mut sink = CollectingSink::default();
-    http.post_sse(
-        "/x",
-        &json!({}),
-        SseParser::with_block_parser(soft_finish),
-        tokio_util::sync::CancellationToken::new(),
-        &mut sink,
-    )
-    .await
-    .unwrap();
-    assert_eq!(sink.text, "hi");
 }
 
 #[test]
@@ -585,69 +690,6 @@ async fn stream_maps_401() {
         .await
         .unwrap_err();
     assert!(matches!(err, LlmError::BadApiKey(_)));
-}
-
-#[tokio::test]
-async fn proxy_mode_authorizes_with_bearer_not_api_key() {
-    use wiremock::matchers::{header, header_exists, method, path};
-    use wiremock::{Mock, MockServer, ResponseTemplate};
-    let server = MockServer::start().await;
-    Mock::given(method("POST"))
-        .and(path("/v1/messages"))
-        .and(header("authorization", "Bearer itk_token"))
-        .respond_with(
-            ResponseTemplate::new(200)
-                .insert_header("content-type", "text/event-stream")
-                .set_body_raw(SSE_FIXTURE.as_bytes().to_vec(), "text/event-stream"),
-        )
-        .mount(&server)
-        .await;
-    Mock::given(method("POST"))
-        .and(header_exists("x-api-key"))
-        .respond_with(ResponseTemplate::new(500))
-        .mount(&server)
-        .await;
-    let client = llm_proxy_client("itk_token".into(), server.uri());
-    let msgs = vec![user("q")];
-    client
-        .stream_message(
-            build_request_body("claude-opus-4-8", "s", &msgs, adaptive(), None),
-            tokio_util::sync::CancellationToken::new(),
-            &mut CollectingSink::default(),
-        )
-        .await
-        .unwrap();
-}
-
-#[tokio::test]
-async fn proxy_mode_401_is_a_dead_access_code_with_the_relays_message() {
-    use wiremock::matchers::method;
-    use wiremock::{Mock, MockServer, ResponseTemplate};
-    let server = MockServer::start().await;
-    Mock::given(method("POST"))
-        .respond_with(ResponseTemplate::new(401).set_body_json(serde_json::json!({
-            "error": {"message": "Код доступа недействителен — введите новый в настройках"}
-        })))
-        .mount(&server)
-        .await;
-    let client = llm_proxy_client("itk_bad".into(), server.uri());
-    let msgs = vec![user("q")];
-    let err = client
-        .stream_message(
-            build_request_body("claude-opus-4-8", "s", &msgs, adaptive(), None),
-            tokio_util::sync::CancellationToken::new(),
-            &mut CollectingSink::default(),
-        )
-        .await
-        .unwrap_err();
-    assert!(
-        matches!(&err, LlmError::BadAccessCode(m) if m.contains("Код доступа недействителен")),
-        "got: {err:?}"
-    );
-}
-
-fn llm_proxy_client(token: String, base: String) -> AnthropicClient {
-    AnthropicClient::for_proxy(token, base)
 }
 
 #[tokio::test]

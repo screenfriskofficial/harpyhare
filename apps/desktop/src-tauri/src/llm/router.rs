@@ -5,7 +5,10 @@ use std::time::{Duration, Instant};
 use futures_util::stream::{FuturesUnordered, StreamExt};
 use tokio_util::sync::CancellationToken;
 
-use super::{LlmError, LlmProvider, LlmRequest, LlmStreamSink, ModelCatalog, ModelInfo};
+use super::{
+    CatalogFailure, LlmError, LlmProvider, LlmRequest, LlmStreamSink, ModelCatalog, ModelInfo,
+    ModelListing,
+};
 
 /// `warm_up` зовётся на каждое нажатие PTT, а пул и так держится тёплым
 /// keep-alive'ом: чаще, чем раз в минуту, греть всех вендоров незачем.
@@ -53,10 +56,12 @@ impl ProviderRouter {
     }
 
     fn client_for(&self, model_id: &str) -> Result<&Arc<dyn LlmProvider>, LlmError> {
-        // Saved aggregator ids keep their owner even after its key is removed.
+        // A saved model of a vendor whose key is gone keeps its owner — the
+        // registry's offline catalogue still names it — and fails as that
+        // vendor's missing key instead of being sent to another vendor.
         let owner = self
             .provider_of_model(model_id)
-            .or_else(|| super::registry::namespace_owner(model_id).map(|p| p.id.to_string()));
+            .or_else(|| offline_owner(model_id).map(|p| p.id.to_string()));
         let Some(provider) = owner else {
             return Ok(self.default_provider());
         };
@@ -72,16 +77,21 @@ impl ProviderRouter {
     /// Слияние каталогов: вендор, чей `list_models` упал, сохраняет свои
     /// прежние записи, а не выпадает из каталога на всю сессию — иначе один
     /// таймаут при старте отправлял бы все его модели к дефолтному вендору.
-    fn merge_catalogs(&self, fetched: Vec<Result<Vec<ModelInfo>, LlmError>>) -> Vec<ModelInfo> {
+    /// Сбой вендора уходит и в `failures`: иначе прежние записи (на старте —
+    /// офлайн-таблица) выглядели в UI свежим каталогом.
+    fn merge_catalogs(&self, fetched: Vec<Result<Vec<ModelInfo>, LlmError>>) -> ModelListing {
         let previous = self.catalog.lock_unpoisoned().clone();
-        let mut merged = Vec::new();
+        let mut merged = ModelListing::default();
         for (provider, result) in self.providers.iter().zip(fetched) {
             match result {
-                Ok(models) => merged.extend(models),
+                Ok(models) => merged.models.extend(models),
                 Err(e) => {
                     let id = provider.provider_id();
                     eprintln!("каталог {id} не обновился ({e}) — прежние записи сохранены");
-                    merged.extend(previous.iter().filter(|m| m.provider == id).cloned());
+                    merged
+                        .models
+                        .extend(previous.iter().filter(|m| m.provider == id).cloned());
+                    merged.failures.push(CatalogFailure::new(id, &e));
                 }
             }
         }
@@ -127,13 +137,17 @@ impl LlmProvider for ProviderRouter {
     }
 
     async fn list_models(&self) -> Result<Vec<ModelInfo>, LlmError> {
+        Ok(self.model_listing().await.models)
+    }
+
+    async fn model_listing(&self) -> ModelListing {
         let fetched =
             futures_util::future::join_all(self.providers.iter().map(|p| p.list_models())).await;
-        let models = self.merge_catalogs(fetched);
-        if !models.is_empty() {
-            *self.catalog.lock_unpoisoned() = models.clone();
+        let listing = self.merge_catalogs(fetched);
+        if !listing.models.is_empty() {
+            *self.catalog.lock_unpoisoned() = listing.models.clone();
         }
-        Ok(models)
+        listing
     }
 
     async fn reachable(&self) -> bool {
@@ -153,6 +167,13 @@ impl LlmProvider for ProviderRouter {
         }
         futures_util::future::join_all(self.providers.iter().map(|p| p.warm_up())).await;
     }
+}
+
+/// The vendor whose offline catalogue lists `model_id`, client or no client.
+fn offline_owner(model_id: &str) -> Option<&'static super::registry::LlmProviderSpec> {
+    super::registry::PROVIDERS
+        .iter()
+        .find(|p| p.catalog.iter().any(|m| m.id == model_id))
 }
 
 #[cfg(test)]

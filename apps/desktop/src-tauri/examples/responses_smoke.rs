@@ -6,10 +6,16 @@
 //! Keys come from `.env` by the registry's own naming — `<KEY_ID>_API_KEY` —
 //! so a vendor added to the registry is picked up here without editing this
 //! file. Vendors without a key in the environment are skipped, not failed.
+//!
+//! The effort sweep sends every level an offline catalogue row declares to the
+//! model that declares it: a declared level the vendor refuses is an `[ERR]`
+//! here instead of a 400 on every request of a chat that picked it. Only the
+//! offline rows: the rest of the live list states its levels through the free
+//! probe, and sweeping ~40 models would be ~150 paid requests.
 
 use harpyhare_lib::llm::{
     registry, responses::ResponsesClient, router::ProviderRouter, ChatMessage, LlmProvider,
-    LlmRequest, LlmStreamSink, ModelCatalog, RequestOptions,
+    LlmRequest, LlmStreamSink, ModelCatalog, ModelInfo, RequestOptions,
 };
 use std::sync::{Arc, Mutex};
 
@@ -98,7 +104,7 @@ async fn run_vendor_cases(spec: &'static registry::LlmProviderSpec, api_key: Str
         }
     };
     let Some(first) = models.first() else {
-        println!("  [ERR] каталог пуст — курированные модели ключу недоступны");
+        println!("  [ERR] каталог пуст — ключу не доступна ни одна чат-модель");
         return;
     };
 
@@ -117,14 +123,17 @@ async fn run_vendor_cases(spec: &'static registry::LlmProviderSpec, api_key: Str
     let thinking_off = RequestOptions {
         thinking: false,
         web_search: false,
+        effort: None,
     };
     let thinking_on = RequestOptions {
         thinking: true,
         web_search: false,
+        effort: None,
     };
     let with_web_search = RequestOptions {
         thinking: false,
         web_search: true,
+        effort: None,
     };
 
     run_stream_case(
@@ -162,9 +171,39 @@ async fn run_vendor_cases(spec: &'static registry::LlmProviderSpec, api_key: Str
         run_stream_case(
             &client,
             "всегда рассуждающая модель",
-            request(&always.id, single, thinking_off),
+            request(&always.id, single.clone(), thinking_off),
         )
         .await;
+    }
+
+    let offline: Vec<ModelInfo> = models
+        .iter()
+        .filter(|m| spec.catalog.iter().any(|row| row.id == m.id))
+        .cloned()
+        .collect();
+    run_effort_sweep(&client, &offline, &single).await;
+}
+
+/// Every declared level of every model the key reaches, with thinking on.
+async fn run_effort_sweep(
+    client: &dyn LlmProvider,
+    models: &[ModelInfo],
+    messages: &[ChatMessage],
+) {
+    for model in models {
+        for &effort in &model.efforts {
+            let options = RequestOptions {
+                thinking: true,
+                web_search: false,
+                effort: Some(effort),
+            };
+            run_stream_case(
+                client,
+                &format!("effort={} у {}", effort.as_str(), model.id),
+                request(&model.id, messages.to_vec(), options),
+            )
+            .await;
+        }
     }
 }
 

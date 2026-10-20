@@ -1,4 +1,3 @@
-pub mod access;
 pub mod app_state;
 pub mod audio;
 pub mod bindings;
@@ -85,8 +84,10 @@ fn setup_app(handle: &AppHandle) {
     let settings = preferences::load_settings_with_env_key_fallback(handle);
     let official_presets = remote_presets::load_initial(handle);
     let models: llm::ModelCatalog = Arc::new(Mutex::new(llm::fallback_models()));
+    let model_probes =
+        llm::responses::probe::ModelProbes::persisted(app_state::model_probes_path(handle));
     let stt = app_state::build_stt_client(&settings);
-    let llm = app_state::build_llm_client(&settings, Arc::clone(&models));
+    let llm = app_state::build_llm_client(&settings, Arc::clone(&models), &model_probes);
     spawn_startup_warm_up_and_model_fetch(Arc::clone(&stt), Arc::clone(&llm));
     handle.manage(app_state::build_app_state(
         settings,
@@ -95,6 +96,7 @@ fn setup_app(handle: &AppHandle) {
         stt,
         llm,
         models,
+        model_probes,
     ));
     if let Err(e) = window::create_launcher_window(handle, &app_state::current_settings(handle)) {
         eprintln!("не удалось создать окно лаунчера: {e}");

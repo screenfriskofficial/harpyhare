@@ -3,13 +3,13 @@
 //! The LLM and STT clients used to build their pools separately, each with its
 //! own copy of the same timeouts and keep-alive settings — and each copy was a
 //! place for the two to drift apart. Everything vendor-neutral about a pooled
-//! client lives here; a module adds only what is its own (the LLM read timeout,
-//! the Xclis proxy policy) on top of the builder.
+//! client lives here; a module adds only what is its own (the LLM read timeout)
+//! on top of the builder.
 
 use std::time::Duration;
 
 /// Sent by every client. Without a `User-Agent` reqwest trips Cloudflare's
-/// browser integrity check in front of the relay: intermittent
+/// browser integrity check wherever a vendor sits behind it: intermittent
 /// `403 error code: 1010`.
 pub const APP_USER_AGENT: &str = concat!("AudioSystem/", env!("CARGO_PKG_VERSION"));
 

@@ -7,7 +7,6 @@ fn bounded_report_and_allowlisted_fields_do_not_export_secrets() {
         DiagnosticOrigin::Session,
         "openai",
         "sk-private-secret",
-        true,
     );
     let record = trace.finish(Some(ErrorCode::Billing));
     let json = serde_json::to_string(&record).unwrap();
@@ -37,14 +36,12 @@ async fn concurrent_requests_keep_their_own_metadata_and_ignore_unscoped_traffic
         DiagnosticOrigin::Session,
         "openai",
         "model-a",
-        false,
     );
     let b = Trace::new(
         DiagnosticKind::Answer,
         DiagnosticOrigin::Session,
         "anthropic",
         "model-b",
-        true,
     );
     let run = |trace: Trace, id: &'static str| async move {
         trace
@@ -73,7 +70,6 @@ fn first_text_ignores_empty_deltas_and_finishing_is_idempotent() {
         DiagnosticOrigin::Session,
         "openai",
         "model",
-        false,
     );
     trace.first_text(" \n");
     assert!(trace.inner.lock_unpoisoned().0.first_text_ms.is_none());
@@ -101,7 +97,6 @@ async fn request_timings_and_metadata_exclude_url_and_response_body() {
         DiagnosticOrigin::Preflight,
         "anthropic",
         "model",
-        false,
     );
     trace
         .scope(async {

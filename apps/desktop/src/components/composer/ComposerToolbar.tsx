@@ -1,6 +1,7 @@
 import { Crop, Eraser, NotebookText } from "lucide-react";
 import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
+import { EffortPicker } from "@/components/composer/EffortPicker";
 import { NoticeDot } from "@/components/NoticeDot";
 import {
   RequestParamsPopover,
@@ -79,6 +80,12 @@ export function ComposerToolbar(props: ComposerToolbarProps) {
       <ToolbarIconButton label={t("hud.composer.screenshot")} onClick={props.onCaptureRegion}>
         <Crop />
       </ToolbarIconButton>
+      <EffortPicker
+        chat={props.chat}
+        model={props.modelOptions.find((m) => m.id === props.chat.model)}
+        onPatch={props.onPatch}
+        onClosed={props.onClosed}
+      />
       <RequestParamsPopover
         chat={props.chat}
         onPatch={props.onPatch}

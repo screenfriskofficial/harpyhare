@@ -8,8 +8,6 @@ struct StubProvider {
     models: Vec<ModelInfo>,
     live: bool,
     hang_reachable: bool,
-    /// Неймспейс, который стаб считает своим без каталога (как `xclis/`).
-    namespace: Option<&'static str>,
     streamed: Mutex<Vec<String>>,
 }
 
@@ -21,6 +19,9 @@ fn stub_model(id: &str, provider: &str) -> ModelInfo {
         adaptive: true,
         always_thinks: false,
         code_exec: true,
+        efforts: vec![],
+        budget_thinking: false,
+        default_effort: None,
     }
 }
 
@@ -31,7 +32,6 @@ impl StubProvider {
             models: model_ids.iter().map(|m| stub_model(m, id)).collect(),
             live,
             hang_reachable: false,
-            namespace: None,
             streamed: Mutex::new(Vec::new()),
         })
     }
@@ -42,18 +42,6 @@ impl StubProvider {
             models: model_ids.iter().map(|m| stub_model(m, id)).collect(),
             live: false,
             hang_reachable: true,
-            namespace: None,
-            streamed: Mutex::new(Vec::new()),
-        })
-    }
-
-    fn namespaced(id: &'static str, namespace: &'static str) -> Arc<Self> {
-        Arc::new(Self {
-            id,
-            models: Vec::new(),
-            live: true,
-            hang_reachable: false,
-            namespace: Some(namespace),
             streamed: Mutex::new(Vec::new()),
         })
     }
@@ -71,11 +59,6 @@ impl LlmProvider for StubProvider {
 
     fn known_models(&self) -> Vec<ModelInfo> {
         self.models.clone()
-    }
-
-    fn owns_model(&self, model_id: &str) -> bool {
-        self.namespace.is_some_and(|ns| model_id.starts_with(ns))
-            || self.models.iter().any(|m| m.id == model_id)
     }
 
     async fn stream(
@@ -106,18 +89,21 @@ impl LlmProvider for StubProvider {
     async fn warm_up(&self) {}
 }
 
+/// Ключ OpenAI убрали, а чат остался на GPT: до живого каталога модель
+/// называет только офлайн-таблица реестра, и запрос обязан упасть «нет ключа
+/// OpenAI», а не уйти в Anthropic с чужим id.
 #[tokio::test]
-async fn saved_openrouter_model_without_its_key_never_reaches_another_vendor() {
+async fn saved_gpt_model_without_its_key_never_reaches_another_vendor() {
     let anthropic = StubProvider::new(PROVIDER_ANTHROPIC, &["claude"], true);
     let router = ProviderRouter::new(vec![anthropic.clone()], Arc::new(Mutex::new(Vec::new())));
     let result = router
         .stream(
-            request("openrouter/openai/gpt-4o-mini"),
+            request("gpt-5.4-mini"),
             CancellationToken::new(),
             &mut NoopSink,
         )
         .await;
-    assert!(matches!(result, Err(LlmError::BadApiKey("OpenRouter"))));
+    assert!(matches!(result, Err(LlmError::BadApiKey("OpenAI"))));
     assert!(anthropic.calls().is_empty());
 }
 
@@ -266,31 +252,6 @@ async fn a_hanging_provider_does_not_block_reachability_of_the_others() {
         .await
         .expect("зависший провайдер не должен блокировать пробу");
     assert!(ok);
-}
-
-/// Агрегатор с пустой офлайн-таблицей раньше терял свои модели до прихода
-/// живого каталога: роутер отдавал их первому вендору, то есть Anthropic.
-#[tokio::test]
-async fn a_namespaced_model_reaches_its_owner_before_any_catalog_arrives() {
-    let anthropic = StubProvider::new(PROVIDER_ANTHROPIC, &["claude-sonnet-5"], true);
-    let aggregator = StubProvider::namespaced("xclis", "xclis/");
-    let catalog: ModelCatalog = Arc::new(Mutex::new(Vec::new()));
-    let router = ProviderRouter::new(
-        vec![Arc::clone(&anthropic) as _, Arc::clone(&aggregator) as _],
-        catalog,
-    );
-
-    router
-        .stream(
-            request("xclis/claude-opus-4-6"),
-            CancellationToken::new(),
-            &mut NoopSink,
-        )
-        .await
-        .unwrap();
-
-    assert_eq!(aggregator.calls(), vec!["xclis/claude-opus-4-6"]);
-    assert!(anthropic.calls().is_empty());
 }
 
 /// Вендор, чей `list_models` упал, сохраняет прежние записи каталога, а не

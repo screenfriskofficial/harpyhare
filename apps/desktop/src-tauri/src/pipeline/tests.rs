@@ -159,6 +159,7 @@ fn request() -> LlmRequest {
         options: RequestOptions {
             thinking: true,
             web_search: false,
+            effort: None,
         },
     }
 }

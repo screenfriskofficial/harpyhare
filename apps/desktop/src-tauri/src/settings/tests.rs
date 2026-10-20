@@ -12,7 +12,6 @@ fn defaults_match_spec() {
     assert!(s.auto_preview_html);
     assert_eq!(s.chat_font_size, 13.5);
     assert_eq!(s.stt_language, "ru");
-    assert!(!s.stt_translate);
     assert!(!s.screen_share_visible);
     assert_eq!(s.teleprompter_speed, 40.0);
     assert_eq!(s.teleprompter_font_size, 28.0);
@@ -309,14 +308,35 @@ fn load_missing_stt_and_screen_share_fields_default() {
     std::fs::write(&path, r#"{"auto_send":true}"#).unwrap();
     let s = Settings::load(&path).unwrap();
     assert_eq!(s.stt_language, "ru");
-    assert!(!s.stt_translate);
     assert!(!s.screen_share_visible);
-    assert_eq!(s.stt_provider, crate::stt::registry::PROVIDER_GROQ);
-    assert!(s.openrouter_api_key.is_empty());
-    assert_eq!(
-        s.openrouter_stt_model,
-        crate::stt::registry::DEFAULT_OPENROUTER_MODEL
-    );
+    assert_eq!(s.stt_provider, crate::stt::registry::PROVIDER_DEEPGRAM);
+}
+
+/// A file written when the app had more vendors and an access code: the
+/// fields that are gone are ignored, the speech vendor lands on one that
+/// exists, and the keys that remain are kept.
+#[test]
+fn load_a_file_from_the_days_of_the_relay_and_more_vendors() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("s.json");
+    std::fs::write(
+        &path,
+        r#"{"anthropic_api_key":"keep","groq_api_key":"g","xai_api_key":"x","access_token":"itk_x","stt_provider":"groq","stt_translate":true,"openrouter_stt_model":"m"}"#,
+    )
+    .unwrap();
+    let s = Settings::load(&path).unwrap();
+    assert_eq!(s.anthropic_api_key, "keep");
+    assert_eq!(s.stt_provider, crate::stt::registry::PROVIDER_DEEPGRAM);
+    let saved = serde_json::to_string(&s).unwrap();
+    for gone in [
+        "groq_api_key",
+        "xai_api_key",
+        "access_token",
+        "stt_translate",
+        "openrouter_stt_model",
+    ] {
+        assert!(!saved.contains(gone), "{gone} пережил загрузку: {saved}");
+    }
 }
 
 #[test]
@@ -326,10 +346,10 @@ fn clamp_resets_unknown_stt_provider() {
         ..Default::default()
     };
     s.clamp();
-    assert_eq!(s.stt_provider, crate::stt::registry::PROVIDER_GROQ);
-    s.stt_provider = crate::stt::registry::PROVIDER_OPENAI.into();
+    assert_eq!(s.stt_provider, crate::stt::registry::PROVIDER_DEEPGRAM);
+    s.stt_provider = crate::stt::registry::PROVIDER_DEEPGRAM.into();
     s.clamp();
-    assert_eq!(s.stt_provider, crate::stt::registry::PROVIDER_OPENAI);
+    assert_eq!(s.stt_provider, crate::stt::registry::PROVIDER_DEEPGRAM);
 }
 
 fn env_of<'a>(values: &'a [(&'a str, &'a str)]) -> impl Fn(&str) -> Option<String> + 'a {
@@ -346,11 +366,11 @@ fn env_fallback_fills_only_empty_keys() {
     let mut s = Settings::default();
     s.apply_key_fallback(env_of(&[
         (API_KEY_ANTHROPIC, "env-ant"),
-        (API_KEY_GROQ, "env-groq"),
+        (API_KEY_DEEPGRAM, "env-dg"),
         (API_KEY_OPENAI, "env-oai"),
     ]));
     assert_eq!(s.anthropic_api_key, "env-ant");
-    assert_eq!(s.groq_api_key, "env-groq");
+    assert_eq!(s.deepgram_api_key, "env-dg");
     assert_eq!(s.openai_api_key, "env-oai");
 }
 
@@ -358,7 +378,7 @@ fn env_fallback_fills_only_empty_keys() {
 fn env_fallback_covers_every_registry_key() {
     let mut s = Settings::default();
     s.apply_key_fallback(|key_id| Some(format!("env-{key_id}")));
-    for (key_id, _) in registry_key_ids() {
+    for key_id in registry_key_ids() {
         assert_eq!(
             api_key_for(&s, key_id),
             format!("env-{key_id}"),
@@ -368,70 +388,16 @@ fn env_fallback_covers_every_registry_key() {
 }
 
 #[test]
-fn env_fallback_under_an_access_token_follows_the_registries() {
-    // Ключ вендора, которого relay проксирует, под кодом доступа не берётся:
-    // код его и так глушит. Ключ вендора без роута на relay берётся всегда —
-    // иначе код запирал бы его у того, кто ключ как раз положил.
-    let mut s = Settings {
-        access_token: "itk_x".into(),
-        ..Default::default()
-    };
-    s.apply_key_fallback(|key_id| Some(format!("env-{key_id}")));
+fn registry_key_ids_are_unique() {
     let ids = registry_key_ids();
-    assert!(
-        ids.iter().any(|(_, proxied)| *proxied),
-        "в реестрах нет ни одного проксируемого ключа"
+    let mut unique = ids.clone();
+    unique.sort_unstable();
+    unique.dedup();
+    assert_eq!(
+        unique.len(),
+        ids.len(),
+        "key_id встречается дважды: {ids:?}"
     );
-    assert!(
-        ids.iter().any(|(_, proxied)| !*proxied),
-        "в реестрах нет ни одного непроксируемого ключа"
-    );
-    for (key_id, proxied_everywhere) in ids {
-        let value = api_key_for(&s, key_id);
-        if proxied_everywhere {
-            assert_eq!(
-                value, "",
-                "{key_id}: проксируемый вендор под кодом ключ из окружения не берёт"
-            );
-        } else {
-            assert_eq!(
-                value,
-                format!("env-{key_id}"),
-                "{key_id}: непроксируемый вендор берёт ключ и под кодом"
-            );
-        }
-    }
-}
-
-#[test]
-fn registry_key_ids_are_unique_and_a_shared_key_is_proxied_only_if_every_row_is() {
-    let ids = registry_key_ids();
-    let mut seen: Vec<&str> = Vec::new();
-    for (key_id, proxied_everywhere) in &ids {
-        assert!(!seen.contains(key_id), "key_id {key_id} встречается дважды");
-        seen.push(key_id);
-        let rows_proxied = crate::llm::registry::PROVIDERS
-            .iter()
-            .filter(|p| p.key_id == *key_id)
-            .map(|p| p.proxied)
-            .chain(
-                crate::stt::registry::PROVIDERS
-                    .iter()
-                    .filter(|p| p.key_id == *key_id)
-                    .map(|p| p.proxied),
-            )
-            .all(|proxied| proxied);
-        assert_eq!(*proxied_everywhere, rows_proxied, "{key_id}");
-    }
-}
-
-#[test]
-fn load_missing_access_token_defaults_empty() {
-    let dir = tempfile::tempdir().unwrap();
-    let path = dir.path().join("s.json");
-    std::fs::write(&path, r#"{"auto_send":true}"#).unwrap();
-    let s = Settings::load(&path).unwrap();
-    assert_eq!(s.access_token, "");
 }
 
 #[test]
@@ -442,20 +408,20 @@ fn env_fallback_does_not_override_saved_keys() {
     };
     s.apply_key_fallback(env_of(&[
         (API_KEY_ANTHROPIC, "env-ant"),
-        (API_KEY_GROQ, "env-groq"),
+        (API_KEY_DEEPGRAM, "env-dg"),
         (API_KEY_OPENAI, "env-oai"),
     ]));
     assert_eq!(s.anthropic_api_key, "saved");
-    assert_eq!(s.groq_api_key, "env-groq");
+    assert_eq!(s.deepgram_api_key, "env-dg");
     assert_eq!(s.openai_api_key, "env-oai");
 }
 
 #[test]
 fn env_fallback_ignores_none_and_blank() {
     let mut s = Settings::default();
-    s.apply_key_fallback(env_of(&[(API_KEY_GROQ, "   ")]));
+    s.apply_key_fallback(env_of(&[(API_KEY_DEEPGRAM, "   ")]));
     assert_eq!(s.anthropic_api_key, "");
-    assert_eq!(s.groq_api_key, "");
+    assert_eq!(s.deepgram_api_key, "");
     assert_eq!(s.openai_api_key, "");
 }
 
@@ -464,19 +430,18 @@ fn debug_output_hides_secrets_but_names_the_fields() {
     let s = Settings {
         anthropic_api_key: "sk-ant-secret".into(),
         deepgram_api_key: "dg-secret".into(),
-        openrouter_api_key: "sk-or-secret".into(),
-        access_token: "itk_secret".into(),
+        openai_api_key: "sk-oai-secret".into(),
         ..Default::default()
     };
     let printed = format!("{s:?}");
-    for secret in ["sk-ant-secret", "dg-secret", "sk-or-secret", "itk_secret"] {
+    for secret in ["sk-ant-secret", "dg-secret", "sk-oai-secret"] {
         assert!(
             !printed.contains(secret),
             "{secret} утёк в Debug: {printed}"
         );
     }
     assert!(printed.contains("anthropic_api_key"));
-    assert!(printed.contains("access_token"));
+    assert!(printed.contains("deepgram_api_key"));
 }
 
 #[test]
@@ -566,10 +531,9 @@ fn save_load_roundtrip_with_owner_only_perms() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("settings.json");
     let s = Settings {
-        groq_api_key: "gsk_test".into(),
-        openrouter_api_key: "sk-or-test".into(),
-        openrouter_stt_model: "vendor/custom-stt-model".into(),
-        stt_provider: crate::stt::registry::PROVIDER_OPENROUTER.into(),
+        deepgram_api_key: "dg_test".into(),
+        openai_api_key: "sk-oai-test".into(),
+        stt_provider: crate::stt::registry::PROVIDER_DEEPGRAM.into(),
         chat_font_size: 15.0,
         window_opacity: 0.5,
         auto_send: true,
@@ -585,13 +549,9 @@ fn save_load_roundtrip_with_owner_only_perms() {
         assert_eq!(mode & 0o777, 0o600);
     }
     let loaded = Settings::load(&path).unwrap();
-    assert_eq!(loaded.groq_api_key, "gsk_test");
-    assert_eq!(loaded.openrouter_api_key, "sk-or-test");
-    assert_eq!(loaded.openrouter_stt_model, "vendor/custom-stt-model");
-    assert_eq!(
-        loaded.stt_provider,
-        crate::stt::registry::PROVIDER_OPENROUTER
-    );
+    assert_eq!(loaded.deepgram_api_key, "dg_test");
+    assert_eq!(loaded.openai_api_key, "sk-oai-test");
+    assert_eq!(loaded.stt_provider, crate::stt::registry::PROVIDER_DEEPGRAM);
     assert_eq!(loaded.chat_font_size, 15.0);
     assert_eq!(loaded.window_opacity, 0.5);
     assert!(loaded.auto_send);
@@ -828,20 +788,4 @@ fn source_switches_are_independent_and_survive_persistence() {
             (system, microphone)
         );
     }
-}
-
-#[test]
-fn openrouter_model_clamp_defaults_only_blank_ids_and_preserves_dynamic_choices() {
-    let mut settings = Settings {
-        openrouter_stt_model: "   ".into(),
-        ..Default::default()
-    };
-    settings.clamp();
-    assert_eq!(
-        settings.openrouter_stt_model,
-        crate::stt::registry::DEFAULT_OPENROUTER_MODEL
-    );
-    settings.openrouter_stt_model = " vendor/new-model ".into();
-    settings.clamp();
-    assert_eq!(settings.openrouter_stt_model, "vendor/new-model");
 }

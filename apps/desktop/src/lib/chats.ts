@@ -1,4 +1,5 @@
 import { t } from "@/i18n";
+import { EFFORT_LEVELS, type Effort } from "@/ipc/bindings";
 import type { Attachment, ImagePayload } from "@/lib/composer";
 import { DEFAULT_MODEL } from "@/lib/models";
 import type { PreparedContext } from "@/lib/pipeline-types";
@@ -27,6 +28,8 @@ export interface ChatMessage {
 export interface RequestOptions {
   thinking: boolean;
   webSearch: boolean;
+  /** Absent is «auto»: the request names no level and the model keeps its own default. */
+  effort?: Effort;
 }
 
 export interface Chat {
@@ -38,6 +41,8 @@ export interface Chat {
   titlePinned: boolean;
   presetId: string;
   thinkingEnabled: boolean;
+  /** Absent is «auto». Kept across model switches; a model without the level sends none. */
+  effort?: Effort;
   model: string;
   webSearch: boolean;
   context: string;
@@ -50,6 +55,21 @@ export interface Chat {
 export interface PreparedPrompt extends PreparedContext {
   pipelineId: string;
   fingerprint: string;
+}
+
+/**
+ * Model ids of answer vendors the app no longer has: Grok and the Xclis and
+ * OpenRouter aggregators, removed 2026-10-20. A chat saved on one of them would
+ * send that id to Claude and fail every request, so it reopens on the default
+ * model instead. A one-time migration — this list never grows.
+ */
+const REMOVED_VENDOR_MODEL_PREFIXES = ["grok-", "xclis/", "openrouter/"];
+
+function restoreModel(raw: unknown): string {
+  if (typeof raw !== "string" || raw === "") return NEW_CHAT_DEFAULTS.model;
+  return REMOVED_VENDOR_MODEL_PREFIXES.some((prefix) => raw.startsWith(prefix))
+    ? NEW_CHAT_DEFAULTS.model
+    : raw;
 }
 
 const NEW_CHAT_DEFAULTS = {
@@ -89,6 +109,7 @@ export function createChatFrom(source: Chat, index: number, id: string = uid()):
     ...createChat(index, id),
     presetId: source.presetId,
     thinkingEnabled: source.thinkingEnabled,
+    effort: source.effort,
     model: source.model,
     webSearch: source.webSearch,
     context: source.context,
@@ -105,6 +126,7 @@ export type ChatPatch = Partial<
     | "draftAttachments"
     | "presetId"
     | "thinkingEnabled"
+    | "effort"
     | "model"
     | "webSearch"
     | "context"
@@ -120,7 +142,7 @@ function droppedImagesField(count: number): Pick<ChatMessage, "droppedImages"> {
 }
 
 export function chatRequestOptions(chat: Chat): RequestOptions {
-  return { thinking: chat.thinkingEnabled, webSearch: chat.webSearch };
+  return { thinking: chat.thinkingEnabled, webSearch: chat.webSearch, effort: chat.effort };
 }
 
 export function chatTitle(firstUserText: string, index: number): string {
@@ -140,6 +162,7 @@ export function serializeChats(chats: Chat[]): string {
     titlePinned: c.titlePinned,
     presetId: c.presetId,
     thinkingEnabled: c.thinkingEnabled,
+    effort: c.effort,
     model: c.model,
     webSearch: c.webSearch,
     context: c.context,
@@ -188,7 +211,8 @@ function restoreChat(c: unknown): Chat | null {
       typeof o.thinkingEnabled === "boolean"
         ? o.thinkingEnabled
         : NEW_CHAT_DEFAULTS.thinkingEnabled,
-    model: typeof o.model === "string" && o.model !== "" ? o.model : NEW_CHAT_DEFAULTS.model,
+    effort: restoreEffort(o.effort),
+    model: restoreModel(o.model),
     webSearch: typeof o.webSearch === "boolean" ? o.webSearch : NEW_CHAT_DEFAULTS.webSearch,
     context: typeof o.context === "string" ? o.context : NEW_CHAT_DEFAULTS.context,
     messages: Array.isArray(o.messages)
@@ -197,6 +221,11 @@ function restoreChat(c: unknown): Chat | null {
     draft: typeof o.draft === "string" ? o.draft : NEW_CHAT_DEFAULTS.draft,
     draftAttachments: [],
   };
+}
+
+/** A level this build does not know reads as «auto» rather than reaching the wire. */
+function restoreEffort(raw: unknown): Effort | undefined {
+  return EFFORT_LEVELS.find((level) => level === raw);
 }
 
 /** "No pipeline" is the absent field; an empty id written by an older build reads the same. */

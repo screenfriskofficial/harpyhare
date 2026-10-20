@@ -1,14 +1,6 @@
-import { Activity, CheckCircle2, Copy, RefreshCw, Trash2 } from "lucide-react";
-import { useState } from "react";
+import { CheckCircle2, Copy, RefreshCw, Trash2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
 import { useDiagnostics } from "@/hooks/useDiagnostics";
 import type { DiagnosticRecord } from "@/ipc/bindings";
 
@@ -39,8 +31,6 @@ function RecordCard({ record }: { record: DiagnosticRecord }) {
       <div className="mt-3 space-y-3 border-t pt-3 text-caption">
         <p className="text-muted-foreground">
           {t(`diagnostics.${record.origin}`)} ·{" "}
-          {record.kind !== "capture" &&
-            `${t(record.viaRelay ? "diagnostics.viaRelay" : "diagnostics.direct")} · `}
           {record.startedAt !== null &&
             new Date(record.startedAt).toLocaleTimeString(i18n.language)}
         </p>
@@ -160,47 +150,5 @@ export function DiagnosticsPanel() {
         ))}
       </div>
     </div>
-  );
-}
-
-export function DiagnosticsDialog({
-  open,
-  onOpenChange,
-}: {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-}) {
-  const { t } = useTranslation();
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent panelWidthPx={620}>
-        <DialogHeader>
-          <DialogTitle>{t("launcher.screens.diagnostics.label")}</DialogTitle>
-          <DialogDescription>{t("launcher.screens.diagnostics.description")}</DialogDescription>
-        </DialogHeader>
-        <div className="max-h-[65vh] overflow-y-auto pr-1">{open && <DiagnosticsPanel />}</div>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
-export function DiagnosticsButton({ triggerClass }: { triggerClass: string }) {
-  const { t } = useTranslation();
-  const [open, setOpen] = useState(false);
-  return (
-    <>
-      <button
-        type="button"
-        className={triggerClass}
-        title={t("launcher.screens.diagnostics.label")}
-        aria-label={t("launcher.screens.diagnostics.label")}
-        onClick={() => {
-          setOpen(true);
-        }}
-      >
-        <Activity />
-      </button>
-      <DiagnosticsDialog open={open} onOpenChange={setOpen} />
-    </>
   );
 }

@@ -24,8 +24,6 @@ export const diagnosticsEn = {
   total: "Total",
   timingHint:
     "HTTP response and first-text times are measured from the operation start and are not additive. Streaming recognition uploads during recording. Waiting to send manually is excluded from answer timings.",
-  viaRelay: "Access code",
-  direct: "Personal key",
   success: "Successful",
   session: "App session",
   preflight: "Pre-interview check",
@@ -36,12 +34,7 @@ export const diagnosticsEn = {
   errors: {
     billing: {
       title: "Billing or quota issue",
-      action:
-        "Check the selected provider's balance and account limits. If using an access code, contact its issuer.",
-    },
-    dailyLimit: {
-      title: "Daily limit reached",
-      action: "The access code limit resets at the next UTC day. You can use a personal API key.",
+      action: "Check the selected provider's balance and account limits.",
     },
     rateLimited: {
       title: "Request limit reached",
@@ -60,12 +53,11 @@ export const diagnosticsEn = {
     },
     accessDenied: {
       title: "Access denied",
-      action:
-        "Check model, project and region permissions in your provider account. For an access code, check its allowed usage.",
+      action: "Check model, project and region permissions in your provider account.",
     },
     modelUnavailable: {
       title: "Model unavailable",
-      action: "Refresh the model list and choose a model available to your key or access code.",
+      action: "Refresh the model list and choose a model available to your key.",
     },
     requestTooLarge: {
       title: "Request too large",
@@ -75,10 +67,6 @@ export const diagnosticsEn = {
     badApiKey: {
       title: "Check your API key",
       action: "Open Settings → API access and check the selected provider's key.",
-    },
-    badAccessCode: {
-      title: "Invalid access code",
-      action: "Open Settings → API access and enter a valid access code.",
     },
     network: {
       title: "No connection",
@@ -145,7 +133,7 @@ export const preflightEn = {
   passed: "Working",
   failed: "Needs attention",
   disabled: "Disabled in settings",
-  noModels: "Add an API key or access code to choose a model.",
+  noModels: "Add an API key to choose a model.",
   remaining: "{{seconds}} s remaining",
   level: "Level: {{source}}",
   stage: {

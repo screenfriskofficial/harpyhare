@@ -1,6 +1,6 @@
 use serde::Serialize;
 
-use super::{openrouter, xclis, ModelInfo, PROVIDER_ANTHROPIC, PROVIDER_OPENAI, PROVIDER_XAI};
+use super::{Effort, ModelInfo, PROVIDER_ANTHROPIC, PROVIDER_OPENAI};
 
 /// A model the app can name before it holds any credential to verify it with.
 ///
@@ -17,7 +17,20 @@ pub struct CatalogModel {
     /// Model always reasons — the thinking toggle is meaningless and gets locked.
     pub always_thinks: bool,
     pub code_exec: bool,
+    /// Effort levels the model accepts, weakest first. Measured like the rest
+    /// of the row: an unlisted level would be a 400 on every request.
+    pub efforts: &'static [Effort],
+    /// Reasons only through manual extended thinking — an on/off switch.
+    pub budget_thinking: bool,
+    /// The level a request carries when the chat picked none — the vendor's
+    /// documented default (Anthropic) or the dialect's «on» value (OpenAI).
+    pub default_effort: Option<Effort>,
 }
+
+/// The whole ladder: Claude 4.7+ and the GPT-6 line.
+const EVERY_EFFORT: &[Effort] = &Effort::ALL;
+/// Everything below `max` — GPT-5.4 mini refuses it.
+const EFFORTS_TO_XHIGH: &[Effort] = &[Effort::Low, Effort::Medium, Effort::High, Effort::Xhigh];
 
 /// Everything about a vendor that is NOT its wire protocol.
 ///
@@ -33,27 +46,20 @@ pub struct LlmProviderSpec {
     pub id: &'static str,
     /// Group heading in the model pickers.
     pub label: &'static str,
-    /// Which `Settings.<key_id>_api_key` unlocks the vendor without an access
-    /// code. Must be one of the ids in the frontend's `API_KEY_IDS` — asserted
+    /// Which `Settings.<key_id>_api_key` unlocks the vendor. Must be one of
+    /// the ids in the frontend's `API_KEY_IDS` — asserted
     /// by `contract.test.ts`, because a typo here would silently lock the
     /// vendor forever.
     pub key_id: &'static str,
-    /// Families the live catalogue is curated down to, newest of each kept.
-    /// Empty means `catalog` below is already the curated list — that is the
-    /// case whenever the vendor's `/models` endpoint carries no capabilities
-    /// worth curating on.
-    pub families: &'static [&'static str],
-    /// Models offered before — or instead of — a live catalogue.
+    /// Models offered before — or instead of — a live catalogue. Once the
+    /// live one arrives it is shown whole, every model the key can call; this
+    /// table only names models before a key exists and routes saved chats.
     pub catalog: &'static [CatalogModel],
     /// What a new chat opens on when this vendor is the one available.
     /// Declared, not "first of the catalogue": the catalogue is ordered
     /// flagship-first for the picker, while a new chat wants the *fast* model —
     /// the same reasoning that made Haiku the global default.
     pub default_model: &'static str,
-    /// Whether the relay proxies this vendor, i.e. whether an access code alone
-    /// unlocks it. False means the vendor needs the user's own key even under a
-    /// code, and the picker keeps it locked until that key exists.
-    pub proxied: bool,
     /// Which protocol the vendor speaks, and where. Rust-only: the frontend
     /// picks a vendor, it never dials one.
     #[serde(skip)]
@@ -63,19 +69,13 @@ pub struct LlmProviderSpec {
 
 /// The protocol a vendor speaks — and, with it, which client module serves it.
 ///
-/// A dialect is a *variant*, not a vendor: `Responses` is spoken verbatim by
-/// both OpenAI and xAI, so what separates them there is values, not code, and a
-/// vendor reusing a dialect needs no new module and no new arm in
+/// A dialect is a *variant*, not a vendor: a vendor speaking a dialect the app
+/// already knows (the Responses API is spoken verbatim by more than OpenAI)
+/// needs a row with its own values and nothing else — no module, no arm in
 /// `app_state::build_provider`. A genuinely new protocol adds a variant here,
 /// a module beside `responses`, and one arm there.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum LlmWire {
-    /// Chat Completions with a live multimodal catalogue, unified reasoning
-    /// controls and the OpenRouter web plugin.
-    OpenRouter {
-        base_url: &'static str,
-        key_label: &'static str,
-    },
     /// Anthropic Messages API: its own body shape, its own SSE events.
     Anthropic {
         base_url: &'static str,
@@ -86,70 +86,66 @@ pub enum LlmWire {
     Responses {
         base_url: &'static str,
         key_label: &'static str,
-        /// `reasoning.effort` meaning "thinking off". Vendors disagree on
-        /// whether reasoning can be switched off at all: OpenAI accepts
-        /// `"none"`, xAI refuses it and its floor is `"minimal"`. Measured, not
-        /// assumed — see `examples/openai_smoke.rs`.
+        /// `reasoning.effort` meaning "thinking off". Vendors of this dialect
+        /// disagree on whether reasoning can be switched off at all (OpenAI
+        /// accepts `"none"`, others floor at `"minimal"`), so it is a value of
+        /// the row. Measured, not assumed — see `examples/responses_smoke.rs`.
         effort_off: &'static str,
         /// `reasoning.effort` meaning "thinking on".
         effort_on: &'static str,
-    },
-    /// OpenAI-совместимый `POST /v1/chat/completions`, а НЕ Responses: диалект
-    /// другой, поэтому и вариант отдельный. Рассуждение здесь кодируется не
-    /// полем, а суффиксом `-thinking` у имени модели.
-    Xclis {
-        base_url: &'static str,
-        key_label: &'static str,
     },
 }
 
 impl LlmWire {
     pub fn base_url(&self) -> &'static str {
         match self {
-            LlmWire::Anthropic { base_url, .. }
-            | LlmWire::Responses { base_url, .. }
-            | LlmWire::Xclis { base_url, .. }
-            | LlmWire::OpenRouter { base_url, .. } => base_url,
+            LlmWire::Anthropic { base_url, .. } | LlmWire::Responses { base_url, .. } => base_url,
         }
     }
 
     pub fn key_label(&self) -> &'static str {
         match self {
-            LlmWire::Anthropic { key_label, .. }
-            | LlmWire::Responses { key_label, .. }
-            | LlmWire::Xclis { key_label, .. }
-            | LlmWire::OpenRouter { key_label, .. } => key_label,
+            LlmWire::Anthropic { key_label, .. } | LlmWire::Responses { key_label, .. } => {
+                key_label
+            }
         }
     }
 }
 
-/// **Пусто намеренно, и это не заготовка.** Xclis — агрегатор: состав моделей
-/// задаётся группой аккаунта на его стороне и меняется без нашего участия.
-/// Проверено живьём двумя ключами: у одного каталог был целиком GPT, Grok и
-/// deepseek, у другого — целиком Claude, без единого пересечения. Публичной
-/// документации со списком у вендора нет, только «OpenAI API compatible».
-///
-/// Поэтому единственный честный офлайн-ответ про Xclis — «пока не знаю»:
-/// `models()` подмешивает вшитый каталог ТОЛЬКО для вендоров, которых бэкенд
-/// не отдал, так что живой `/v1/models` замещает эту пустоту целиком. Вписать
-/// сюда любую модель значит обещать то, чего у конкретной группы может не быть,
-/// — ровно так дефолт `claude-sonnet-5` и оказался несуществующим.
-const XCLIS_MODELS: &[CatalogModel] = &[];
-
+/// The newest of each family as `/v1/models` reported them on 2026-10-20,
+/// capabilities included; the live catalogue replaces this table whole.
 const CLAUDE_MODELS: &[CatalogModel] = &[
     CatalogModel {
-        id: "claude-opus-4-8",
-        display_name: "Claude Opus 4.8",
+        id: "claude-opus-5-5",
+        display_name: "Claude Opus 5.5",
         adaptive: true,
-        always_thinks: false,
+        always_thinks: true,
         code_exec: true,
+        efforts: EVERY_EFFORT,
+        budget_thinking: false,
+        // Documented: Opus 5.5 defaults to `medium`, one below Opus 5.
+        default_effort: Some(Effort::Medium),
     },
     CatalogModel {
-        id: "claude-sonnet-5",
-        display_name: "Claude Sonnet 5",
+        id: "claude-sonnet-5-5",
+        display_name: "Claude Sonnet 5.5",
         adaptive: true,
-        always_thinks: false,
+        always_thinks: true,
         code_exec: true,
+        efforts: EVERY_EFFORT,
+        budget_thinking: false,
+        default_effort: Some(Effort::High),
+    },
+    CatalogModel {
+        id: "claude-haiku-5-5",
+        display_name: "Claude Haiku 5.5",
+        adaptive: true,
+        always_thinks: true,
+        code_exec: true,
+        efforts: EVERY_EFFORT,
+        budget_thinking: false,
+        // Documented: Haiku 5.5 defaults to `medium`.
+        default_effort: Some(Effort::Medium),
     },
     CatalogModel {
         id: super::DEFAULT_MODEL,
@@ -157,33 +153,48 @@ const CLAUDE_MODELS: &[CatalogModel] = &[
         adaptive: false,
         always_thinks: false,
         code_exec: false,
+        efforts: &[],
+        budget_thinking: true,
+        default_effort: None,
     },
 ];
 
-/// Capabilities here are measured, not guessed: every entry was probed against
-/// the live API (`examples/openai_smoke.rs`). `gpt-5.5-pro` is the only one that
-/// refuses `reasoning.effort: "none"`, hence `always_thinks`.
+/// Capabilities here are measured, not guessed — by the same free probe that
+/// reads the live catalogue (`responses::probe`, run on 2026-10-20): a refused
+/// level is a 400 that lists the accepted ones. A model without `"none"` among
+/// them cannot stop reasoning, hence `always_thinks` on `gpt-6.1-sol` and
+/// `gpt-5.5-pro`; `gpt-5.5-pro` takes only medium/high/xhigh, and
+/// `gpt-5.4-mini` stops at xhigh.
 const GPT_MODELS: &[CatalogModel] = &[
     CatalogModel {
-        id: "gpt-5.6-terra",
-        display_name: "GPT-5.6 Terra",
+        id: "gpt-6.1-sol",
+        display_name: "GPT-6.1 Sol",
         adaptive: true,
-        always_thinks: false,
+        always_thinks: true,
         code_exec: true,
+        efforts: EVERY_EFFORT,
+        budget_thinking: false,
+        default_effort: Some(Effort::Medium),
     },
     CatalogModel {
-        id: "gpt-5.6-sol",
-        display_name: "GPT-5.6 Sol",
+        id: "gpt-6-sol",
+        display_name: "GPT-6 Sol",
         adaptive: true,
         always_thinks: false,
         code_exec: true,
+        efforts: EVERY_EFFORT,
+        budget_thinking: false,
+        default_effort: Some(Effort::Medium),
     },
     CatalogModel {
-        id: "gpt-5.6-luna",
-        display_name: "GPT-5.6 Luna",
+        id: "gpt-6-luna",
+        display_name: "GPT-6 Luna",
         adaptive: true,
         always_thinks: false,
         code_exec: true,
+        efforts: EVERY_EFFORT,
+        budget_thinking: false,
+        default_effort: Some(Effort::Medium),
     },
     CatalogModel {
         id: "gpt-5.5-pro",
@@ -191,6 +202,9 @@ const GPT_MODELS: &[CatalogModel] = &[
         adaptive: true,
         always_thinks: true,
         code_exec: true,
+        efforts: &[Effort::Medium, Effort::High, Effort::Xhigh],
+        budget_thinking: false,
+        default_effort: Some(Effort::Medium),
     },
     CatalogModel {
         id: "gpt-5.4-mini",
@@ -198,36 +212,9 @@ const GPT_MODELS: &[CatalogModel] = &[
         adaptive: true,
         always_thinks: false,
         code_exec: true,
-    },
-];
-
-/// Probed live, like the GPT table. All three take `reasoning.effort` and reason
-/// even at the floor, so none of them is `always_thinks` — the toggle moves real
-/// work. The `grok-4.20-*` previews are left out on purpose: they reject the
-/// `reasoning` parameter outright, so the toggle would silently do nothing.
-/// xAI publishes `context_length`, so these get a real context gauge, unlike the
-/// GPT rows above.
-const GROK_MODELS: &[CatalogModel] = &[
-    CatalogModel {
-        id: "grok-4.6",
-        display_name: "Grok 4.6",
-        adaptive: true,
-        always_thinks: false,
-        code_exec: true,
-    },
-    CatalogModel {
-        id: "grok-4.5",
-        display_name: "Grok 4.5",
-        adaptive: true,
-        always_thinks: false,
-        code_exec: true,
-    },
-    CatalogModel {
-        id: "grok-4.3",
-        display_name: "Grok 4.3",
-        adaptive: true,
-        always_thinks: false,
-        code_exec: true,
+        efforts: EFFORTS_TO_XHIGH,
+        budget_thinking: false,
+        default_effort: Some(Effort::Medium),
     },
 ];
 
@@ -238,10 +225,8 @@ pub const PROVIDERS: &[LlmProviderSpec] = &[
         id: PROVIDER_ANTHROPIC,
         label: "Claude",
         key_id: "anthropic",
-        families: &["opus", "sonnet", "haiku"],
         catalog: CLAUDE_MODELS,
         default_model: super::DEFAULT_MODEL,
-        proxied: true,
         wire: LlmWire::Anthropic {
             base_url: "https://api.anthropic.com",
             key_label: "Anthropic",
@@ -251,11 +236,9 @@ pub const PROVIDERS: &[LlmProviderSpec] = &[
         id: PROVIDER_OPENAI,
         label: "OpenAI",
         key_id: "openai",
-        families: &[],
         catalog: GPT_MODELS,
         // Fastest of the line by a wide margin — measured, see the smoke example.
         default_model: "gpt-5.4-mini",
-        proxied: true,
         wire: LlmWire::Responses {
             base_url: "https://api.openai.com",
             key_label: "OpenAI",
@@ -263,77 +246,10 @@ pub const PROVIDERS: &[LlmProviderSpec] = &[
             effort_on: "medium",
         },
     },
-    // Grok speaks the Responses dialect verbatim, so it needs no module and no
-    // arm in `build_provider` — this row is the whole integration. The relay
-    // proxies it too: it shares `/v1/responses` with OpenAI there and the two
-    // are told apart by the requested model, so an access code covers Grok
-    // without the app knowing anything beyond its swapped base URL.
-    LlmProviderSpec {
-        id: PROVIDER_XAI,
-        label: "Grok",
-        key_id: "xai",
-        families: &[],
-        catalog: GROK_MODELS,
-        default_model: "grok-4.3",
-        proxied: true,
-        wire: LlmWire::Responses {
-            base_url: "https://api.x.ai",
-            key_label: "xAI",
-            // xAI refuses "none" outright; "minimal" is its floor.
-            effort_off: "minimal",
-            effort_on: "high",
-        },
-    },
-    // Агрегатор чужих моделей под своим ключом. `proxied: false` — у relay нет
-    // его роута, поэтому код доступа его не открывает; у диалекта Xclis нет и
-    // прокси-режима вовсе, что закреплено тестом `the_xclis_dialect_cannot_be_proxied`.
-    LlmProviderSpec {
-        id: xclis::PROVIDER_XCLIS,
-        label: "Xclis",
-        key_id: "xclis",
-        families: &[],
-        catalog: XCLIS_MODELS,
-        // Обещать нечего, пока не пришёл живой каталог: см. XCLIS_MODELS.
-        default_model: "",
-        proxied: false,
-        wire: LlmWire::Xclis {
-            base_url: "https://jp.xclis.ai",
-            key_label: "Xclis",
-        },
-    },
-    LlmProviderSpec {
-        id: openrouter::PROVIDER_OPENROUTER,
-        label: "OpenRouter",
-        key_id: "openrouter",
-        families: &[],
-        // The live catalogue is authoritative; do not promise offline models.
-        catalog: &[],
-        default_model: "",
-        proxied: false,
-        wire: LlmWire::OpenRouter {
-            base_url: "https://openrouter.ai/api",
-            key_label: "OpenRouter",
-        },
-    },
 ];
 
 pub fn spec(provider_id: &str) -> Option<&'static LlmProviderSpec> {
     PROVIDERS.iter().find(|p| p.id == provider_id)
-}
-
-/// Separates a vendor namespace from the upstream id in aggregator model ids
-/// (`xclis/claude-opus-4-6`, `openrouter/openai/gpt-4o-mini`).
-const NAMESPACE_SEPARATOR: char = '/';
-
-/// The vendor whose namespace prefixes `model_id` — the one offline fact about
-/// an aggregator model that survives a cold start with no catalogue, and the
-/// reason a saved aggregator chat never silently falls back to another vendor.
-pub fn namespace_owner(model_id: &str) -> Option<&'static LlmProviderSpec> {
-    PROVIDERS.iter().find(|p| {
-        model_id
-            .strip_prefix(p.id)
-            .is_some_and(|rest| rest.starts_with(NAMESPACE_SEPARATOR))
-    })
 }
 
 impl CatalogModel {
@@ -345,6 +261,9 @@ impl CatalogModel {
             adaptive: self.adaptive,
             always_thinks: self.always_thinks,
             code_exec: self.code_exec,
+            efforts: self.efforts.to_vec(),
+            budget_thinking: self.budget_thinking,
+            default_effort: self.default_effort,
         }
     }
 }

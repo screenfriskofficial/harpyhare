@@ -4,8 +4,9 @@
  * toward the vocabulary this conversation actually uses.
  *
  * Declared, never inferred. Guessing terms out of prose was the alternative and
- * it is a bad one: the vendor cap is small (xAI hard-errors above 100 terms,
- * it does not truncate), so a heuristic that spends the budget on common words
+ * it is a bad one: the vendor cap is small (Deepgram recommends 20–50 terms,
+ * and a list past a vendor's cap is an error, not a truncation), so a heuristic
+ * that spends the budget on common words
  * makes recognition worse rather than better. Writing the block **is** the
  * opt-in — there is no setting, and that is deliberate.
  */

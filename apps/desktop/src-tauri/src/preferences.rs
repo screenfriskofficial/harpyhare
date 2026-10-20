@@ -8,7 +8,7 @@ use crate::app_state::{
 };
 use crate::recording::request_capture_rebuild;
 use crate::window::main_window;
-use crate::{access, global_shortcuts, settings};
+use crate::{global_shortcuts, settings};
 
 const ENV_FILE_NAME: &str = ".env";
 /// Переменная окружения ключа вендора: `<KEY_ID в верхнем регистре>_API_KEY`
@@ -65,11 +65,6 @@ pub fn set_settings(
     let st = app.state::<App>();
     let _edit = st.settings_edit.lock_unpoisoned();
     let old = st.settings.lock_unpoisoned().clone();
-    // Токен доступа принадлежит бэкенду: его выдаёт `redeem_access_code`, а
-    // снимает `clear_access_token`. Снимок из лаунчера может быть старше
-    // токена (автосейв, взведённый до активации кода), и принять его значение
-    // значило бы стереть только что выданный токен — а код на relay уже потрачен.
-    new_settings.access_token = old.access_token.clone();
     let capture_device_changed = old.capture_device_uid != new_settings.capture_device_uid
         || old.capture_system_audio != new_settings.capture_system_audio;
     new_settings
@@ -111,42 +106,6 @@ pub fn set_ptt_suspended(app: AppHandle, suspended: bool) {
     }
 }
 
-#[tauri::command]
-#[specta::specta]
-pub async fn redeem_access_code(
-    app: AppHandle,
-    code: String,
-    idempotency_key: String,
-) -> Result<(), String> {
-    let base_url = access::proxy_base_url();
-    let token = access::redeem(&base_url, &code, &idempotency_key).await?;
-    apply_access_token(&app, token).map(|_| ())
-}
-
-/// Единственный способ отвязать код доступа. Через `set_settings` это сделать
-/// нельзя намеренно: тот сохраняет токен из текущего состояния, а не из снимка
-/// лаунчера (см. комментарий там). Возвращает применённые настройки, как и
-/// `set_settings`, — фронт принимает их как новое состояние.
-#[tauri::command]
-#[specta::specta]
-pub fn clear_access_token(app: AppHandle) -> Result<settings::Settings, String> {
-    apply_access_token(&app, String::new())
-}
-
-fn apply_access_token(app: &AppHandle, token: String) -> Result<settings::Settings, String> {
-    let st = app.state::<App>();
-    let _edit = st.settings_edit.lock_unpoisoned();
-    let old = st.settings.lock_unpoisoned().clone();
-    let mut new_settings = old.clone();
-    new_settings.access_token = token;
-    new_settings
-        .save(&settings_path(app))
-        .map_err(|e| e.to_string())?;
-    rebuild_changed_api_clients(&st, &old, &new_settings);
-    *st.settings.lock_unpoisoned() = new_settings.clone();
-    Ok(new_settings)
-}
-
 fn reregister_changed_hotkeys(app: &AppHandle, old: &settings::Settings, new: &settings::Settings) {
     if main_window(app).is_none() {
         return;
@@ -164,22 +123,20 @@ fn rebuild_changed_api_clients(st: &App, old: &settings::Settings, new: &setting
         tauri::async_runtime::spawn(async move { rebuilt.warm_up().await });
     }
     if llm_client_needs_rebuild(old, new) {
-        *st.llm.lock_unpoisoned() = build_llm_client(new, Arc::clone(&st.models));
+        *st.llm.lock_unpoisoned() =
+            build_llm_client(new, Arc::clone(&st.models), &st.model_probes);
     }
 }
 
-/// Всё, из чего собирается STT-клиент: доступ (токен, ключи), вендор, язык, перевод.
+/// Всё, из чего собирается STT-клиент: ключ, вендор, язык.
 fn stt_client_needs_rebuild(old: &settings::Settings, new: &settings::Settings) -> bool {
-    old.access_token != new.access_token
-        || stt_credentials_changed(old, new)
+    stt_credentials_changed(old, new)
         || old.stt_provider != new.stt_provider
-        || old.openrouter_stt_model != new.openrouter_stt_model
         || old.stt_language != new.stt_language
-        || old.stt_translate != new.stt_translate
 }
 
 fn llm_client_needs_rebuild(old: &settings::Settings, new: &settings::Settings) -> bool {
-    old.access_token != new.access_token || llm_credentials_changed(old, new)
+    llm_credentials_changed(old, new)
 }
 
 /// Any key some answer vendor depends on. Reads the registry instead of naming

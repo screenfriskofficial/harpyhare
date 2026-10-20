@@ -25,7 +25,8 @@ it.each([
     const { result } = renderHook(() =>
       useLauncherReadiness({
         ...DEFAULT_SETTINGS,
-        access_token: "test-access",
+        anthropic_api_key: "test-anthropic",
+        deepgram_api_key: "test-deepgram",
         capture_system_audio: system,
         capture_microphone: microphone,
       }),

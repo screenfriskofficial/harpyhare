@@ -63,7 +63,6 @@ pub struct DiagnosticRecord {
     pub origin: DiagnosticOrigin,
     pub provider: String,
     pub model: String,
-    pub via_relay: bool,
     pub capture_ms: Option<u32>,
     pub processing_ms: Option<u32>,
     pub first_text_ms: Option<u32>,
@@ -133,7 +132,6 @@ impl Trace {
         origin: DiagnosticOrigin,
         provider: &str,
         model: &str,
-        via_relay: bool,
     ) -> Self {
         static SEQUENCE: AtomicU64 = AtomicU64::new(0);
         let started_at = SystemTime::now()
@@ -150,7 +148,6 @@ impl Trace {
             origin,
             provider: safe_identifier(provider).unwrap_or_default(),
             model: safe_identifier(model).unwrap_or_default(),
-            via_relay,
             capture_ms: None,
             processing_ms: None,
             first_text_ms: None,
@@ -214,7 +211,6 @@ pub async fn send_request(
         .try_with(|trace| millis(trace.started.elapsed()))
         .ok();
     let response = request.await?;
-    // Audio-capable chat models (OpenRouter STT) use /chat/completions too.
     let transcribing = ACTIVE
         .try_with(|trace| trace.inner.lock_unpoisoned().0.kind == DiagnosticKind::Transcription)
         .unwrap_or(false);
@@ -223,7 +219,7 @@ pub async fn send_request(
         HttpRequestKind::Catalog
     } else if transcribing || path.contains("/audio/") || path.ends_with("/listen") {
         HttpRequestKind::Speech
-    } else if ["/responses", "/messages", "/completions"]
+    } else if ["/responses", "/messages"]
         .iter()
         .any(|p| path.ends_with(p))
     {
@@ -283,31 +279,16 @@ pub fn answer_trace(app: &tauri::AppHandle, model: &str, origin: DiagnosticOrigi
         .iter()
         .find(|m| m.id == model)
         .map(|m| m.provider.clone())
-        .or_else(|| crate::llm::registry::namespace_owner(model).map(|p| p.id.to_string()))
         .unwrap_or_default();
-    let via_relay = crate::app_state::with_settings(app, |s| !s.access_token.is_empty())
-        && crate::llm::registry::spec(&provider).is_some_and(|p| p.proxied);
-    Trace::new(DiagnosticKind::Answer, origin, &provider, model, via_relay)
+    Trace::new(DiagnosticKind::Answer, origin, &provider, model)
 }
 
 pub fn transcription_trace(
     settings: &crate::settings::Settings,
     origin: DiagnosticOrigin,
 ) -> Trace {
-    let plan = crate::app_state::stt_client_plan(settings);
-    let spec = crate::stt::registry::resolve(plan.provider_id);
-    let model = if spec.wire.selectable_model() {
-        settings.openrouter_stt_model.as_str()
-    } else {
-        ""
-    };
-    Trace::new(
-        DiagnosticKind::Transcription,
-        origin,
-        plan.provider_id,
-        model,
-        plan.proxy_base_url.is_some(),
-    )
+    let provider = crate::stt::registry::resolve(&settings.stt_provider).id;
+    Trace::new(DiagnosticKind::Transcription, origin, provider, "")
 }
 
 #[tauri::command]

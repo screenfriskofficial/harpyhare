@@ -7,7 +7,6 @@ pub mod http;
 pub enum ErrorCode {
     Network,
     BadApiKey,
-    BadAccessCode,
     Retryable,
     Api,
     Cancelled,
@@ -15,7 +14,6 @@ pub enum ErrorCode {
     Silence,
     Internal,
     Billing,
-    DailyLimit,
     RateLimited,
     ServiceUnavailable,
     Timeout,

@@ -1,6 +1,6 @@
 import { t, type TranslationKey } from "@/i18n";
 import { HOTKEY_ACTIONS, type HotkeyKind } from "@/ipc/bindings";
-import { apiKeyInfo, type ApiKeyId } from "@/lib/api-keys";
+import { API_KEY_IDS, apiKeyInfo } from "@/lib/api-keys";
 import {
   actionLabel,
   actionHint,
@@ -38,7 +38,6 @@ export interface SearchSources {
   presets: { id: string; name: string }[];
   quickActions: { id: string; title: string }[];
   contextDocs: { id: string; name: string }[];
-  apiKeys: readonly ApiKeyId[];
   /** The record key's hint depends on its mode; the index must show the same words as the row. */
   recordToggle: boolean;
 }
@@ -95,8 +94,6 @@ const SETTINGS_ROWS = [
     tab: "speech",
   },
   { title: "hotkeys.recordToggle", hint: "hotkeys.recordToggleHint", tab: "hotkeys" },
-  { title: "launcher.access.code", hint: "launcher.access.codeHint", tab: "access" },
-  { title: "launcher.access.codeActive", hint: "launcher.access.unlinkHint", tab: "access" },
   { title: "launcher.speech.device", hint: "launcher.speech.deviceHint", tab: "speech" },
   {
     title: "launcher.speech.microphoneDevice",
@@ -105,7 +102,6 @@ const SETTINGS_ROWS = [
   },
   { title: "launcher.speech.provider", hint: "launcher.speech.providerHint", tab: "speech" },
   { title: "launcher.speech.language", hint: "launcher.speech.languageHint", tab: "speech" },
-  { title: "launcher.speech.translate", hint: "launcher.speech.translateHint", tab: "speech" },
   { title: "launcher.speech.buffer", hint: "launcher.speech.bufferHint", tab: "speech" },
   { title: "launcher.speech.bufferDepth", hint: "launcher.speech.bufferDepthHint", tab: "speech" },
   {
@@ -227,8 +223,8 @@ function contextDocHits(contextDocs: SearchSources["contextDocs"]): SearchHit[] 
     }));
 }
 
-function apiKeyRows(apiKeys: SearchSources["apiKeys"]): SettingsRow[] {
-  return apiKeys.map((id): SettingsRow => {
+function apiKeyRows(): SettingsRow[] {
+  return API_KEY_IDS.map((id): SettingsRow => {
     const info = apiKeyInfo(id);
     return {
       title: t("apiKeys.keyLabel", { name: info.name }),
@@ -254,11 +250,11 @@ function quickActionComboRow(): SettingsRow {
   };
 }
 
-function settingsRowHits(apiKeys: SearchSources["apiKeys"]): SearchHit[] {
+function settingsRowHits(): SearchHit[] {
   return [
     ...SETTINGS_ROWS.map((row) => ({ ...row, title: t(row.title), hint: t(row.hint) })),
     quickActionComboRow(),
-    ...apiKeyRows(apiKeys),
+    ...apiKeyRows(),
     ...windowStepRows(),
   ].map((row) => ({
     id: hitId(SETTING_HIT, [row.tab, row.title].join(HIT_ID_SEPARATOR)),
@@ -302,7 +298,7 @@ function launcherIndex(sources: SearchSources, platform: Platform): SearchHit[] 
     ...screenHits(platform),
     ...tabHits(),
     ...hotkeyHits(sources.recordToggle),
-    ...settingsRowHits(sources.apiKeys),
+    ...settingsRowHits(),
     ...permissionHits(platform),
     ...presetHits(sources.presets),
     ...quickActionHits(sources.quickActions),

@@ -15,25 +15,17 @@ use tokio_util::sync::CancellationToken;
 
 use http::{Credential, LlmHttp};
 
-/// The OpenAI Chat Completions dialect: message shape, chunk parser and the
-/// finish-reason policy shared by Xclis and OpenRouter.
-pub mod chat_completions;
 /// Transport shared by every vendor: pool, auth, status mapping, SSE pumping.
 pub mod http;
-/// OpenRouter over Chat Completions: live catalogue, reasoning controls, web plugin.
-pub mod openrouter;
 /// The one table a new vendor is declared in; exported to the frontend.
 pub mod registry;
-/// The OpenAI Responses dialect, shared by more than one vendor.
+/// The OpenAI Responses dialect.
 pub mod responses;
 /// Dispatches each request to the vendor that owns the requested model.
 pub mod router;
-/// OpenAI-compatible Chat Completions as spoken by the Xclis aggregator.
-pub mod xclis;
 
 pub const PROVIDER_ANTHROPIC: &str = "anthropic";
 pub const PROVIDER_OPENAI: &str = "openai";
-pub const PROVIDER_XAI: &str = "xai";
 
 /// New chats start here. Paired with `DEFAULT_MODEL` in `lib/chats.ts`,
 /// which reads it out of the generated registry rather than repeating it.
@@ -52,9 +44,22 @@ const ANTHROPIC_KEY_LABEL: &str = "Anthropic";
 const MAX_TOKENS: u32 = 64000;
 
 const THINKING_ADAPTIVE: &str = "adaptive";
-const THINKING_DISABLED: &str = "disabled";
+/// Manual extended thinking — the only kind the 4.5 generation without
+/// adaptive thinking has (Haiku 4.5, Sonnet 4.5).
+const THINKING_ENABLED: &str = "enabled";
+/// Under `MAX_TOKENS`, as the API requires, and deep enough to be the
+/// «Расширенное рассуждение» claude.ai offers on those models.
+const THINKING_BUDGET_TOKENS: u32 = 16_000;
+const _: () = assert!(THINKING_BUDGET_TOKENS < MAX_TOKENS, "the API rejects a budget ≥ max_tokens");
+/// The level a Claude model reasons at when a request names none, as the
+/// documentation states it — the Models API does not report it. The offline
+/// table records the models that differ (Opus 5.5 and Haiku 5.5: `medium`).
+const ANTHROPIC_DEFAULT_EFFORT: Effort = Effort::High;
 
+/// Web search with dynamic filtering: the 4.6 generation and newer.
 const WEB_SEARCH_TOOL_TYPE: &str = "web_search_20260209";
+/// The basic tool, for the older models (Haiku 4.5).
+const WEB_SEARCH_BASIC_TOOL_TYPE: &str = "web_search_20250305";
 const WEB_SEARCH_TOOL_NAME: &str = "web_search";
 const WEB_SEARCH_MAX_USES: u32 = 5;
 const WEB_SEARCH_DIRECT_CALLERS: [&str; 1] = ["direct"];
@@ -62,26 +67,10 @@ const WEB_SEARCH_DIRECT_CALLERS: [&str; 1] = ["direct"];
 const CACHE_TYPE_EPHEMERAL: &str = "ephemeral";
 
 const HAIKU_PREFIX: &str = "claude-haiku";
-const ALWAYS_THINKING_PREFIXES: [&str; 2] = ["claude-fable", "claude-mythos"];
-
-/// Adaptive models that still accept `thinking: {type: "disabled"}`. Opus 5.5
-/// and Sonnet 5.5 answer it with a 400 (`"thinking.type.disabled" is not
-/// supported for this model`), and so does every newer line so far. An
-/// allowlist on purpose: a model missing from it gets low-effort adaptive
-/// thinking instead of none, a model wrongly on it fails every request.
-const DISABLE_THINKING_MODELS: [&str; 6] = [
-    "claude-opus-4-6",
-    "claude-opus-4-7",
-    "claude-opus-4-8",
-    "claude-opus-5",
-    "claude-sonnet-4-6",
-    "claude-sonnet-5",
-];
-const EFFORT_LOW: &str = "low";
 
 /// Idle-таймаут чтения стрима — между двумя чанками, а не на весь ответ.
-/// Модели с длинным молчаливым рассуждением (gpt-5.5-pro, часть моделей
-/// Xclis) думают дольше минуты, не присылая ни байта; прежние 60 с роняли
+/// Модели с длинным молчаливым рассуждением (gpt-5.5-pro) думают дольше
+/// минуты, не присылая ни байта; прежние 60 с роняли
 /// такой ответ в «Нет соединения». Мёртвое соединение ловит не он, а
 /// http2 keep-alive (интервал + таймаут ниже).
 pub(crate) const STREAM_IDLE_TIMEOUT: Duration = Duration::from_secs(5 * 60);
@@ -109,10 +98,6 @@ pub enum LlmError {
     Http(#[from] crate::error::http::HttpFailure),
     #[error("Неверный ключ {0} — проверь в настройках")]
     BadApiKey(&'static str),
-    /// 401/403 от relay: код доступа недействителен или исчерпан. Текст — от
-    /// самого relay, он знает причину. Симметрично `SttError::BadAccessCode`.
-    #[error("{0}")]
-    BadAccessCode(String),
     #[error("Сервис ответов перегружен, попробуй позже ({0})")]
     Retryable(u16),
     #[error("Нет соединения — проверь интернет/VPN: {0}")]
@@ -132,10 +117,7 @@ impl crate::error::CodedError for LlmError {
         match self {
             LlmError::Http(error) => error.code,
             LlmError::BadApiKey(_) => ErrorCode::BadApiKey,
-            LlmError::BadAccessCode(_) => ErrorCode::BadAccessCode,
-            LlmError::Retryable(status) => {
-                crate::error::http::classify(*status, &Value::Null, false)
-            }
+            LlmError::Retryable(status) => crate::error::http::classify(*status, &Value::Null),
             LlmError::Network(_) => ErrorCode::Network,
             LlmError::Api(_) => ErrorCode::Api,
             LlmError::Incomplete(_) => ErrorCode::Incomplete,
@@ -147,9 +129,6 @@ impl crate::error::CodedError for LlmError {
 impl crate::error::http::ProviderError for LlmError {
     fn bad_api_key(key_label: &'static str) -> Self {
         LlmError::BadApiKey(key_label)
-    }
-    fn bad_access_code(message: String) -> Self {
-        LlmError::BadAccessCode(message)
     }
     fn api(message: String) -> Self {
         LlmError::Api(message)
@@ -172,16 +151,58 @@ pub(crate) fn network_error(err: reqwest::Error) -> LlmError {
 
 pub type ModelCatalog = Arc<Mutex<Vec<ModelInfo>>>;
 
-/// A JSON number as `u32`. Anything negative, fractional or wider than `u32`
-/// is `None` rather than a silently truncated `as` cast: the limits come from
-/// vendors, not from us.
-fn json_u32(value: &Value) -> Option<u32> {
-    value.as_u64().and_then(|n| u32::try_from(n).ok())
+/// How hard a reasoning model works on an answer — one ladder for every
+/// vendor. The serialized names are the wire values themselves: Anthropic's
+/// `output_config.effort` and the Responses `reasoning.effort` both take these
+/// words verbatim, so no vendor needs a translation table. What each model
+/// accepts is `ModelInfo.efforts`.
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, Deserialize, specta::Type,
+)]
+#[serde(rename_all = "lowercase")]
+pub enum Effort {
+    Low,
+    Medium,
+    High,
+    Xhigh,
+    Max,
 }
 
-/// `json_u32` where zero means "not reported" and is folded into `None`.
-pub(crate) fn json_positive_u32(value: &Value) -> Option<u32> {
-    json_u32(value).filter(|n| *n > 0)
+impl Effort {
+    /// Weakest first — the order the picker shows them in.
+    pub const ALL: [Effort; 5] = [
+        Effort::Low,
+        Effort::Medium,
+        Effort::High,
+        Effort::Xhigh,
+        Effort::Max,
+    ];
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Effort::Low => "low",
+            Effort::Medium => "medium",
+            Effort::High => "high",
+            Effort::Xhigh => "xhigh",
+            Effort::Max => "max",
+        }
+    }
+}
+
+/// The level a request carries while the model reasons (asked to, or always
+/// does): the chat's own if the model takes it, else the model's default —
+/// the one the picker shows checked, so what is checked is what is sent. A
+/// model nothing is known about gets no level: an unknown one is a 400 on
+/// every request, while sending none is the vendor's own default.
+pub fn applicable_effort(
+    info: Option<&ModelInfo>,
+    reasoning_on: bool,
+    effort: Option<Effort>,
+) -> Option<Effort> {
+    let model = info.filter(|_| reasoning_on)?;
+    effort
+        .filter(|e| model.efforts.contains(e))
+        .or(model.default_effort)
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Deserialize, specta::Type)]
@@ -189,6 +210,8 @@ pub(crate) fn json_positive_u32(value: &Value) -> Option<u32> {
 pub struct RequestOptions {
     pub thinking: bool,
     pub web_search: bool,
+    /// `None` — the model's default level (`ModelInfo.default_effort`).
+    pub effort: Option<Effort>,
 }
 
 #[derive(Debug, Clone)]
@@ -207,10 +230,8 @@ pub trait LlmStreamSink: Send {
 pub trait LlmProvider: Send + Sync {
     fn provider_id(&self) -> &'static str;
     fn known_models(&self) -> Vec<ModelInfo>;
-    /// Берётся ли вендор за модель, которой нет ни в живом каталоге, ни в его
-    /// офлайн-таблице. По умолчанию — только за известные; агрегатор со своим
-    /// неймспейсом (`xclis/…`) отвечает по префиксу, иначе после холодного
-    /// старта его модели уезжали бы к первому вендору роутера.
+    /// Берётся ли вендор за модель, которой нет в живом каталоге: последний
+    /// резерв роутера перед дефолтным вендором — по офлайн-таблице.
     fn owns_model(&self, model_id: &str) -> bool {
         self.known_models().iter().any(|m| m.id == model_id)
     }
@@ -221,6 +242,21 @@ pub trait LlmProvider: Send + Sync {
         sink: &mut dyn LlmStreamSink,
     ) -> Result<(), LlmError>;
     async fn list_models(&self) -> Result<Vec<ModelInfo>, LlmError>;
+    /// The catalogue plus WHY a vendor is missing from it. `list_models` alone
+    /// let a failed vendor hide behind its offline table: with a stale key the
+    /// picker showed last year's models as if they were all there was.
+    async fn model_listing(&self) -> ModelListing {
+        match self.list_models().await {
+            Ok(models) => ModelListing {
+                models,
+                failures: Vec::new(),
+            },
+            Err(e) => ModelListing {
+                models: Vec::new(),
+                failures: vec![CatalogFailure::new(self.provider_id(), &e)],
+            },
+        }
+    }
     async fn reachable(&self) -> bool;
     async fn warm_up(&self);
 }
@@ -244,6 +280,38 @@ pub struct ModelInfo {
     pub adaptive: bool,
     pub always_thinks: bool,
     pub code_exec: bool,
+    /// Effort levels the model accepts, weakest first; empty when it takes none.
+    pub efforts: Vec<Effort>,
+    /// Reasons only through manual extended thinking with a token budget —
+    /// an on/off switch, no levels (Haiku 4.5, Sonnet 4.5).
+    pub budget_thinking: bool,
+    /// The level a request carries when the chat picked none; one of `efforts`.
+    pub default_effort: Option<Effort>,
+}
+
+/// A vendor whose live catalogue did not come — its models in the picker are
+/// then the offline table, and `error` says why.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct CatalogFailure {
+    pub provider: String,
+    pub error: crate::error::AppError,
+}
+
+impl CatalogFailure {
+    pub fn new(provider: &str, error: &LlmError) -> Self {
+        Self {
+            provider: provider.to_string(),
+            error: error.into(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Default, PartialEq, serde::Serialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct ModelListing {
+    pub models: Vec<ModelInfo>,
+    pub failures: Vec<CatalogFailure>,
 }
 
 fn fallback_adaptive(id: &str) -> bool {
@@ -254,33 +322,55 @@ fn fallback_code_exec(id: &str) -> bool {
     !id.starts_with(HAIKU_PREFIX)
 }
 
-fn always_thinks(id: &str) -> bool {
-    ALWAYS_THINKING_PREFIXES.iter().any(|p| id.starts_with(p))
+/// `capabilities.effort.<level>.supported` — the Models API reports every
+/// level separately (Opus 4.6 has no `xhigh`, Haiku 4.5 has none at all), so
+/// the picker never needs a list of names.
+fn efforts_from_capabilities(capabilities: &Value) -> Vec<Effort> {
+    Effort::ALL
+        .into_iter()
+        .filter(|e| capabilities["effort"][e.as_str()]["supported"].as_bool() == Some(true))
+        .collect()
 }
 
-/// Matches dated snapshots too: `claude-opus-4-8-20260101` is `claude-opus-4-8`.
-fn accepts_disabled_thinking(id: &str) -> bool {
-    let base = id
-        .rsplit_once('-')
-        .filter(|(_, date)| date.len() == 8 && date.bytes().all(|b| b.is_ascii_digit()))
-        .map_or(id, |(base, _)| base);
-    DISABLE_THINKING_MODELS.contains(&base)
+/// The documented default, unless the offline table records the model's own.
+fn anthropic_default_effort(id: &str, efforts: &[Effort]) -> Option<Effort> {
+    let recorded = registry::catalog_models(PROVIDER_ANTHROPIC)
+        .into_iter()
+        .find(|m| m.id == id)
+        .and_then(|m| m.default_effort);
+    recorded
+        .or(Some(ANTHROPIC_DEFAULT_EFFORT))
+        .filter(|e| efforts.contains(e))
 }
 
+/// Everything about reasoning comes from `capabilities.thinking.types` and
+/// `capabilities.effort` — no list of model names. As on claude.ai, a model
+/// with effort levels offers only those levels: it always reasons, and the
+/// level is the one control. `disabled` is never sent, so neither the
+/// models that refuse it (Opus 5.5, Sonnet 5.5, Fable) nor the ones that take
+/// it only up to `high` (Opus 5, Haiku 5.5) can fail on it.
 fn model_info_from_json(v: &Value) -> Option<ModelInfo> {
     let id = v["id"].as_str()?.to_string();
     let display_name = v["display_name"].as_str().unwrap_or(&id).to_string();
-    let adaptive = v["capabilities"]["thinking"]["types"]["adaptive"]["supported"]
+    let capabilities = &v["capabilities"];
+    let thinking = &capabilities["thinking"]["types"];
+    let adaptive = thinking["adaptive"]["supported"]
         .as_bool()
         .unwrap_or_else(|| fallback_adaptive(&id));
-    let code_exec = v["capabilities"]["code_execution"]["supported"]
+    let budget_thinking = !adaptive && thinking["enabled"]["supported"].as_bool() == Some(true);
+    let code_exec = capabilities["code_execution"]["supported"]
         .as_bool()
         .unwrap_or_else(|| fallback_code_exec(&id));
+    let efforts = efforts_from_capabilities(capabilities);
+    let cannot_stop = thinking["disabled"]["supported"].as_bool() == Some(false);
     Some(ModelInfo {
-        always_thinks: always_thinks(&id),
+        always_thinks: (adaptive || budget_thinking) && (!efforts.is_empty() || cannot_stop),
         provider: PROVIDER_ANTHROPIC.into(),
         adaptive,
         code_exec,
+        default_effort: anthropic_default_effort(&id, &efforts),
+        efforts,
+        budget_thinking,
         id,
         display_name,
     })
@@ -290,34 +380,50 @@ pub fn fallback_models() -> Vec<ModelInfo> {
     registry::catalog_models(PROVIDER_ANTHROPIC)
 }
 
+/// Explicit even where it is the default: Opus 4.6 and Sonnet 4.6 run
+/// thinking-off when the field is omitted. «Off» is the field left out — the
+/// models that reason through a budget do not think by default, and every
+/// other model offers no «off» at all (see `model_info_from_json`).
 pub fn thinking_value(info: Option<&ModelInfo>, model_id: &str, requested: bool) -> Option<Value> {
-    let adaptive = info.map_or_else(|| fallback_adaptive(model_id), |m| m.adaptive);
-    let always = info.map_or_else(|| always_thinks(model_id), |m| m.always_thinks);
-    if always {
+    let Some(m) = info else {
+        return (requested && fallback_adaptive(model_id))
+            .then(|| json!({"type": THINKING_ADAPTIVE}));
+    };
+    if !(requested || m.always_thinks) {
         return None;
     }
-    if requested {
-        adaptive.then(|| json!({"type": THINKING_ADAPTIVE}))
-    } else if adaptive && accepts_disabled_thinking(model_id) {
-        Some(json!({"type": THINKING_DISABLED}))
+    if m.adaptive {
+        Some(json!({"type": THINKING_ADAPTIVE}))
+    } else if m.budget_thinking {
+        Some(json!({"type": THINKING_ENABLED, "budget_tokens": THINKING_BUDGET_TOKENS}))
     } else {
         None
     }
 }
 
-/// Thinking off on a model that cannot switch it off: `thinking_value` omits
-/// the field (adaptive by default there), and this keeps that thinking short.
-pub fn output_config_value(
+/// The level of the request, while the model reasons: the chat's own or the
+/// model's default. Without a live catalogue the offline one vouches for the
+/// level; a model neither knows is sent none.
+pub fn effort_config_value(
     info: Option<&ModelInfo>,
     model_id: &str,
-    requested: bool,
+    options: &RequestOptions,
 ) -> Option<Value> {
-    let adaptive = info.map_or_else(|| fallback_adaptive(model_id), |m| m.adaptive);
-    let always = info.map_or_else(|| always_thinks(model_id), |m| m.always_thinks);
-    (!requested && adaptive && !always && !accepts_disabled_thinking(model_id))
-        .then(|| json!({"effort": EFFORT_LOW}))
+    let offline = info
+        .is_none()
+        .then(|| fallback_models().into_iter().find(|m| m.id == model_id))
+        .flatten();
+    let info = info.or(offline.as_ref());
+    let always = info.is_some_and(|m| m.always_thinks);
+    applicable_effort(info, options.thinking || always, options.effort)
+        .map(|effort| json!({"effort": effort}))
 }
 
+/// The tool version follows the model generation, and the Models API has no
+/// field for it: dynamic filtering arrived with the 4.6 generation, the same
+/// one that brought adaptive thinking, so `adaptive` stands in for it.
+/// `code_execution` alone is not the test — Haiku 4.5 reports it, yet without
+/// `allowed_callers` the dynamic tool answered every Haiku request with a 400.
 pub fn web_search_value(
     info: Option<&ModelInfo>,
     model_id: &str,
@@ -326,13 +432,16 @@ pub fn web_search_value(
     if !requested {
         return None;
     }
+    let dynamic = info.map_or_else(|| fallback_adaptive(model_id), |m| m.adaptive);
     let code_exec = info.map_or_else(|| fallback_code_exec(model_id), |m| m.code_exec);
     let mut tool = json!({
-        "type": WEB_SEARCH_TOOL_TYPE,
+        "type": if dynamic { WEB_SEARCH_TOOL_TYPE } else { WEB_SEARCH_BASIC_TOOL_TYPE },
         "name": WEB_SEARCH_TOOL_NAME,
         "max_uses": WEB_SEARCH_MAX_USES
     });
-    if !code_exec {
+    // Dynamic filtering runs code execution under the hood; a model without
+    // it has to call the tool directly.
+    if dynamic && !code_exec {
         tool["allowed_callers"] = json!(WEB_SEARCH_DIRECT_CALLERS);
     }
     Some(tool)
@@ -342,25 +451,21 @@ pub fn web_search_value(
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct HttpClientOptions {
     pub read_timeout: Duration,
-    /// Ходить ли через системный прокси. Xclis намеренно идёт мимо него.
-    pub system_proxy: bool,
 }
 
 impl Default for HttpClientOptions {
     fn default() -> Self {
         Self {
             read_timeout: STREAM_IDLE_TIMEOUT,
-            system_proxy: true,
         }
     }
 }
 
 pub(crate) fn build_http_client(options: HttpClientOptions) -> reqwest::Client {
-    let mut builder = crate::net::pooled_client_builder().read_timeout(options.read_timeout);
-    if !options.system_proxy {
-        builder = builder.no_proxy();
-    }
-    builder.build().expect("reqwest client")
+    crate::net::pooled_client_builder()
+        .read_timeout(options.read_timeout)
+        .build()
+        .expect("reqwest client")
 }
 
 /// Клиент проб связи: короткие таймауты, без пула (`pool_max_idle_per_host(0)`),
@@ -385,13 +490,12 @@ pub(crate) fn probe_http_client() -> &'static reqwest::Client {
 pub(crate) async fn require_ok_status(
     resp: reqwest::Response,
     key_label: &'static str,
-    proxy: bool,
 ) -> Result<reqwest::Response, LlmError> {
     if resp.status().is_success() {
         Ok(resp)
     } else {
         Err(crate::error::http::provider_error(
-            crate::error::http::failure(resp, proxy).await,
+            crate::error::http::failure(resp).await,
             key_label,
         ))
     }
@@ -400,9 +504,7 @@ pub(crate) async fn require_ok_status(
 /// Качает SSE-ответ в `sink`. Конец потока без терминального события диалекта
 /// (`Done`) — обрыв, а не успех: usage у части вендоров приходит только в
 /// конце, и «тихий» EOF означал бы либо потерянные токены, либо `Ok` из
-/// реально оборванного ответа. Единственное исключение — диалект, у которого
-/// конец ответа объявляется раньше терминального события (`Finished`): после
-/// него EOF штатен.
+/// реально оборванного ответа.
 pub(crate) async fn pump_sse_stream(
     resp: reqwest::Response,
     mut parser: SseParser,
@@ -410,25 +512,19 @@ pub(crate) async fn pump_sse_stream(
     sink: &mut dyn LlmStreamSink,
 ) -> Result<(), LlmError> {
     let mut stream = resp.bytes_stream();
-    let mut finished = false;
     loop {
         let chunk = tokio::select! {
             c = stream.next() => c,
             _ = cancel.cancelled() => return Err(LlmError::Cancelled),
         };
         let Some(chunk) = chunk else {
-            return if finished {
-                Ok(())
-            } else {
-                Err(LlmError::Network(TRUNCATED_STREAM_ERROR.into()))
-            };
+            return Err(LlmError::Network(TRUNCATED_STREAM_ERROR.into()));
         };
         let bytes = chunk.map_err(network_error)?;
         for out in parser.feed_bytes(&bytes) {
             match out {
                 SseOut::TextDelta(t) => sink.text_delta(&t),
                 SseOut::Done => return Ok(()),
-                SseOut::Finished => finished = true,
                 SseOut::ApiError(m) => return Err(LlmError::Api(m)),
                 SseOut::Incomplete(reason) => return Err(LlmError::Incomplete(reason)),
                 SseOut::HttpError(error) => return Err(LlmError::Http(error)),
@@ -446,14 +542,6 @@ impl AnthropicClient {
                 header: API_KEY_HEADER,
                 key: api_key,
             },
-            ANTHROPIC_KEY_LABEL,
-        ))
-    }
-
-    pub fn for_proxy(access_token: String, base_url: String) -> Self {
-        Self::over(LlmHttp::proxied(
-            base_url,
-            access_token,
             ANTHROPIC_KEY_LABEL,
         ))
     }
@@ -496,7 +584,7 @@ impl AnthropicClient {
         let thinking = request.options.thinking;
         (
             thinking_value(info.as_ref(), &request.model, thinking),
-            output_config_value(info.as_ref(), &request.model, thinking),
+            effort_config_value(info.as_ref(), &request.model, &request.options),
             web_search_value(info.as_ref(), &request.model, request.options.web_search),
         )
     }
@@ -670,13 +758,8 @@ pub fn build_request_body(
 #[derive(Debug, Clone, PartialEq)]
 pub enum SseOut {
     TextDelta(String),
-    /// The dialect's terminal event (`message_stop`, `response.completed`, `[DONE]`).
+    /// The dialect's terminal event (`message_stop`, `response.completed`).
     Done,
-    /// The dialect announced the end of the answer, but its terminal event is
-    /// still ahead or absent (Chat Completions: `finish_reason`, then an
-    /// ignored usage chunk and `[DONE]`). The stream is read on; EOF after
-    /// this is a normal end.
-    Finished,
     ApiError(String),
     /// The answer stopped before its end. The text streamed so far is shown in
     /// a chat, but a pipeline step must not pass it on as a finished result.
@@ -819,7 +902,7 @@ fn anthropic_error_out(error: &Value) -> SseOut {
 }
 
 fn classified_stream_error(status: u16, error: &Value, message: String) -> SseOut {
-    let code = crate::error::http::classify(status, &json!({"error": error}), false);
+    let code = crate::error::http::classify(status, &json!({"error": error}));
     if code == crate::error::ErrorCode::Api {
         SseOut::ApiError(message)
     } else {

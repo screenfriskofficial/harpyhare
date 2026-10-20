@@ -90,7 +90,7 @@ impl DeepgramStt {
     }
 
     fn listen_path(&self) -> &'static str {
-        self.spec.wire.path(false)
+        self.spec.wire.path()
     }
 
     fn language_param(&self) -> &str {
@@ -102,9 +102,9 @@ impl DeepgramStt {
         }
     }
 
-    /// Термины, которые реально уйдут: предел вендора применяет реестр — тот
-    /// же `accepted()`, что и у multipart-вендоров, иначе пресет с длинным
-    /// списком давал бы 400 на каждой записи.
+    /// Термины, которые реально уйдут: предел вендора применяет реестр
+    /// (`accepted()`), иначе пресет с длинным списком давал бы 400 на каждой
+    /// записи.
     fn accepted_keyterms<'a>(&self, keyterms: Keyterms<'a>) -> &'a [String] {
         self.spec.keyterms.accepted(keyterms)
     }
@@ -189,7 +189,7 @@ impl DeepgramStt {
                 provider_error(
                     crate::error::http::HttpFailure {
                         status: code,
-                        code: crate::error::http::classify(code, &body, false),
+                        code: crate::error::http::classify(code, &body),
                         message: format!("HTTP {code}"),
                     },
                     self.spec.key_label,
@@ -228,8 +228,8 @@ impl DeepgramStt {
         }
     }
 
-    /// Пусто — это пусто, а не ошибка: остальные вендоры отдают `""`, а
-    /// конвейер знает, что делать с пустой расшифровкой. Ошибка здесь гнала
+    /// Пусто — это пусто, а не ошибка: конвейер знает, что делать с пустой
+    /// расшифровкой. Ошибка здесь гнала
     /// бы ту же тишину второй раз через REST ради того же результата.
     fn transcript_from_segments(segments: &[String]) -> String {
         segments.join(" ").trim().to_string()
@@ -250,7 +250,7 @@ impl DeepgramStt {
                 )
             }
             _ => Err(provider_error(
-                crate::error::http::failure(resp, false).await,
+                crate::error::http::failure(resp).await,
                 self.spec.key_label,
             )),
         }

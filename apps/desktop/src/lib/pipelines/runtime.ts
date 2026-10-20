@@ -220,7 +220,14 @@ function modelRequest(
     messages: [...values.history.history.map(({ value }) => value), message],
     system: render(system),
     model: node.model || input.model,
-    options: { ...input.options, thinking: node.thinking, webSearch: node.webSearch },
+    // A node states its own reasoning; the chat's effort level is the chat's
+    // answer setting, and the prepared prompt's fingerprint does not read it.
+    options: {
+      ...input.options,
+      thinking: node.thinking,
+      webSearch: node.webSearch,
+      effort: undefined,
+    },
   };
 }
 

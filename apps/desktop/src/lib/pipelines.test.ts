@@ -546,6 +546,31 @@ describe("pipeline model execution", () => {
     );
   });
 
+  it("a model node states its own reasoning and never inherits the chat's effort level", async () => {
+    const graph = pipeline(
+      [
+        node("doc", "document", { sourceId: "resume" }),
+        node("llm", "llm", { text: "Answer", thinking: true }),
+        node("out", "output"),
+      ],
+      [
+        ["doc", "llm"],
+        ["llm", "out"],
+      ],
+    );
+    const data = {
+      ...input(),
+      options: { thinking: false, webSearch: true, effort: "max" as const },
+    };
+    const options = executionOptions();
+    await executePipeline(graph, data, options);
+    expect(options.callModel.mock.calls[0]?.[0].options).toEqual({
+      thinking: true,
+      webSearch: false,
+      effort: undefined,
+    });
+  });
+
   it("executes shared ancestors once while retaining distinct model rewrites of the same document", async () => {
     const graph = pipeline(
       [

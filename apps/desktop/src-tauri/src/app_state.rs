@@ -8,19 +8,20 @@ use std::sync::{
 use tauri::{AppHandle, Manager};
 use tokio_util::sync::CancellationToken;
 
-use crate::{access, capture, llm, settings, state, stt};
+use crate::{capture, llm, settings, state, stt};
 
 const SETTINGS_FILE_NAME: &str = "settings.json";
 const CHATS_FILE_NAME: &str = "chats.json";
+const MODEL_PROBES_FILE_NAME: &str = "model-probes.json";
 const CONTEXT_LIBRARY_FILE_NAME: &str = "context-library.json";
 const PIPELINES_FILE_NAME: &str = "pipelines.json";
 
 pub struct App {
     pub settings: Mutex<settings::Settings>,
-    /// Замок на read-modify-write настроек (`set_settings` с главного потока,
-    /// `redeem_access_code`/`clear_access_token` с рабочего): пара
-    /// «клон → запись на диск → store» обязана быть атомарной, иначе устаревший
-    /// снимок одного пути стирает то, что только что записал другой.
+    /// Замок на read-modify-write настроек (`set_settings`, `mark_requested`,
+    /// пересборка пулов после офлайна): пара «клон → запись на диск → store»
+    /// обязана быть атомарной, иначе устаревший снимок одного пути стирает то,
+    /// что только что записал другой.
     pub settings_edit: Mutex<()>,
     pub official_presets: Mutex<Vec<settings::PromptPreset>>,
     /// Version of the pool above — the refresh loop refuses to go below it.
@@ -38,6 +39,9 @@ pub struct App {
     pub llm: Mutex<Arc<dyn llm::LlmProvider>>,
     pub recording_session: Mutex<Option<crate::recording::RecordingSession>>,
     pub models: llm::ModelCatalog,
+    /// What each Responses-dialect model can do, persisted between launches —
+    /// shared by every rebuild of the client, so a key change does not re-probe.
+    pub model_probes: llm::responses::probe::ProbeCache,
     pub recording_gen: AtomicU64,
     pub resize_gen: AtomicU64,
     pub window_mini: AtomicBool,
@@ -79,6 +83,10 @@ pub fn app_data_file(app: &AppHandle, file_name: &str) -> std::path::PathBuf {
 
 pub fn settings_path(app: &AppHandle) -> std::path::PathBuf {
     app_data_file(app, SETTINGS_FILE_NAME)
+}
+
+pub fn model_probes_path(app: &AppHandle) -> std::path::PathBuf {
+    app_data_file(app, MODEL_PROBES_FILE_NAME)
 }
 
 pub fn chats_path(app: &AppHandle) -> std::path::PathBuf {
@@ -129,101 +137,31 @@ pub fn build_capture(
     Ok(Some(capture))
 }
 
-/// What reaching the chosen STT vendor takes right now.
-#[derive(Clone, PartialEq)]
-pub struct SttClientPlan {
-    /// The vendor `Settings.stt_provider` names, already resolved — an unknown
-    /// value has become the default here, not somewhere downstream.
-    pub provider_id: &'static str,
-    pub api_key: String,
-    pub proxy_base_url: Option<String>,
-}
-
-impl std::fmt::Debug for SttClientPlan {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("SttClientPlan")
-            .field("provider_id", &self.provider_id)
-            .field(
-                "api_key",
-                &format_args!("<{} симв.>", self.api_key.chars().count()),
-            )
-            .field("proxy_base_url", &self.proxy_base_url)
-            .finish()
-    }
-}
-
-/// Same rule as the answer vendors: an access code reaches the relay, a
-/// personal key reaches the vendor. Unlike the answer side there is no router —
-/// exactly one STT vendor is active, the one the setting names.
-pub fn stt_client_plan(s: &settings::Settings) -> SttClientPlan {
-    let spec = stt::registry::resolve(&s.stt_provider);
-    if s.access_token.is_empty() || !spec.proxied {
-        return SttClientPlan {
-            provider_id: spec.id,
-            api_key: settings::api_key_for(s, spec.key_id).to_string(),
-            proxy_base_url: None,
-        };
-    }
-    SttClientPlan {
-        provider_id: spec.id,
-        api_key: s.access_token.clone(),
-        proxy_base_url: Some(access::proxy_base_url()),
-    }
-}
-
 /// Транспорт выбирает фабрика `stt::build_engine` по диалекту строки реестра;
-/// здесь решается только доступ (ключ или relay) — см. `stt_client_plan`.
+/// вендор — тот, что назван в `Settings.stt_provider` (неизвестное значение
+/// уже стало дефолтом в `resolve`), ключ — его собственный.
 pub fn build_stt_client(s: &settings::Settings) -> Arc<dyn stt::SttEngine> {
-    let plan = stt_client_plan(s);
+    let spec = stt::registry::resolve(&s.stt_provider);
     stt::build_engine(
-        stt::registry::resolve(plan.provider_id),
+        spec,
         stt::SttClientConfig {
-            model: Some(s.openrouter_stt_model.clone()),
-            api_key: plan.api_key,
-            proxy_base_url: plan.proxy_base_url,
+            api_key: settings::api_key_for(s, spec.key_id).to_string(),
             language: s.stt_language.clone(),
-            translate: s.stt_translate,
         },
     )
 }
 
-/// How a vendor is reached right now: the relay under an access code, the
-/// user's own key otherwise, or not at all.
-pub enum ProviderAccess {
-    Proxied {
-        access_token: String,
-        base_url: String,
-    },
-    Direct {
-        api_key: String,
-    },
-}
-
-/// Resolves a registry row against the current settings. The rule is the same
-/// for every vendor, which is why it lives here and not in each client: an
-/// access code reaches whatever the relay proxies, and a personal key reaches
-/// its own vendor directly.
-pub fn provider_access(
+/// The user's own key for a registry row, or `None` when there is none —
+/// a vendor without a key has no client in the router at all.
+pub fn provider_key(
     spec: &llm::registry::LlmProviderSpec,
     s: &settings::Settings,
-) -> Option<ProviderAccess> {
-    if !s.access_token.is_empty() && spec.proxied {
-        return Some(ProviderAccess::Proxied {
-            access_token: s.access_token.clone(),
-            base_url: access::proxy_base_url(),
-        });
-    }
+) -> Option<String> {
     let api_key = settings::api_key_for(s, spec.key_id);
-    if api_key.is_empty() {
-        return None;
-    }
-    Some(ProviderAccess::Direct {
-        api_key: api_key.to_string(),
-    })
+    (!api_key.is_empty()).then(|| api_key.to_string())
 }
 
-/// Builds the client for a registry row, or `None` for a row whose access mode
-/// the dialect cannot serve.
+/// Builds the client for a registry row.
 ///
 /// Dispatch is on the **dialect**, not on the vendor: a vendor that speaks a
 /// protocol the app already knows needs no arm here and no module — only its
@@ -231,62 +169,20 @@ pub fn provider_access(
 /// `llm/responses.rs`, and one arm below.
 fn build_provider(
     spec: &'static llm::registry::LlmProviderSpec,
-    access: ProviderAccess,
+    api_key: String,
     catalog: &llm::ModelCatalog,
-) -> Option<Arc<dyn llm::LlmProvider>> {
-    Some(match spec.wire {
-        llm::registry::LlmWire::OpenRouter { .. } => match access {
-            ProviderAccess::Direct { api_key } => {
-                Arc::new(llm::openrouter::OpenRouterClient::new(spec, api_key))
-            }
-            ProviderAccess::Proxied { .. } => {
-                eprintln!(
-                    "{}: диалект OpenRouter не ходит через relay — вендор пропущен",
-                    spec.id
-                );
-                return None;
-            }
-        },
+    probes: &llm::responses::probe::ProbeCache,
+) -> Arc<dyn llm::LlmProvider> {
+    match spec.wire {
         llm::registry::LlmWire::Anthropic { .. } => {
-            let client = match access {
-                ProviderAccess::Proxied {
-                    access_token,
-                    base_url,
-                } => llm::AnthropicClient::for_proxy(access_token, base_url),
-                ProviderAccess::Direct { api_key } => llm::AnthropicClient::new(api_key),
-            };
-            Arc::new(client.with_catalog(Arc::clone(catalog)))
+            Arc::new(llm::AnthropicClient::new(api_key).with_catalog(Arc::clone(catalog)))
         }
-        llm::registry::LlmWire::Responses { .. } => match access {
-            ProviderAccess::Proxied {
-                access_token,
-                base_url,
-            } => Arc::new(llm::responses::ResponsesClient::proxied(
-                spec,
-                access_token,
-                base_url,
-            )),
-            ProviderAccess::Direct { api_key } => {
-                Arc::new(llm::responses::ResponsesClient::direct(spec, api_key))
-            }
-        },
-        // У диалекта Xclis прокси-режима нет (строка несёт `proxied: false`,
-        // и тест реестра это держит). Строка с перевёрнутым флагом раньше
-        // роняла `setup_app` паникой у каждого держателя кода — теперь вендор
-        // просто пропускается с записью в stderr.
-        llm::registry::LlmWire::Xclis { .. } => match access {
-            ProviderAccess::Direct { api_key } => Arc::new(
-                llm::xclis::XclisClient::new(spec, api_key).with_catalog(Arc::clone(catalog)),
-            ),
-            ProviderAccess::Proxied { .. } => {
-                eprintln!(
-                    "{}: диалект Xclis не ходит через relay — вендор пропущен",
-                    spec.id
-                );
-                return None;
-            }
-        },
-    })
+        llm::registry::LlmWire::Responses { .. } => Arc::new(
+            llm::responses::ResponsesClient::direct(spec, api_key)
+                .with_catalog(Arc::clone(catalog))
+                .with_probes(Arc::clone(probes)),
+        ),
+    }
 }
 
 /// **The default provider is always present, reachable or not.** It carries the
@@ -296,12 +192,13 @@ fn build_provider(
 pub fn build_llm_client(
     s: &settings::Settings,
     catalog: llm::ModelCatalog,
+    probes: &llm::responses::probe::ProbeCache,
 ) -> Arc<dyn llm::LlmProvider> {
     let mut providers: Vec<Arc<dyn llm::LlmProvider>> = llm::registry::PROVIDERS
         .iter()
         .filter_map(|spec| {
-            let access = provider_access(spec, s)?;
-            build_provider(spec, access, &catalog)
+            let api_key = provider_key(spec, s)?;
+            Some(build_provider(spec, api_key, &catalog, probes))
         })
         .collect();
     if providers.is_empty() {
@@ -331,7 +228,7 @@ fn recycle_pooled_http_clients(app: &AppHandle) {
     let settings = current_settings(app);
     let rebuilt_stt = build_stt_client(&settings);
     *st.stt.lock_unpoisoned() = Arc::clone(&rebuilt_stt);
-    let rebuilt_llm = build_llm_client(&settings, Arc::clone(&st.models));
+    let rebuilt_llm = build_llm_client(&settings, Arc::clone(&st.models), &st.model_probes);
     *st.llm.lock_unpoisoned() = Arc::clone(&rebuilt_llm);
     tauri::async_runtime::spawn(async move {
         tokio::join!(rebuilt_stt.warm_up(), rebuilt_llm.warm_up());
@@ -345,6 +242,7 @@ pub fn build_app_state(
     stt: Arc<dyn stt::SttEngine>,
     llm: Arc<dyn llm::LlmProvider>,
     models: llm::ModelCatalog,
+    model_probes: llm::responses::probe::ProbeCache,
 ) -> App {
     App {
         settings: Mutex::new(settings),
@@ -362,6 +260,7 @@ pub fn build_app_state(
         llm: Mutex::new(llm),
         recording_session: Mutex::new(None),
         models,
+        model_probes,
         recording_gen: AtomicU64::new(0),
         resize_gen: AtomicU64::new(0),
         window_mini: AtomicBool::new(false),

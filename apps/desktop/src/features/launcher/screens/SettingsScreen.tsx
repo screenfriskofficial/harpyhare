@@ -16,23 +16,13 @@ import { SettingsTabsRail } from "../SettingsTabsRail";
 type SettingsScreenProps = SectionProps & {
   tab: SettingsTabId;
   permissions: PermissionsApi;
-  onRedeem: (code: string) => Promise<string | null>;
-  onUnlink: () => Promise<void>;
   onTabChange: (tab: SettingsTabId) => void;
 };
 
-export function SettingsScreen({
-  draft,
-  permissions,
-  set,
-  tab,
-  onRedeem,
-  onUnlink,
-  onTabChange,
-}: SettingsScreenProps) {
+export function SettingsScreen({ draft, permissions, set, tab, onTabChange }: SettingsScreenProps) {
   useTranslation();
   const sections: Record<SettingsTabId, ReactNode> = {
-    access: <ApiKeysSection draft={draft} set={set} onRedeem={onRedeem} onUnlink={onUnlink} />,
+    access: <ApiKeysSection draft={draft} set={set} />,
     speech: <SttSection draft={draft} set={set} permissions={permissions} />,
     hotkeys: <HotkeysSection draft={draft} set={set} />,
     window: <WindowSection draft={draft} set={set} />,

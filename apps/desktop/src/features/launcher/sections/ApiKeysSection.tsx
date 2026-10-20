@@ -1,17 +1,13 @@
 import { Check, Lock } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import { AccessCodeForm } from "@/components/AccessCodeForm";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { t } from "@/i18n";
 import { openExternal } from "@/ipc/commands";
 import {
+  API_KEY_IDS,
   apiKeyInfo,
-  hasAccessCode,
   modelProvidersMissingKey,
   sttProvidersMissingKey,
-  vendorsOutsideCode,
-  visibleApiKeys,
   type ApiKeyId,
 } from "@/lib/api-keys";
 import { MODEL_PROVIDERS } from "@/lib/models";
@@ -19,35 +15,11 @@ import { STT_PROVIDERS } from "@/lib/stt-providers";
 import type { SectionProps } from "../contract";
 import { SettingBlock, SettingGroup, SettingRow } from "../fields";
 
-type ApiKeysSectionProps = SectionProps & {
-  onRedeem: (code: string) => Promise<string | null>;
-  onUnlink: () => Promise<void>;
-};
-
 const KEY_PLACEHOLDERS: Record<ApiKeyId, string> = {
   anthropic: "sk-ant-…",
-  groq: "gsk_…",
   openai: "sk-…",
-  xai: "xai-…",
   deepgram: "…",
-  openrouter: "sk-or-v1-…",
-  xclis: "sk-…",
 };
-
-const VENDOR_LIST_SEPARATOR = ", ";
-
-function groupDescription(outside: readonly string[], code: boolean): string {
-  if (!code) return t("launcher.access.keysDescription");
-  return outside.length === 0
-    ? t("launcher.access.codeDescription")
-    : t("launcher.access.codePartialDescription", { vendors: outside.join(VENDOR_LIST_SEPARATOR) });
-}
-
-function codeRowHint(outside: readonly string[]): string {
-  return outside.length === 0
-    ? t("launcher.access.unlinkHint")
-    : t("launcher.access.coveredExcept", { vendors: outside.join(VENDOR_LIST_SEPARATOR) });
-}
 
 function VendorState({ ready, label }: { ready: boolean; label: string }) {
   const Icon = ready ? Check : Lock;
@@ -120,32 +92,15 @@ function KeyField({ id, draft, set }: { id: ApiKeyId } & SectionProps) {
   );
 }
 
-export function ApiKeysSection({ draft, set, onRedeem, onUnlink }: ApiKeysSectionProps) {
+export function ApiKeysSection({ draft, set }: SectionProps) {
   const { t } = useTranslation();
-  const code = hasAccessCode(draft);
-  const outside = vendorsOutsideCode();
-
   return (
-    <SettingGroup title={t("launcher.access.title")} description={groupDescription(outside, code)}>
-      {code ? (
-        <SettingRow label={t("launcher.access.codeActive")} hint={codeRowHint(outside)}>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => {
-              void onUnlink();
-            }}
-          >
-            {t("launcher.access.unlink")}
-          </Button>
-        </SettingRow>
-      ) : (
-        <SettingBlock label={t("launcher.access.code")} hint={t("launcher.access.codeHint")}>
-          <AccessCodeForm onRedeem={onRedeem} />
-        </SettingBlock>
-      )}
+    <SettingGroup
+      title={t("launcher.access.title")}
+      description={t("launcher.access.keysDescription")}
+    >
       <VendorSummary draft={draft} />
-      {visibleApiKeys(draft).map((id) => (
+      {API_KEY_IDS.map((id) => (
         <KeyField key={id} id={id} draft={draft} set={set} />
       ))}
     </SettingGroup>

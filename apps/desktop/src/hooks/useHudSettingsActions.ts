@@ -2,12 +2,10 @@ import { useCallback, type RefObject } from "react";
 import { t } from "@/i18n";
 import type { Settings } from "@/ipc/types";
 import { notifyError } from "@/lib/notify";
-import { OPENROUTER_STT_PROVIDER } from "@/lib/stt-providers";
 
 export interface HudSettingsActions {
   toggleScreenShareVisible: () => void;
   switchSttProvider: (provider: string) => void;
-  selectOpenrouterSttModel: (model: string) => void;
   skipVersion: (version: string) => void;
   persistTeleprompter: (speed: number, fontSize: number) => void;
 }
@@ -49,15 +47,6 @@ export function useHudSettingsActions(
     [saveReportingError],
   );
 
-  const selectOpenrouterSttModel = useCallback(
-    (model: string) => {
-      // One save: changing the model must also activate its provider without
-      // racing a second settings write or briefly constructing the wrong client.
-      saveReportingError({ stt_provider: OPENROUTER_STT_PROVIDER, openrouter_stt_model: model });
-    },
-    [saveReportingError],
-  );
-
   const persistTeleprompter = useCallback(
     (speed: number, fontSize: number) => {
       saveReportingError({ teleprompter_speed: speed, teleprompter_font_size: fontSize });
@@ -68,7 +57,6 @@ export function useHudSettingsActions(
   return {
     toggleScreenShareVisible,
     switchSttProvider,
-    selectOpenrouterSttModel,
     skipVersion,
     persistTeleprompter,
   };

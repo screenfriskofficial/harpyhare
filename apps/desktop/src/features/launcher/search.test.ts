@@ -1,13 +1,11 @@
 import i18next from "i18next";
 import { describe, expect, it } from "vitest";
-import { API_KEY_IDS } from "@/lib/api-keys";
 import { searchLauncher, type SearchHit, type SearchSources } from "./search";
 
 const SOURCES: SearchSources = {
   presets: [{ id: "preset-1", name: "Мой пресет" }],
   quickActions: [{ id: "quick-1", title: "Короче" }],
   contextDocs: [{ id: "doc-1", name: "Резюме" }],
-  apiKeys: API_KEY_IDS,
   recordToggle: true,
 };
 
@@ -102,23 +100,17 @@ describe("searchLauncher", () => {
     expect(hit.tab).toBeNull();
   });
 
-  it("строка активного кода доступа находится по слову «отвязка»", () => {
-    const hits = searchLauncher("отвязка", SOURCES);
-    expect(hits.some((hit) => hit.title === "Код доступа активен")).toBe(true);
-  });
-
   it("модификатор прозрачности не индексируется — строки настройки для него нет", () => {
     const ids = searchLauncher("прозрачность", SOURCES).map((hit) => hit.id);
     expect(ids).not.toContain("hotkey:opacity");
     expect(ids).toContain("setting:appearance:Прозрачность окна");
   });
 
-  it("поля ключей индексируются ровно те, что показаны на вкладке", () => {
-    expect(searchLauncher("Ключ Anthropic", SOURCES).map((hit) => hit.title)).toContain(
-      "Ключ Anthropic",
-    );
-    const underCode: SearchSources = { ...SOURCES, apiKeys: [] };
-    expect(searchLauncher("Ключ Anthropic", underCode)).toEqual([]);
+  it("поля всех ключей индексируются и ведут на вкладку ключей", () => {
+    for (const name of ["Anthropic", "OpenAI", "Deepgram"]) {
+      const hit = searchLauncher(`Ключ ${name}`, SOURCES).find((h) => h.title === `Ключ ${name}`);
+      expect(hit?.tab, name).toBe("access");
+    }
   });
 
   it("идентификаторы в выдаче уникальны", () => {

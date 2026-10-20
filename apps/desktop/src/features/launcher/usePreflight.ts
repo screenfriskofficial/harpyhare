@@ -15,16 +15,9 @@ function configuration(settings: Settings, model: string): string {
     settings.microphone_device_uid,
     settings.stt_provider,
     settings.stt_language,
-    settings.stt_translate,
-    settings.openrouter_stt_model,
-    settings.access_token,
     settings.anthropic_api_key,
     settings.openai_api_key,
-    settings.xai_api_key,
-    settings.groq_api_key,
     settings.deepgram_api_key,
-    settings.openrouter_api_key,
-    settings.xclis_api_key,
   ]);
 }
 

@@ -40,7 +40,6 @@ import { useRegionScreenshot } from "@/hooks/useRegionScreenshot";
 import { useSendPipeline } from "@/hooks/useSendPipeline";
 import { useSettings } from "@/hooks/useSettings";
 import { useSttFeedback } from "@/hooks/useSttFeedback";
-import { useSttModels } from "@/hooks/useSttModels";
 import { useTeleprompterSession } from "@/hooks/useTeleprompterSession";
 import { useTranscriptDelivery } from "@/hooks/useTranscriptDelivery";
 import { useUnreadChats } from "@/hooks/useUnreadChats";
@@ -52,7 +51,7 @@ import { startWindowDrag } from "@/ipc/commands";
 import { onEvent } from "@/ipc/events";
 import type { QuickAction } from "@/ipc/types";
 import { modelProvidersMissingKey } from "@/lib/api-keys";
-import { lastMessageOf, lastUserMessageIndex } from "@/lib/chat-messages";
+import { lastUserMessageIndex } from "@/lib/chat-messages";
 import { isRetryable, type AppError } from "@/lib/errors";
 import { effectiveCombo } from "@/lib/hotkeys";
 import { extractPreviewBlocks, type PreviewContent } from "@/lib/html-blocks";
@@ -91,23 +90,16 @@ export default function App() {
   // Read at chat-creation time, not at render time: a key added mid-session
   // changes what the next chat opens on without a reload.
   const settingsRef = useLatestRef(settings);
-  const {
-    models,
-    pending: modelsPending,
-    refreshing: modelsRefreshing,
-    refresh: refreshModels,
-  } = useModels();
-  const modelsRef = useLatestRef(models);
+  const { models, pending: modelsPending, failures: catalogFailures } = useModels();
   const newChatModel = useCallback(
-    () => defaultModelFor(modelProvidersMissingKey(settingsRef.current), modelsRef.current),
-    [settingsRef, modelsRef],
+    () => defaultModelFor(modelProvidersMissingKey(settingsRef.current)),
+    [settingsRef],
   );
   const chats = useChats(newChatModel);
   const chatsRef = useLatestRef(chats);
   const updater = useUpdater();
 
   const [modelMenuOpen, setModelMenuOpen] = useState(false);
-  const sttCatalog = useSttModels(modelMenuOpen);
   const {
     miniMode,
     mode,
@@ -227,13 +219,8 @@ export default function App() {
   const partial = activeStreaming ? (stream.partial[activeId] ?? "") : null;
 
   const connectivity = useConnectivity();
-  const {
-    toggleScreenShareVisible,
-    switchSttProvider,
-    selectOpenrouterSttModel,
-    skipVersion,
-    persistTeleprompter,
-  } = useHudSettingsActions(settingsRef, save, settingsLoading);
+  const { toggleScreenShareVisible, switchSttProvider, skipVersion, persistTeleprompter } =
+    useHudSettingsActions(settingsRef, save, settingsLoading);
   // Суфлёр не открывается, пока поле промпта недоступно: под оверлеем сети он
   // жил бы невидимым и ловил Space/Esc, а в заметках — вставал бы поверх них.
   const teleprompterBlocked = connectivity.offline || miniMode || notesMode;
@@ -348,11 +335,9 @@ export default function App() {
       if (index >= 0) resendFromMessage(index);
     };
   }, [showRetry, streamError, chatsRef, resendFromMessage]);
-  const lastAnswer = useMemo(() => lastMessageOf(active.messages, "assistant"), [active.messages]);
-  const canCopy = !activeStreaming && lastAnswer !== null;
 
   usePipelineKeyterms(contextLibrary.library, presets, pipelines.library.pipelines, active);
-  const { copyMessage, copyLastAnswer } = useMessageClipboard(chatsRef);
+  const { copyMessage } = useMessageClipboard(chatsRef);
   const { lockedAnswerProviders, lockedSttProviders } = useLockedModelFallback({
     settings,
     settingsLoading,
@@ -427,7 +412,6 @@ export default function App() {
           streaming={stream.streaming}
           unread={unread}
           mode={mode}
-          canCopy={canCopy}
           canTeleprompt={teleprompter.canTeleprompt}
           screenShareVisible={settings.screen_share_visible}
           onSelectChat={chats.selectChat}
@@ -437,7 +421,6 @@ export default function App() {
           onDuplicateChat={duplicateActiveChat}
           onToggleScreenShare={toggleScreenShareVisible}
           onOpenModelMenu={openModelMenu}
-          onCopy={copyLastAnswer}
           onOpenTeleprompter={teleprompter.show}
           onStop={leaveToLauncher}
           onCollapse={collapse}
@@ -472,6 +455,7 @@ export default function App() {
               scrollStep={settings.scroll_step}
               scrollModifier={effectiveCombo(settings.hotkeys, "scroll_chat")}
               recordCombo={effectiveCombo(settings.hotkeys, "record")}
+              recordToggle={settings.record_toggle}
               screenshotCombo={effectiveCombo(settings.hotkeys, "screenshot")}
               onTogglePreview={togglePreview}
               onCopyMessage={copyMessage}
@@ -529,17 +513,13 @@ export default function App() {
         onOpenChange={setModelMenuOpen}
         onRestoreFocus={focusPromptSoon}
         sttProvider={settings.stt_provider}
-        activeSttModelId={settings.openrouter_stt_model}
-        sttCatalog={sttCatalog}
-        onSelectSttModel={selectOpenrouterSttModel}
         providersMissingKey={lockedSttProviders}
         onSwitchSttProvider={switchSttProvider}
         models={models}
         modelProvidersMissingKey={lockedAnswerProviders}
         activeModelId={active.model}
         modelsPending={modelsPending}
-        modelsRefreshing={modelsRefreshing}
-        onRefreshModels={refreshModels}
+        catalogFailures={catalogFailures}
         onSelectModel={selectModel}
       />
 

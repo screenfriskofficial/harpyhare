@@ -17,9 +17,6 @@ const RESAMPLE_OUT_CAPACITY_HEADROOM: usize = 16;
 const FINISH_ZERO_FILL_MAX_ROUNDS: usize = 1000;
 
 const WAV_HEADER_LEN: usize = 44;
-const WAV_UNKNOWN_SIZE: u32 = 0xFFFF_FFFF;
-const WAV_FMT_CHUNK_SIZE: u32 = 16;
-const WAV_FORMAT_PCM: u16 = 1;
 const MONO_CHANNELS: u16 = 1;
 const BITS_PER_SAMPLE: u16 = 16;
 const BYTES_PER_SAMPLE: usize = BITS_PER_SAMPLE as usize / 8;
@@ -251,26 +248,6 @@ impl StreamResampler {
             "finish не сошёлся к ожидаемой длине".into(),
         ))
     }
-}
-
-pub fn wav_header_streaming() -> [u8; 44] {
-    let byte_rate = TARGET_SAMPLE_RATE * u32::from(MONO_CHANNELS) * BYTES_PER_SAMPLE as u32;
-    let block_align = MONO_CHANNELS * BYTES_PER_SAMPLE as u16;
-    let mut h = [0u8; WAV_HEADER_LEN];
-    h[0..4].copy_from_slice(b"RIFF");
-    h[4..8].copy_from_slice(&WAV_UNKNOWN_SIZE.to_le_bytes());
-    h[8..12].copy_from_slice(b"WAVE");
-    h[12..16].copy_from_slice(b"fmt ");
-    h[16..20].copy_from_slice(&WAV_FMT_CHUNK_SIZE.to_le_bytes());
-    h[20..22].copy_from_slice(&WAV_FORMAT_PCM.to_le_bytes());
-    h[22..24].copy_from_slice(&MONO_CHANNELS.to_le_bytes());
-    h[24..28].copy_from_slice(&TARGET_SAMPLE_RATE.to_le_bytes());
-    h[28..32].copy_from_slice(&byte_rate.to_le_bytes());
-    h[32..34].copy_from_slice(&block_align.to_le_bytes());
-    h[34..36].copy_from_slice(&BITS_PER_SAMPLE.to_le_bytes());
-    h[36..40].copy_from_slice(b"data");
-    h[40..44].copy_from_slice(&WAV_UNKNOWN_SIZE.to_le_bytes());
-    h
 }
 
 fn f32_sample_to_i16(sample: f32) -> i16 {

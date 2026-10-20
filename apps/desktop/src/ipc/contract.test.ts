@@ -5,12 +5,7 @@ import { MODEL_PROVIDERS } from "@/lib/models";
 import type { ModelInfo } from "@/lib/models";
 import { API_KEY_IDS } from "@/lib/api-keys";
 import { STT_PROVIDERS } from "@/lib/stt-providers";
-import {
-  PROVIDER_ANTHROPIC,
-  PROVIDER_OPENAI,
-  STT_PROVIDER_GROQ,
-  STT_PROVIDER_OPENAI,
-} from "@/test/providers";
+import { PROVIDER_ANTHROPIC, PROVIDER_OPENAI, STT_PROVIDER_DEEPGRAM } from "@/test/providers";
 import type { Platform } from "@/lib/platform";
 import type { PromptPreset } from "@/lib/presets";
 import type * as Rust from "./bindings";
@@ -98,8 +93,7 @@ describe("реестр STT-вендоров из Rust", () => {
 
   it("id, на которые ссылается фронт, реально объявлены в реестре", () => {
     const ids = STT_PROVIDERS.map((p) => p.id);
-    expect(ids).toContain(STT_PROVIDER_GROQ);
-    expect(ids).toContain(STT_PROVIDER_OPENAI);
+    expect(ids).toContain(STT_PROVIDER_DEEPGRAM);
   });
 
   it("реестр непустой и без дублей", () => {
@@ -109,8 +103,8 @@ describe("реестр STT-вендоров из Rust", () => {
   });
 
   it("транспорт вендора на фронт не уезжает — пикер выбирает, но не звонит", () => {
-    // Списком запрещённого, а не разрешённого: у пикера появляются новые поля
-    // (supportsTranslate), а вот адрес и модель вендора появиться не должны.
+    // Списком запрещённого, а не разрешённого: у пикера могут появиться новые
+    // поля, а вот адрес и модель вендора появиться не должны.
     const transport = [
       "baseUrl",
       "wire",
@@ -128,12 +122,5 @@ describe("реестр STT-вендоров из Rust", () => {
         expect(Object.keys(p), `вендор ${p.id}`).not.toContain(field);
       }
     }
-  });
-
-  it("умение переводить объявлено у каждого вендора", () => {
-    for (const p of STT_PROVIDERS) {
-      expect(typeof p.supportsTranslate, `вендор ${p.id}`).toBe("boolean");
-    }
-    expect(STT_PROVIDERS.find((p) => p.id === "xai")?.supportsTranslate).toBe(false);
   });
 });

@@ -41,7 +41,7 @@ fn every_answer_vendor_key_triggers_a_client_rebuild() {
 
 #[test]
 fn untouched_settings_rebuild_nothing() {
-    let s = with_key(&settings::Settings::default(), "groq", "g");
+    let s = with_key(&settings::Settings::default(), "deepgram", "g");
     assert!(!stt_credentials_changed(&s, &s));
     assert!(!llm_credentials_changed(&s, &s));
 }
@@ -54,7 +54,9 @@ fn every_field_the_stt_client_is_built_from_triggers_its_rebuild() {
         (
             "stt_provider",
             settings::Settings {
-                stt_provider: crate::stt::registry::PROVIDER_OPENAI.into(),
+                // Any change of the stored value, even to a vendor the
+                // registry resolves back to the default, rebuilds the client.
+                stt_provider: "elevenlabs".into(),
                 ..base.clone()
             },
         ),
@@ -65,28 +67,7 @@ fn every_field_the_stt_client_is_built_from_triggers_its_rebuild() {
                 ..base.clone()
             },
         ),
-        (
-            "openrouter_stt_model",
-            settings::Settings {
-                openrouter_stt_model: "vendor/new-transcription-model".into(),
-                ..base.clone()
-            },
-        ),
-        (
-            "stt_translate",
-            settings::Settings {
-                stt_translate: true,
-                ..base.clone()
-            },
-        ),
-        (
-            "access_token",
-            settings::Settings {
-                access_token: "itk_x".into(),
-                ..base.clone()
-            },
-        ),
-        ("groq_api_key", with_key(&base, "groq", "k")),
+        ("deepgram_api_key", with_key(&base, "deepgram", "k")),
     ];
     for (field, edited) in edits {
         assert!(
@@ -106,14 +87,11 @@ fn every_field_the_stt_client_is_built_from_triggers_its_rebuild() {
 }
 
 #[test]
-fn the_llm_client_follows_the_token_and_the_answer_keys_only() {
+fn the_llm_client_follows_the_answer_keys_only() {
     let base = settings::Settings::default();
     assert!(llm_client_needs_rebuild(
         &base,
-        &settings::Settings {
-            access_token: "itk_x".into(),
-            ..base.clone()
-        }
+        &with_key(&base, "openai", "k")
     ));
     assert!(llm_client_needs_rebuild(
         &base,

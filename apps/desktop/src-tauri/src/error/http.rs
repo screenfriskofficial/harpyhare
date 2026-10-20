@@ -7,7 +7,7 @@ const MAX_ERROR_BODY_BYTES: usize = 16 * 1024;
 const MAX_ERROR_MESSAGE_CHARS: usize = 512;
 /// Non-JSON bodies (Cloudflare's `error code: 1010`, an HTML gateway page)
 /// keep a short snippet next to the status: «HTTP 403» alone hides exactly
-/// the clue that tells the relay's browser check apart from a dead key.
+/// the clue that tells a gateway's browser check apart from a dead key.
 const MAX_ERROR_SNIPPET_CHARS: usize = 120;
 /// The status a port reports for "the server did not answer in time"
 /// (`Retryable(408)`): a real timeout at a live host, not a dead network.
@@ -15,12 +15,11 @@ pub const TIMEOUT_STATUS: u16 = 408;
 
 /// The two provider error enums (`LlmError`, `SttError`) are shaped alike, and
 /// the rules that turn a transport failure into one of them have to stay
-/// identical: which statuses are retryable, what a 401 means through the relay,
-/// when a timeout is "no connection". Those rules are written once, below;
+/// identical: which statuses are retryable, what a 401 means, when a timeout
+/// is "no connection". Those rules are written once, below;
 /// each enum only supplies its constructors.
 pub trait ProviderError {
     fn bad_api_key(key_label: &'static str) -> Self;
-    fn bad_access_code(message: String) -> Self;
     fn api(message: String) -> Self;
     fn retryable(status: u16) -> Self;
     fn http(failure: HttpFailure) -> Self;
@@ -31,7 +30,6 @@ pub trait ProviderError {
 pub fn provider_error<E: ProviderError>(failure: HttpFailure, key_label: &'static str) -> E {
     match failure.code {
         ErrorCode::BadApiKey => E::bad_api_key(key_label),
-        ErrorCode::BadAccessCode => E::bad_access_code(failure.message),
         ErrorCode::Api => E::api(failure.message),
         ErrorCode::RateLimited | ErrorCode::ServiceUnavailable | ErrorCode::Timeout => {
             E::retryable(failure.status)
@@ -75,21 +73,18 @@ pub fn reqwest_error_chain(error: &reqwest::Error) -> String {
     format!("{kind}: {}", details.join(": "))
 }
 
-pub fn classify(status: u16, body: &Value, proxy: bool) -> ErrorCode {
+pub fn classify(status: u16, body: &Value) -> ErrorCode {
     let code = body["error"]["code"]
         .as_str()
         .or_else(|| body["error"]["type"].as_str())
         .or_else(|| body["code"].as_str())
         .unwrap_or_default();
     match code {
-        "daily_limit_exceeded" => return ErrorCode::DailyLimit,
         "insufficient_quota"
         | "insufficient_credits"
         | "billing_error"
         | "credit_balance_too_low" => return ErrorCode::Billing,
-        "model_not_allowed" | "model_not_found" => return ErrorCode::ModelUnavailable,
-        "service_misconfigured" => return ErrorCode::ServiceUnavailable,
-        "authentication_error" if proxy => return ErrorCode::BadAccessCode,
+        "model_not_found" => return ErrorCode::ModelUnavailable,
         "authentication_error" => return ErrorCode::BadApiKey,
         "permission_error" => return ErrorCode::AccessDenied,
         "rate_limit_error" | "rate_limit_exceeded" => return ErrorCode::RateLimited,
@@ -97,11 +92,9 @@ pub fn classify(status: u16, body: &Value, proxy: bool) -> ErrorCode {
         "context_too_long" | "context_length_exceeded" | "request_too_large" | "audio_too_long" => {
             return ErrorCode::RequestTooLarge
         }
-        "invalid_token" if proxy => return ErrorCode::BadAccessCode,
         _ => {}
     }
     match status {
-        401 if proxy => ErrorCode::BadAccessCode,
         401 => ErrorCode::BadApiKey,
         402 => ErrorCode::Billing,
         403 => ErrorCode::AccessDenied,
@@ -118,12 +111,12 @@ pub fn classify(status: u16, body: &Value, proxy: bool) -> ErrorCode {
 pub struct HttpFailure {
     pub status: u16,
     pub code: ErrorCode,
-    // Internal provider compatibility only (e.g. Xclis catalogue rejections).
-    // DiagnosticRecord has no field accepting this untrusted text.
+    // Shown in the provider's own error message only; DiagnosticRecord has
+    // no field accepting this untrusted text.
     pub message: String,
 }
 
-pub async fn failure(mut response: reqwest::Response, proxy: bool) -> HttpFailure {
+pub async fn failure(mut response: reqwest::Response) -> HttpFailure {
     let status = response.status().as_u16();
     let mut body = Vec::new();
     while let Ok(Some(chunk)) = response.chunk().await {
@@ -143,7 +136,7 @@ pub async fn failure(mut response: reqwest::Response, proxy: bool) -> HttpFailur
         .unwrap_or_else(|| status_message(status, &body));
     HttpFailure {
         status,
-        code: classify(status, &value, proxy),
+        code: classify(status, &value),
         message,
     }
 }

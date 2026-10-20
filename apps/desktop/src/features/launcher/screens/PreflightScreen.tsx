@@ -294,7 +294,6 @@ export function PreflightScreen({
             {t("preflight.step.transcription")}:{" "}
             {STT_PROVIDERS.find((provider) => provider.id === settings.stt_provider)?.label ??
               settings.stt_provider}
-            {settings.stt_provider === "openrouter" && ` · ${settings.openrouter_stt_model}`}
           </span>
           <Button size="compact" variant="ghost" disabled={api.busy} onClick={speech}>
             {t("preflight.settings")}

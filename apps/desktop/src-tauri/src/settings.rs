@@ -26,24 +26,16 @@ pub const UI_LANGUAGES: &[&str] = &["ru", "en"];
 /// Ids of the API-key fields below, as the LLM registry and the frontend name
 /// them. `api_key_for` is the only place the two vocabularies meet.
 pub const API_KEY_ANTHROPIC: &str = "anthropic";
-pub const API_KEY_GROQ: &str = "groq";
 pub const API_KEY_OPENAI: &str = "openai";
-pub const API_KEY_XAI: &str = "xai";
 pub const API_KEY_DEEPGRAM: &str = "deepgram";
-pub const API_KEY_OPENROUTER: &str = "openrouter";
-pub const API_KEY_XCLIS: &str = "xclis";
 
 /// The key a registry row asks for, or `""` when it names one that does not
 /// exist — which the pickers render as a permanent lock rather than a crash.
 pub fn api_key_for<'a>(s: &'a Settings, key_id: &str) -> &'a str {
     match key_id {
         API_KEY_ANTHROPIC => &s.anthropic_api_key,
-        API_KEY_GROQ => &s.groq_api_key,
         API_KEY_OPENAI => &s.openai_api_key,
-        API_KEY_XAI => &s.xai_api_key,
         API_KEY_DEEPGRAM => &s.deepgram_api_key,
-        API_KEY_OPENROUTER => &s.openrouter_api_key,
-        API_KEY_XCLIS => &s.xclis_api_key,
         _ => "",
     }
 }
@@ -54,32 +46,20 @@ pub fn api_key_for<'a>(s: &'a Settings, key_id: &str) -> &'a str {
 fn api_key_mut<'a>(s: &'a mut Settings, key_id: &str) -> Option<&'a mut String> {
     match key_id {
         API_KEY_ANTHROPIC => Some(&mut s.anthropic_api_key),
-        API_KEY_GROQ => Some(&mut s.groq_api_key),
         API_KEY_OPENAI => Some(&mut s.openai_api_key),
-        API_KEY_XAI => Some(&mut s.xai_api_key),
         API_KEY_DEEPGRAM => Some(&mut s.deepgram_api_key),
-        API_KEY_OPENROUTER => Some(&mut s.openrouter_api_key),
-        API_KEY_XCLIS => Some(&mut s.xclis_api_key),
         _ => None,
     }
 }
 
-/// Все `key_id`, которые просят реестры вендоров (ответы и речь), без дублей,
-/// и признак «relay проксирует КАЖДОГО вендора с этим ключом». Только такой
-/// ключ код доступа глушит целиком; если хоть один вендор с этим ключом идёт
-/// мимо relay, личный ключ ему нужен и под кодом.
-pub fn registry_key_ids() -> Vec<(&'static str, bool)> {
-    let llm_rows = crate::llm::registry::PROVIDERS
-        .iter()
-        .map(|p| (p.key_id, p.proxied));
-    let stt_rows = crate::stt::registry::PROVIDERS
-        .iter()
-        .map(|p| (p.key_id, p.proxied));
-    let mut ids: Vec<(&'static str, bool)> = Vec::new();
-    for (key_id, proxied) in llm_rows.chain(stt_rows) {
-        match ids.iter_mut().find(|(id, _)| *id == key_id) {
-            Some((_, proxied_everywhere)) => *proxied_everywhere &= proxied,
-            None => ids.push((key_id, proxied)),
+/// Все `key_id`, которые просят реестры вендоров (ответы и речь), без дублей.
+pub fn registry_key_ids() -> Vec<&'static str> {
+    let llm_rows = crate::llm::registry::PROVIDERS.iter().map(|p| p.key_id);
+    let stt_rows = crate::stt::registry::PROVIDERS.iter().map(|p| p.key_id);
+    let mut ids: Vec<&'static str> = Vec::new();
+    for key_id in llm_rows.chain(stt_rows) {
+        if !ids.contains(&key_id) {
+            ids.push(key_id);
         }
     }
     ids
@@ -283,13 +263,8 @@ fn seeded_quick_actions() -> Vec<QuickAction> {
 #[serde(default)]
 pub struct Settings {
     pub anthropic_api_key: String,
-    pub groq_api_key: String,
     pub openai_api_key: String,
-    pub xai_api_key: String,
     pub deepgram_api_key: String,
-    pub openrouter_api_key: String,
-    pub xclis_api_key: String,
-    pub access_token: String,
     pub prompt_presets: Vec<PromptPreset>,
     pub hotkeys: Vec<crate::hotkeys::HotkeyBinding>,
     /// The record key toggles: one press starts, the next one stops. Off means
@@ -302,9 +277,7 @@ pub struct Settings {
     pub chat_font_size: f64,
     pub skipped_version: String,
     pub stt_language: String,
-    pub stt_translate: bool,
     pub stt_provider: String,
-    pub openrouter_stt_model: String,
     pub screen_share_visible: bool,
     pub teleprompter_speed: f64,
     pub teleprompter_font_size: f64,
@@ -332,13 +305,8 @@ impl Default for Settings {
     fn default() -> Self {
         Self {
             anthropic_api_key: String::new(),
-            groq_api_key: String::new(),
             openai_api_key: String::new(),
-            xai_api_key: String::new(),
             deepgram_api_key: String::new(),
-            openrouter_api_key: String::new(),
-            xclis_api_key: String::new(),
-            access_token: String::new(),
             prompt_presets: Vec::new(),
             hotkeys: Vec::new(),
             record_toggle: true,
@@ -349,9 +317,7 @@ impl Default for Settings {
             chat_font_size: limits::chat::FONT_SIZE.default,
             skipped_version: String::new(),
             stt_language: defaults::STT_LANGUAGE.into(),
-            stt_translate: false,
             stt_provider: crate::stt::registry::default_spec().id.into(),
-            openrouter_stt_model: crate::stt::registry::DEFAULT_OPENROUTER_MODEL.into(),
             screen_share_visible: false,
             teleprompter_speed: limits::teleprompter::SPEED.default,
             teleprompter_font_size: limits::teleprompter::FONT_SIZE.default,
@@ -378,7 +344,7 @@ impl Default for Settings {
 }
 
 fn is_secret_field(name: &str) -> bool {
-    name.ends_with("_api_key") || name == "access_token"
+    name.ends_with("_api_key")
 }
 
 fn redacted(field: &serde_json::Value) -> serde_json::Value {
@@ -389,7 +355,7 @@ fn redacted(field: &serde_json::Value) -> serde_json::Value {
     }
 }
 
-/// `{:?}` настроек не должен выводить ключи и токен: структура попадает в
+/// `{:?}` настроек не должен выводить ключи: структура попадает в
 /// логи и тексты паник, а новое поле-ключ подпадает под правило по суффиксу
 /// `_api_key` само, без правки этого места.
 impl fmt::Debug for Settings {
@@ -429,14 +395,9 @@ impl Settings {
             self.ui_language = defaults::UI_LANGUAGE.into();
         }
         // The registry owns "unknown resolves to the default"; clamping here by
-        // hand would be a second, silently divergent copy of that rule.
+        // hand would be a second, silently divergent copy of that rule. A vendor
+        // the app no longer has (`groq`, `openai`, `xai`, `openrouter`) lands here.
         self.stt_provider = crate::stt::registry::resolve(&self.stt_provider).id.into();
-        // The catalog is dynamic: retain saved IDs even while offline or after
-        // a catalog change. Only a blank value falls back to the default.
-        self.openrouter_stt_model = self.openrouter_stt_model.trim().to_string();
-        if self.openrouter_stt_model.is_empty() {
-            self.openrouter_stt_model = crate::stt::registry::DEFAULT_OPENROUTER_MODEL.into();
-        }
         self.quick_actions.truncate(QUICK_ACTION_LIMIT);
         crate::hotkeys::normalize(&mut self.hotkeys);
     }
@@ -499,18 +460,9 @@ impl Settings {
     /// Какие ключи бывают — знают реестры вендоров, а не этот метод: он идёт
     /// по `key_id` каждой строки обоих реестров и спрашивает у `lookup`
     /// значение (соглашение `<KEY_ID>_API_KEY` — то же, что у смоуков в
-    /// `examples/`). Правило про код доступа тоже берётся из реестра: у
-    /// вендора, которого relay проксирует, код и так глушит личный ключ,
-    /// поэтому при непустом `access_token` его ключ из окружения не
-    /// подставляется; вендор без роута на relay (`proxied: false`) берёт ключ
-    /// всегда — иначе код доступа запирал бы его у того, кто ключ как раз
-    /// положил.
+    /// `examples/`).
     pub fn apply_key_fallback(&mut self, lookup: impl Fn(&str) -> Option<String>) {
-        let has_access_token = !self.access_token.is_empty();
-        for (key_id, proxied_everywhere) in registry_key_ids() {
-            if proxied_everywhere && has_access_token {
-                continue;
-            }
+        for key_id in registry_key_ids() {
             let Some(target) = api_key_mut(self, key_id) else {
                 continue;
             };

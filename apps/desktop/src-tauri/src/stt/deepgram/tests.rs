@@ -19,10 +19,7 @@ fn websocket_url_comes_from_the_registry_row_and_names_the_pcm_shape() {
         base_url,
         listen_path,
         ..
-    } = stt.spec.wire
-    else {
-        panic!("строка Deepgram объявляет свой диалект");
-    };
+    } = stt.spec.wire;
     let expected_prefix = format!(
         "{}{listen_path}?",
         base_url.replacen("https://", "wss://", 1)
@@ -44,14 +41,12 @@ fn keyterms_go_into_the_stream_url_encoded() {
     assert!(url.contains("keyterm=Kubernetes+Operator"), "{url}");
 }
 
-/// Предел вендора применяется здесь так же, как у multipart-вендоров: раньше
-/// клиент слал все термины, и пресет длиннее лимита давал 400 на каждой записи.
+/// Предел вендора применяется здесь, а не только в реестре: раньше клиент
+/// слал все термины, и пресет длиннее лимита давал 400 на каждой записи.
 #[test]
 fn keyterms_beyond_the_registry_cap_are_not_sent() {
     let stt = deepgram();
-    let registry::SttKeyterms::Repeated { max, .. } = stt.spec.keyterms else {
-        panic!("Deepgram принимает повторяющийся keyterm");
-    };
+    let max = stt.spec.keyterms.max;
     let terms: Vec<String> = (0..max + 10).map(|i| format!("t{i}")).collect();
     let url = stt.websocket_url(&terms);
     assert_eq!(url.matches("keyterm=").count(), max, "{url}");
@@ -123,4 +118,24 @@ async fn cancel_during_the_handshake_is_reported_as_cancelled() {
         matches!(err, SttError::Cancelled | SttError::Network(_)),
         "got: {err:?}"
     );
+}
+
+/// The cause chain reaches the user: reqwest's own text is «error sending
+/// request», and only its sources say whether it was DNS, TLS or a refused socket.
+#[tokio::test]
+async fn a_refused_connection_reports_its_cause_chain() {
+    let stt = deepgram().with_base_url("http://127.0.0.1:1".into());
+    match stt.transcribe(&[0.0; 1600], &[]).await {
+        Err(SttError::Network(message)) => {
+            assert!(
+                message.starts_with("ошибка подключения: "),
+                "got: {message}"
+            );
+            assert!(
+                message.matches(": ").count() >= 2,
+                "no cause chain: {message}"
+            );
+        }
+        other => panic!("ожидался Network, получено: {other:?}"),
+    }
 }

@@ -1,18 +1,28 @@
 //! The OpenAI Responses API — a dialect, not a vendor.
 //!
-//! Spoken verbatim by OpenAI and xAI (same paths, same SSE event names), so a
-//! vendor that speaks it needs a row in `registry` and nothing else. What still differs between them is data, and lives on
-//! `LlmWire::Responses`.
+//! Spoken verbatim by more than OpenAI (same paths, same SSE event names), so a
+//! vendor that speaks it needs a row in `registry` and nothing else. What
+//! differs between such vendors is data, and lives on `LlmWire::Responses`.
 
+use futures_util::StreamExt;
 use serde_json::{json, Value};
+use std::collections::{HashMap, HashSet};
+use std::sync::{Arc, Mutex};
 use tokio_util::sync::CancellationToken;
 
 use super::http::{Credential, LlmHttp};
 use super::registry::{LlmProviderSpec, LlmWire};
 use super::{
-    sse_data_json, ChatMessage, ImageAttachment, LlmError, LlmProvider, LlmRequest, LlmStreamSink,
-    ModelInfo, SseOut, SseParser, LIST_MODELS_TIMEOUT, MODELS_PATH, UNKNOWN_API_ERROR,
+    applicable_effort, sse_data_json, ChatMessage, Effort, ImageAttachment, LlmError, LlmProvider,
+    LlmRequest, LlmStreamSink, ModelCatalog, ModelInfo, SseOut, SseParser, LIST_MODELS_TIMEOUT,
+    MODELS_PATH, UNKNOWN_API_ERROR,
 };
+use crate::sync::LockUnpoisoned;
+
+/// What each listed model can do, asked of the API itself.
+pub mod probe;
+
+use probe::{ModelProbes, ProbeCache, Verdict};
 
 const RESPONSES_PATH: &str = "/v1/responses";
 
@@ -40,20 +50,29 @@ fn efforts(spec: &LlmProviderSpec) -> (&'static str, &'static str) {
             effort_on,
             ..
         } => (effort_off, effort_on),
-        LlmWire::Anthropic { .. } | LlmWire::Xclis { .. } | LlmWire::OpenRouter { .. } => {
-            unreachable!("клиент Responses собран из чужого диалекта")
-        }
+        LlmWire::Anthropic { .. } => unreachable!("клиент Responses собран из чужого диалекта"),
     }
 }
 
-/// `None` means "send no `reasoning` field at all" — the only way to talk to a
-/// model that refuses the parameter outright (`gpt-5.5-pro`, `grok-4.20-*`).
+/// `None` means "send no `reasoning` field at all" — what an always-reasoning
+/// model gets unless the chat picked a level it accepts: `gpt-5.5-pro` refuses
+/// the vendor's "off" value and its "on" default alike is not ours to assume.
+/// A chosen level replaces `effort_on`; with thinking off it is not applied.
 pub fn reasoning_value(
     spec: &LlmProviderSpec,
     info: Option<&ModelInfo>,
     requested: bool,
+    effort: Option<Effort>,
 ) -> Option<Value> {
-    if info.is_some_and(|m| m.always_thinks) {
+    // A model that does not reason refuses the field outright, "off" included.
+    if info.is_some_and(|m| !m.adaptive && !m.always_thinks) {
+        return None;
+    }
+    let always = info.is_some_and(|m| m.always_thinks);
+    if let Some(chosen) = applicable_effort(info, requested || always, effort) {
+        return Some(json!({"effort": chosen}));
+    }
+    if always {
         return None;
     }
     let (off, on) = efforts(spec);
@@ -158,12 +177,77 @@ fn error_message(v: &Value) -> Option<&str> {
         .or_else(|| v["message"].as_str())
 }
 
+/// `gpt-4o-2024-08-06` beside `gpt-4o` is the same model pinned to a date;
+/// so is the older `gpt-4-0613` beside `gpt-4`.
+fn snapshot_alias(id: &str) -> Option<&str> {
+    fn without_digits(s: &str, len: usize) -> Option<&str> {
+        let (head, tail) = s.rsplit_once('-')?;
+        (tail.len() == len && tail.bytes().all(|b| b.is_ascii_digit())).then_some(head)
+    }
+    without_digits(id, 2)
+        .and_then(|s| without_digits(s, 2))
+        .and_then(|s| without_digits(s, 4))
+        .or_else(|| without_digits(id, 4))
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct LiveModel {
+    pub id: String,
+    /// Unix seconds; the only ordering this dialect's `/v1/models` offers.
+    pub created: i64,
+}
+
+/// Newest first, each model once: a dated snapshot is dropped when its alias
+/// is listed too — the picker would otherwise show `GPT-5.4` four times.
+pub(crate) fn newest_first_without_snapshots(mut live: Vec<LiveModel>) -> Vec<String> {
+    let ids: HashSet<String> = live.iter().map(|m| m.id.clone()).collect();
+    live.sort_by(|a, b| b.created.cmp(&a.created).then_with(|| a.id.cmp(&b.id)));
+    live.into_iter()
+        .filter(|m| snapshot_alias(&m.id).is_none_or(|alias| !ids.contains(alias)))
+        .map(|m| m.id)
+        .collect()
+}
+
+/// `gpt-6.1-sol` → «GPT-6.1 Sol», `o3-mini` → «o3 Mini». This dialect's
+/// `/v1/models` carries no display name at all.
+pub(crate) fn display_name_from_id(id: &str) -> String {
+    fn capitalized(s: &str) -> String {
+        let mut chars = s.chars();
+        chars.next().map_or_else(String::new, |c| {
+            c.to_uppercase().chain(chars).collect()
+        })
+    }
+    let mut parts = id.split('-');
+    let head = parts.next().unwrap_or_default();
+    let mut words: Vec<String> = Vec::new();
+    if head == "gpt" {
+        let mut rest = parts.clone();
+        match rest.next() {
+            Some(version) if version.starts_with(|c: char| c.is_ascii_digit()) => {
+                words.push(format!("GPT-{version}"));
+                parts = rest;
+            }
+            _ => words.push("GPT".to_string()),
+        }
+    } else if head.bytes().all(|b| b.is_ascii_alphabetic()) {
+        words.push(capitalized(head));
+    } else {
+        words.push(head.to_string());
+    }
+    words.extend(parts.map(capitalized));
+    words.join(" ")
+}
+
 /// Serves any vendor whose row declares `LlmWire::Responses`. Everything it
 /// needs to tell them apart is on that row, so a new one is data only.
 #[derive(Clone)]
 pub struct ResponsesClient {
     spec: &'static LlmProviderSpec,
     http: LlmHttp,
+    /// The router's merged catalogue — where probed models are found again
+    /// when a chat sends to one of them.
+    live: ModelCatalog,
+    probes: ProbeCache,
 }
 
 impl ResponsesClient {
@@ -175,14 +259,22 @@ impl ResponsesClient {
                 Credential::Bearer(api_key),
                 spec.wire.key_label(),
             ),
+            live: Arc::new(Mutex::new(Vec::new())),
+            probes: ModelProbes::in_memory(),
         }
     }
 
-    pub fn proxied(spec: &'static LlmProviderSpec, access_token: String, base_url: String) -> Self {
-        Self {
-            spec,
-            http: LlmHttp::proxied(base_url, access_token, spec.wire.key_label()),
-        }
+    /// Shares the app's catalogue, so a model probed at listing time keeps its
+    /// capabilities when a chat sends to it.
+    pub fn with_catalog(mut self, catalog: ModelCatalog) -> Self {
+        self.live = catalog;
+        self
+    }
+
+    /// Shares the app's verdicts, persisted between launches.
+    pub fn with_probes(mut self, probes: ProbeCache) -> Self {
+        self.probes = probes;
+        self
     }
 
     pub fn with_base_url(mut self, url: String) -> Self {
@@ -194,18 +286,97 @@ impl ResponsesClient {
         self.spec.models()
     }
 
-    /// The ids a key may call, which is all `/v1/models` of this dialect is
-    /// read for: the catalogue itself is curated, the live list only filters it.
-    async fn live_model_ids(&self) -> Result<Vec<String>, LlmError> {
+    /// Live first: a probed model is not in the offline table at all.
+    fn model_info(&self, id: &str) -> Option<ModelInfo> {
+        self.live
+            .lock_unpoisoned()
+            .iter()
+            .find(|m| m.id == id && m.provider == self.spec.id)
+            .cloned()
+            .or_else(|| self.catalog().into_iter().find(|m| m.id == id))
+    }
+
+    /// Every id the key may call — chat or not; `/v1/models` of this dialect
+    /// does not say.
+    async fn live_models(&self) -> Result<Vec<LiveModel>, LlmError> {
         let v = self.http.get_json(MODELS_PATH, LIST_MODELS_TIMEOUT).await?;
         Ok(v["data"]
             .as_array()
             .map(|arr| {
                 arr.iter()
-                    .filter_map(|m| m["id"].as_str().map(str::to_string))
+                    .filter_map(|m| {
+                        Some(LiveModel {
+                            id: m["id"].as_str()?.to_string(),
+                            created: m["created"].as_i64().unwrap_or_default(),
+                        })
+                    })
                     .collect()
             })
             .unwrap_or_default())
+    }
+
+    /// Remembered verdicts, plus fresh probes for the ids without one.
+    async fn verdicts(&self, ids: &[String]) -> HashMap<String, Verdict> {
+        let now = probe::now_secs();
+        let mut known = HashMap::new();
+        let mut unknown = Vec::new();
+        for id in ids {
+            match self.probes.fresh(self.spec.id, id, now) {
+                Some(verdict) => {
+                    known.insert(id.clone(), verdict);
+                }
+                None => unknown.push(id.clone()),
+            }
+        }
+        let found: Vec<(String, Verdict)> = futures_util::stream::iter(unknown)
+            .map(|id| async move {
+                let verdict = probe::probe(&self.http, RESPONSES_PATH, &id).await;
+                verdict.map(|v| (id, v))
+            })
+            .buffer_unordered(probe::PROBE_CONCURRENCY)
+            .filter_map(|found| async move { found })
+            .collect()
+            .await;
+        self.probes.remember(self.spec.id, &found, now);
+        known.extend(found);
+        known
+    }
+
+    /// `None` drops the id: not a chat model of this endpoint, or nothing is
+    /// known about it — no verdict and no offline row to stand in for one.
+    fn listed_model(&self, id: &str, verdict: Option<&Verdict>) -> Option<ModelInfo> {
+        let offline = self.catalog().into_iter().find(|m| m.id == id);
+        let Some(verdict) = verdict else {
+            return offline;
+        };
+        let (off, on) = efforts(self.spec);
+        let (adaptive, always_thinks, efforts) = match verdict {
+            Verdict::Unavailable => return None,
+            Verdict::Plain => (false, false, Vec::new()),
+            Verdict::Reasoning { levels } => {
+                let takes = |value: &str| levels.iter().any(|l| l == value);
+                let ladder = Effort::ALL.into_iter().filter(|e| takes(e.as_str()));
+                (true, !takes(off), ladder.collect())
+            }
+        };
+        // The dialect's «on» value where the model takes it — what a chat that
+        // turns reasoning on without a level has always sent — else its weakest.
+        let default_effort = efforts
+            .iter()
+            .copied()
+            .find(|e| e.as_str() == on)
+            .or_else(|| efforts.first().copied());
+        Some(ModelInfo {
+            id: id.to_string(),
+            display_name: offline.map_or_else(|| display_name_from_id(id), |m| m.display_name),
+            provider: self.spec.id.to_string(),
+            adaptive,
+            always_thinks,
+            code_exec: true,
+            efforts,
+            budget_thinking: false,
+            default_effort,
+        })
     }
 }
 
@@ -225,12 +396,17 @@ impl LlmProvider for ResponsesClient {
         cancel: CancellationToken,
         sink: &mut dyn LlmStreamSink,
     ) -> Result<(), LlmError> {
-        let info = self.catalog().into_iter().find(|m| m.id == request.model);
+        let info = self.model_info(&request.model);
         let body = build_request_body(
             &request.model,
             &request.system,
             &request.messages,
-            reasoning_value(self.spec, info.as_ref(), request.options.thinking),
+            reasoning_value(
+                self.spec,
+                info.as_ref(),
+                request.options.thinking,
+                request.options.effort,
+            ),
             web_search_value(request.options.web_search),
         );
         self.http
@@ -244,19 +420,14 @@ impl LlmProvider for ResponsesClient {
             .await
     }
 
-    /// Through the relay the catalogue cannot be probed: `/v1/models` there is
-    /// Anthropic's, and giving another vendor its own path would break the
-    /// path==upstream symmetry the audio routes rely on. What a code holder may
-    /// call is decided by the worker's allowlist instead.
+    /// Every chat model this key can call, newest first, each with the
+    /// capabilities the API itself reported (see `probe`).
     async fn list_models(&self) -> Result<Vec<ModelInfo>, LlmError> {
-        if self.http.is_proxy() {
-            return Ok(self.catalog());
-        }
-        let live = self.live_model_ids().await?;
-        Ok(self
-            .catalog()
-            .into_iter()
-            .filter(|m| live.contains(&m.id))
+        let ids = newest_first_without_snapshots(self.live_models().await?);
+        let verdicts = self.verdicts(&ids).await;
+        Ok(ids
+            .iter()
+            .filter_map(|id| self.listed_model(id, verdicts.get(id)))
             .collect())
     }
 

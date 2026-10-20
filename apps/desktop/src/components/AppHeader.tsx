@@ -1,17 +1,29 @@
-import { ArrowDownCircle, Copy, Cpu, Eye, EyeOff, Minus, ScrollText, Square } from "lucide-react";
+import {
+  ArrowDownCircle,
+  Cpu,
+  Eye,
+  EyeOff,
+  Keyboard,
+  LogOut,
+  Minus,
+  ScrollText,
+} from "lucide-react";
 import { memo, useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import { ChatTabs } from "@/components/ChatTabs";
-import { HotkeysPopover } from "@/components/HotkeysPopover";
+import { HotkeysReference } from "@/components/HotkeysReference";
 import { ModeSwitch } from "@/components/ModeSwitch";
 import { StatusBar } from "@/components/StatusBar";
-import { DOCK_BUTTON_CLASS, type ToolbarDockItem } from "@/components/ToolbarDock";
-import { DiagnosticsButton } from "@/features/diagnostics/DiagnosticsPanel";
+import type { ToolbarDockItem } from "@/components/ToolbarDock";
 import type { HotkeyBinding, RecorderState } from "@/ipc/types";
 import type { Chat } from "@/lib/chats";
 import { effectiveCombo, formatCombo } from "@/lib/hotkeys";
 import type { AppModeId } from "@/lib/modes";
 import { cn } from "@/lib/utils";
+
+/** `primary` marks states the user must notice: the window is capturable, an update is waiting. */
+const INDICATOR_ICON_CLASS =
+  "text-primary group-hover:text-primary group-focus-visible:text-primary";
 
 export interface UpdateBadge {
   version: string;
@@ -27,7 +39,6 @@ export interface AppHeaderProps {
   streaming: Record<string, boolean>;
   unread: Record<string, boolean>;
   mode: AppModeId;
-  canCopy: boolean;
   canTeleprompt: boolean;
   screenShareVisible: boolean;
   onSelectChat: (id: string) => void;
@@ -37,7 +48,6 @@ export interface AppHeaderProps {
   onDuplicateChat: () => void;
   onToggleScreenShare: () => void;
   onOpenModelMenu: () => void;
-  onCopy: () => void;
   onOpenTeleprompter: () => void;
   onStop: () => void;
   onCollapse: () => void;
@@ -57,7 +67,6 @@ export const AppHeader = memo(function AppHeader({
   streaming,
   unread,
   mode,
-  canCopy,
   canTeleprompt,
   screenShareVisible,
   onSelectChat,
@@ -67,57 +76,15 @@ export const AppHeader = memo(function AppHeader({
   onDuplicateChat,
   onToggleScreenShare,
   onOpenModelMenu,
-  onCopy,
   onOpenTeleprompter,
   onStop,
   onCollapse,
   onOpenUpdate,
 }: AppHeaderProps) {
   const { t } = useTranslation();
-  const dockItems = useMemo<ToolbarDockItem[]>(
+  const dockSections = useMemo<ToolbarDockItem[][]>(
     () => [
-      {
-        id: "copy",
-        label: t("hud.header.copyLastAnswer"),
-        icon: <Copy />,
-        disabled: !canCopy,
-        onClick: onCopy,
-      },
-      {
-        id: "teleprompter",
-        label: t("hud.header.teleprompter"),
-        icon: <ScrollText />,
-        shortcut: formatCombo(effectiveCombo(hotkeys, "teleprompter")),
-        disabled: !canTeleprompt,
-        onClick: onOpenTeleprompter,
-      },
-      {
-        id: "models",
-        label: t("hud.header.models"),
-        icon: <Cpu />,
-        shortcut: formatCombo(effectiveCombo(hotkeys, "model_menu")),
-        onClick: onOpenModelMenu,
-      },
-      {
-        id: "screen-share",
-        label: screenShareVisible
-          ? t("hud.header.screenShareVisible")
-          : t("hud.header.screenShareHidden"),
-        icon: screenShareVisible ? <Eye /> : <EyeOff />,
-        iconClass: screenShareVisible ? "text-primary hover:text-primary/85" : undefined,
-        onClick: onToggleScreenShare,
-      },
-      {
-        id: "hotkeys",
-        label: t("hud.header.hotkeys"),
-        element: <HotkeysPopover hotkeys={hotkeys} triggerClass={DOCK_BUTTON_CLASS} />,
-      },
-      {
-        id: "diagnostics",
-        label: t("launcher.screens.diagnostics.label"),
-        element: <DiagnosticsButton triggerClass={DOCK_BUTTON_CLASS} />,
-      },
-      ...(update
+      update
         ? [
             {
               id: "update",
@@ -125,28 +92,60 @@ export const AppHeader = memo(function AppHeader({
                 ? t("updates.updating", { version: update.version })
                 : t("updates.available", { version: update.version }),
               icon: <ArrowDownCircle className={cn(update.busy && "animate-pulse")} />,
-              iconClass: "text-primary hover:text-primary/85",
+              iconClass: INDICATOR_ICON_CLASS,
               onClick: onOpenUpdate,
             },
           ]
-        : []),
-      {
-        id: "mini",
-        label: t("hud.header.collapse"),
-        icon: <Minus />,
-        shortcut: formatCombo(effectiveCombo(hotkeys, "toggle_window")),
-        onClick: onCollapse,
-      },
-      { id: "stop", label: t("hud.header.stop"), icon: <Square />, onClick: onStop },
+        : [],
+      [
+        {
+          id: "models",
+          label: t("hud.header.models"),
+          icon: <Cpu />,
+          shortcut: formatCombo(effectiveCombo(hotkeys, "model_menu")),
+          onClick: onOpenModelMenu,
+        },
+        {
+          id: "teleprompter",
+          label: t("hud.header.teleprompter"),
+          icon: <ScrollText />,
+          shortcut: formatCombo(effectiveCombo(hotkeys, "teleprompter")),
+          disabled: !canTeleprompt,
+          onClick: onOpenTeleprompter,
+        },
+        {
+          id: "screen-share",
+          label: screenShareVisible
+            ? t("hud.header.screenShareVisible")
+            : t("hud.header.screenShareHidden"),
+          icon: screenShareVisible ? <Eye /> : <EyeOff />,
+          iconClass: screenShareVisible ? INDICATOR_ICON_CLASS : undefined,
+          onClick: onToggleScreenShare,
+        },
+      ],
+      [
+        {
+          id: "hotkeys",
+          label: t("hud.header.hotkeys"),
+          icon: <Keyboard />,
+          panel: <HotkeysReference hotkeys={hotkeys} />,
+        },
+        {
+          id: "mini",
+          label: t("hud.header.collapse"),
+          icon: <Minus />,
+          shortcut: formatCombo(effectiveCombo(hotkeys, "toggle_window")),
+          onClick: onCollapse,
+        },
+        { id: "stop", label: t("hud.header.stop"), icon: <LogOut />, onClick: onStop },
+      ],
     ],
     [
       t,
       hotkeys,
       update,
-      canCopy,
       canTeleprompt,
       screenShareVisible,
-      onCopy,
       onOpenTeleprompter,
       onOpenModelMenu,
       onToggleScreenShare,
@@ -158,7 +157,7 @@ export const AppHeader = memo(function AppHeader({
   return (
     <StatusBar
       state={recorderState}
-      dockItems={dockItems}
+      dockSections={dockSections}
       modeSwitch={
         <ModeSwitch
           mode={mode}

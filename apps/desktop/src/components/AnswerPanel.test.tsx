@@ -36,6 +36,7 @@ function panelProps(overrides: Partial<AnswerPanelProps> = {}): AnswerPanelProps
     scrollStep: 120,
     scrollModifier: "Alt",
     recordCombo: "",
+    recordToggle: true,
     screenshotCombo: "",
     onTogglePreview: noop,
     onCopyMessage: noop,

@@ -1,7 +1,12 @@
-use harpyhare_lib::stt::SttEngine;
+//! Real-time streaming against the default STT vendor: a tone is fed in 200 ms
+//! chunks while the request is open, the way a held record key feeds it.
+//!
+//!   cargo run --example stream_smoke
+
+use harpyhare_lib::stt::{build_engine, registry, SttClientConfig};
 
 const DOTENV_RELATIVE_PATH: &str = "../.env";
-const GROQ_KEY_ENV: &str = "GROQ_API_KEY";
+const LANGUAGE: &str = "ru";
 const CHANNEL_CAPACITY: usize = 64;
 const SAMPLE_RATE_HZ: usize = 16000;
 const CHUNK_MS: usize = 200;
@@ -38,7 +43,7 @@ fn spawn_realtime_tone_producer(tx: tokio::sync::mpsc::Sender<ChunkResult>) {
     });
 }
 
-/// Сырой PCM: WAV-заголовок подшивает сам клиент (контейнер — забота транспорта).
+/// Сырой PCM: что нужно вендору поверх, добавляет его транспорт.
 fn streaming_pcm_body(
     rx: tokio::sync::mpsc::Receiver<ChunkResult>,
 ) -> harpyhare_lib::stt::AudioChunkStream {
@@ -51,10 +56,15 @@ fn main() {
     let _ = dotenvy::from_path(
         std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(DOTENV_RELATIVE_PATH),
     );
-    let key = std::env::var(GROQ_KEY_ENV).expect("GROQ_API_KEY в .env");
-    let stt = harpyhare_lib::stt::SttHttpClient::for_provider(
-        harpyhare_lib::stt::registry::PROVIDER_GROQ,
-        key,
+    let spec = registry::default_spec();
+    let key_env = format!("{}_API_KEY", spec.key_id.to_uppercase());
+    let key = std::env::var(&key_env).unwrap_or_else(|_| panic!("{key_env} в .env"));
+    let stt = build_engine(
+        spec,
+        SttClientConfig {
+            api_key: key,
+            language: LANGUAGE.into(),
+        },
     );
 
     let rt = tokio::runtime::Runtime::new().unwrap();

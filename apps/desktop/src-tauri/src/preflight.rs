@@ -268,13 +268,7 @@ fn capture_samples(
             break;
         }
         let started = Instant::now();
-        let trace = Trace::new(
-            DiagnosticKind::Capture,
-            DiagnosticOrigin::Preflight,
-            "",
-            "",
-            false,
-        );
+        let trace = Trace::new(DiagnosticKind::Capture, DiagnosticOrigin::Preflight, "", "");
         if permission != PermissionState::Granted {
             checks.push(result(
                 source,

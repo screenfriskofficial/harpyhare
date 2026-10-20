@@ -44,6 +44,7 @@ export interface AnswerPanelProps {
   scrollStep: number;
   scrollModifier: string;
   recordCombo: string;
+  recordToggle: boolean;
   screenshotCombo: string;
   onTogglePreview: (content: PreviewContent) => void;
   onCopyMessage: (index: number) => void;
@@ -83,6 +84,7 @@ export function AnswerPanel({
   scrollStep,
   scrollModifier,
   recordCombo,
+  recordToggle,
   screenshotCombo,
   onTogglePreview,
   onCopyMessage,
@@ -160,7 +162,11 @@ export function AnswerPanel({
           className="flex min-h-0 w-full flex-col gap-2.5 overflow-y-auto pr-1.5"
         >
           {empty ? (
-            <ChatEmptyState recordCombo={recordCombo} screenshotCombo={screenshotCombo} />
+            <ChatEmptyState
+              recordCombo={recordCombo}
+              recordToggle={recordToggle}
+              screenshotCombo={screenshotCombo}
+            />
           ) : (
             <>
               <ChatHistory

@@ -8,13 +8,8 @@ use super::{
 };
 use crate::net::WARM_UP_TIMEOUT;
 
-/// How a request proves who it is.
-///
-/// `Bearer` covers two different things on purpose: a vendor whose own scheme is
-/// bearer auth, and the relay's `itk_` token, which replaces the vendor
-/// credential entirely. `LlmHttp::proxy` is what tells them apart, and it only
-/// matters for error mapping — a 401 from the relay means the access code is
-/// dead, a 401 from the vendor means the user's key is wrong.
+/// How a request proves who it is: Anthropic's `x-api-key` header, or the
+/// bearer token OpenAI expects.
 #[derive(Clone)]
 pub enum Credential {
     ApiKeyHeader { header: &'static str, key: String },
@@ -38,7 +33,6 @@ pub struct LlmHttp {
     credential: Credential,
     key_label: &'static str,
     headers: StaticHeaders,
-    proxy: bool,
     options: HttpClientOptions,
 }
 
@@ -49,41 +43,14 @@ impl LlmHttp {
         credential: Credential,
         key_label: &'static str,
     ) -> Self {
-        Self::with_options(
-            base_url,
-            credential,
-            key_label,
-            HttpClientOptions::default(),
-        )
-    }
-
-    /// `direct` with an explicit pool configuration (idle timeout, proxy policy).
-    pub(crate) fn with_options(
-        base_url: impl Into<String>,
-        credential: Credential,
-        key_label: &'static str,
-        options: HttpClientOptions,
-    ) -> Self {
+        let options = HttpClientOptions::default();
         Self {
             client: build_http_client(options),
             base_url: base_url.into(),
             credential,
             key_label,
             headers: &[],
-            proxy: false,
             options,
-        }
-    }
-
-    /// Through the relay, authenticated by an access token.
-    pub fn proxied(
-        base_url: impl Into<String>,
-        access_token: String,
-        key_label: &'static str,
-    ) -> Self {
-        Self {
-            proxy: true,
-            ..Self::direct(base_url, Credential::Bearer(access_token), key_label)
         }
     }
 
@@ -102,18 +69,6 @@ impl LlmHttp {
     pub fn with_base_url(mut self, base_url: String) -> Self {
         self.base_url = base_url;
         self
-    }
-
-    /// The same pool under another credential — for a vendor whose endpoints
-    /// authenticate differently (Xclis: bearer for chat, `x-api-key` for the
-    /// Anthropic-shaped catalogue and token counter).
-    pub fn with_credential(mut self, credential: Credential) -> Self {
-        self.credential = credential;
-        self
-    }
-
-    pub fn is_proxy(&self) -> bool {
-        self.proxy
     }
 
     fn url(&self, path: &str) -> String {
@@ -146,8 +101,24 @@ impl LlmHttp {
         let resp = self
             .send(self.client.get(self.url(path)).timeout(timeout))
             .await?;
-        let resp = require_ok_status(resp, self.key_label, self.proxy).await?;
+        let resp = require_ok_status(resp, self.key_label).await?;
         Self::json_of(resp).await
+    }
+
+    /// POST a body and hand back the status with whatever JSON came back,
+    /// refusals included — for a caller that reads the vendor's 4xx as the
+    /// answer (`probe`). Only the transport can fail here.
+    pub async fn post_json_any_status(
+        &self,
+        path: &str,
+        body: &Value,
+        timeout: Duration,
+    ) -> Result<(u16, Value), LlmError> {
+        let resp = self
+            .send(self.client.post(self.url(path)).json(body).timeout(timeout))
+            .await?;
+        let status = resp.status().as_u16();
+        Ok((status, resp.json().await.unwrap_or(Value::Null)))
     }
 
     /// POST a body and hand back the status-checked response, honouring
@@ -169,7 +140,7 @@ impl LlmHttp {
             r = send => r.map_err(network_error)?,
             _ = cancel.cancelled() => return Err(LlmError::Cancelled),
         };
-        require_ok_status(resp, self.key_label, self.proxy).await
+        require_ok_status(resp, self.key_label).await
     }
 
     /// POST a body and pump the SSE answer into `sink`, honouring `cancel` both

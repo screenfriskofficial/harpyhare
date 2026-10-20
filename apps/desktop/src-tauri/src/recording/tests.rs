@@ -3,12 +3,8 @@ use super::*;
 #[test]
 fn a_bad_credential_from_the_stream_is_final_and_skips_the_batch_fallback() {
     assert!(matches!(
-        stream_verdict(Err(stt::SttError::BadApiKey("Groq"))),
-        StreamVerdict::Fail(stt::SttError::BadApiKey("Groq"))
-    ));
-    assert!(matches!(
-        stream_verdict(Err(stt::SttError::BadAccessCode("код мёртв".into()))),
-        StreamVerdict::Fail(_)
+        stream_verdict(Err(stt::SttError::BadApiKey("Deepgram"))),
+        StreamVerdict::Fail(stt::SttError::BadApiKey("Deepgram"))
     ));
 }
 

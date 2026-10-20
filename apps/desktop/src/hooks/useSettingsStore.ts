@@ -18,7 +18,6 @@ export interface SettingsStore {
   setSettings: Dispatch<SetStateAction<Settings>>;
   loading: boolean;
   save: (next: Settings, latePatch?: LatePatch) => Promise<string | null>;
-  reload: () => Promise<void>;
 }
 
 export function useSettingsStore(applyVisuals: ApplyVisualSettings): SettingsStore {
@@ -64,9 +63,5 @@ export function useSettingsStore(applyVisuals: ApplyVisualSettings): SettingsSto
     [adopt, applyVisualsRef, lastAdopted],
   );
 
-  const reload = useCallback(async (): Promise<void> => {
-    adopt(await getSettings());
-  }, [adopt]);
-
-  return { settings, setSettings, loading, save, reload };
+  return { settings, setSettings, loading, save };
 }

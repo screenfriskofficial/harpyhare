@@ -10,13 +10,35 @@ fn every_provider_is_well_formed() {
         assert!(!p.id.is_empty(), "у провайдера пустой id");
         assert!(!p.label.is_empty(), "у {} пустой label", p.id);
         assert!(!p.key_id.is_empty(), "у {} пустой key_id", p.id);
-        // Пустой каталог допустим ровно у вендора с динамическим составом
-        // (агрегатор): у него список моделей привязан к ключу, и офлайн честный
-        // ответ — «пока не знаю». Пара «пустой каталог ⇄ пустой дефолт»
-        // проверяется отдельно в `every_provider_defaults_to_a_model_it_actually_offers`.
+        // Офлайн-каталог — то, что пикер показывает до ключа, и то, по чему
+        // роутер узнаёт владельца сохранённой модели без живого каталога.
+        assert!(!p.catalog.is_empty(), "у {} пустой офлайн-каталог", p.id);
         for m in p.catalog {
             assert!(!m.id.is_empty(), "в каталоге {} модель без id", p.id);
             assert!(!m.display_name.is_empty(), "{} без display_name", m.id);
+            // The picker shows the ladder in this order, and a repeated level
+            // would be a second item writing the same value.
+            assert!(
+                m.efforts.windows(2).all(|w| w[0] < w[1]),
+                "уровни effort у {} не по возрастанию или повторяются",
+                m.id
+            );
+            // A model that cannot reason has nothing for effort to tune.
+            assert!(
+                m.adaptive || m.budget_thinking || m.always_thinks || m.efforts.is_empty(),
+                "{} не рассуждает, но заявляет effort",
+                m.id
+            );
+            // The picker shows the default checked; it has to be on the ladder.
+            assert_eq!(
+                m.default_effort.is_some(),
+                !m.efforts.is_empty(),
+                "у {} уровень по умолчанию не согласован с лестницей",
+                m.id
+            );
+            if let Some(default) = m.default_effort {
+                assert!(m.efforts.contains(&default), "{}: {default:?} не в лестнице", m.id);
+            }
         }
     }
 }
@@ -48,19 +70,6 @@ fn model_ids_are_unique_across_all_providers() {
 }
 
 #[test]
-fn every_declared_family_matches_something_in_the_catalog() {
-    for p in PROVIDERS {
-        for family in p.families {
-            assert!(
-                p.catalog.iter().any(|m| m.id.contains(family)),
-                "семейство {family} у {} не совпало ни с одной моделью каталога",
-                p.id
-            );
-        }
-    }
-}
-
-#[test]
 fn catalog_models_are_tagged_with_their_provider() {
     for p in PROVIDERS {
         let models = p.models();
@@ -71,21 +80,10 @@ fn catalog_models_are_tagged_with_their_provider() {
     }
 }
 
-/// Вендор с динамическим каталогом (Xclis) офлайн не обещает ничего и потому
-/// не называет дефолта: пустой каталог обязан идти в паре с пустым дефолтом,
-/// иначе новый чат открылся бы на модели, которой у провайдера нет.
+/// Иначе новый чат открылся бы на модели, которой у провайдера нет.
 #[test]
 fn every_provider_defaults_to_a_model_it_actually_offers() {
     for p in PROVIDERS {
-        if p.catalog.is_empty() {
-            assert!(
-                p.default_model.is_empty(),
-                "{} офлайн не предлагает моделей, но называет дефолт {}",
-                p.id,
-                p.default_model
-            );
-            continue;
-        }
         assert!(
             p.catalog.iter().any(|m| m.id == p.default_model),
             "дефолт {} у {} не в его же каталоге — новый чат открылся бы на недоступной модели",
@@ -131,23 +129,6 @@ fn anthropic_catalog_matches_what_the_llm_port_hands_out_as_fallback() {
 }
 
 #[test]
-fn a_dialect_shared_by_several_vendors_needs_no_code_per_vendor() {
-    // The whole claim of the registry: Grok joined by declaring a row against
-    // an existing dialect. If it ever needs its own module, this breaks first.
-    let shared: Vec<&str> = PROVIDERS
-        .iter()
-        .filter(|p| matches!(p.wire, LlmWire::Responses { .. }))
-        .map(|p| p.id)
-        .collect();
-    assert!(
-        shared.len() >= 2,
-        "диалект Responses обслуживает больше одного вендора"
-    );
-    assert!(shared.contains(&PROVIDER_OPENAI));
-    assert!(shared.contains(&super::super::PROVIDER_XAI));
-}
-
-#[test]
 fn every_row_declares_a_reachable_https_host() {
     for p in PROVIDERS {
         assert!(
@@ -173,16 +154,17 @@ fn a_row_needs_nothing_but_data_to_be_well_formed() {
         id: "gemini",
         label: "Gemini",
         key_id: "gemini",
-        families: &["pro"],
         catalog: &[CatalogModel {
             id: "gemini-3-pro",
             display_name: "Gemini 3 Pro",
             adaptive: true,
             always_thinks: false,
             code_exec: true,
+            efforts: &[],
+            budget_thinking: false,
+            default_effort: None,
         }],
         default_model: "gemini-3-pro",
-        proxied: false,
         wire: LlmWire::Responses {
             base_url: "https://generativelanguage.googleapis.com",
             key_label: "Google",
@@ -195,44 +177,4 @@ fn a_row_needs_nothing_but_data_to_be_well_formed() {
     assert_eq!(models.len(), 1);
     assert_eq!(models[0].provider, "gemini");
     assert_eq!(models[0].id, "gemini-3-pro");
-    assert!(GEMINI
-        .families
-        .iter()
-        .all(|f| GEMINI.catalog.iter().any(|m| m.id.contains(f))));
-}
-
-/// Состав моделей Xclis задаётся группой аккаунта на его стороне и меняется без
-/// нашего участия — проверено двумя ключами с непересекающимися каталогами.
-/// Любая вписанная сюда модель была бы обещанием, которое вендор не давал.
-#[test]
-fn xclis_promises_nothing_offline() {
-    let xclis = PROVIDERS
-        .iter()
-        .find(|p| p.id == xclis::PROVIDER_XCLIS)
-        .expect("строка Xclis в реестре");
-    assert!(
-        xclis.catalog.is_empty(),
-        "каталог Xclis известен только из живого /v1/models"
-    );
-    assert!(
-        xclis.default_model.is_empty(),
-        "дефолт Xclis тоже приходит из живого каталога"
-    );
-}
-
-/// У relay нет роута под Chat Completions Xclis, а у самого диалекта — прокси-
-/// режима: `build_provider` при `proxied: true` пропустил бы вендора у каждого
-/// держателя кода доступа. Перевернуть флаг можно только вместе с диалектом.
-#[test]
-fn the_xclis_dialect_cannot_be_proxied() {
-    for p in PROVIDERS
-        .iter()
-        .filter(|p| matches!(p.wire, LlmWire::Xclis { .. }))
-    {
-        assert!(
-            !p.proxied,
-            "{}: диалект Xclis не умеет ходить через relay",
-            p.id
-        );
-    }
 }

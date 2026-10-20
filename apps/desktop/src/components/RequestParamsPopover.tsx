@@ -1,6 +1,5 @@
 import { Lock, SlidersHorizontal } from "lucide-react";
 import type { ReactNode } from "react";
-import { useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { NoticeDot } from "@/components/NoticeDot";
 import { SearchableSelect } from "@/components/SearchableSelect";
@@ -15,9 +14,10 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
+import { useComposerPopoverClose } from "@/hooks/useComposerPopoverClose";
 import { missingKeyHint } from "@/lib/api-keys";
 import type { Chat, ChatPatch } from "@/lib/chats";
-import { modelGroups, modelLabel, modelIdHint, type ModelInfo } from "@/lib/models";
+import { modelGroups, modelLabel, type ModelInfo } from "@/lib/models";
 import type { Pipeline, PipelineKind } from "@/lib/pipeline-types";
 import { findPipeline, pipelinesOfKind } from "@/lib/pipelines";
 
@@ -104,7 +104,7 @@ function ModelSelect(props: ModelSelectProps) {
           group: showHeadings ? group.label : undefined,
           keywords: [group.label],
           disabled: locked,
-          description: locked ? missingKeyHint() : modelIdHint(model),
+          description: locked ? missingKeyHint() : undefined,
           icon: locked ? <Lock className="size-3" aria-hidden /> : undefined,
         }));
       })}
@@ -212,9 +212,11 @@ export function RequestParamsPopover(props: RequestParamsPopoverProps) {
   // A pipeline rewrites what the chat sends, invisibly to the transcript: the
   // dot is the only permanent trace of it in the HUD.
   const pipelineActive = !!props.chat.promptPipelineId || !!props.chat.messagePipelineId;
-  // Radix dispatches the outside-interaction event on the element that was
-  // pressed, so this is where the caret question gets its answer.
-  const pressedOutside = useRef<Element | null>(null);
+  // A model with effort levels reasons on every request (as on claude.ai): its
+  // locked switch shows that, whatever the chat's own flag says.
+  const alwaysThinks =
+    props.modelOptions.find((m) => m.id === props.chat.model)?.alwaysThinks === true;
+  const closeReport = useComposerPopoverClose(props.onClosed);
   return (
     <Popover>
       <PopoverTrigger asChild>
@@ -233,16 +235,8 @@ export function RequestParamsPopover(props: RequestParamsPopoverProps) {
         side="top"
         align="start"
         className="w-72 p-3"
-        onInteractOutside={(event) => {
-          pressedOutside.current = event.target instanceof Element ? event.target : null;
-        }}
-        // Radix would refocus the trigger button (and, after an outside press,
-        // nothing at all); the composer knows better where the caret belongs.
-        onCloseAutoFocus={(event) => {
-          event.preventDefault();
-          props.onClosed(pressedOutside.current);
-          pressedOutside.current = null;
-        }}
+        onInteractOutside={closeReport.onInteractOutside}
+        onCloseAutoFocus={closeReport.onCloseAutoFocus}
       >
         <div className="flex flex-col gap-1">
           <ParamRow label={t("hud.params.model")}>
@@ -292,7 +286,7 @@ export function RequestParamsPopover(props: RequestParamsPopoverProps) {
           <ParamRow label={thinkingLabel}>
             <ParamToggle
               label={thinkingLabel}
-              value={props.chat.thinkingEnabled}
+              value={props.chat.thinkingEnabled || alwaysThinks}
               disabled={props.thinkingDisabled}
               onChange={(thinkingEnabled) => {
                 props.onPatch(props.chat.id, { thinkingEnabled });

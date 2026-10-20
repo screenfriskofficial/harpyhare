@@ -1,13 +1,8 @@
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { t } from "@/i18n";
+import type { CatalogFailure } from "@/ipc/bindings";
 import type { ModelInfo } from "@/lib/models";
-import {
-  PROVIDER_ANTHROPIC,
-  PROVIDER_OPENAI,
-  STT_PROVIDER_GROQ,
-  STT_PROVIDER_OPENAI,
-} from "@/test/providers";
+import { PROVIDER_ANTHROPIC, PROVIDER_OPENAI, STT_PROVIDER_DEEPGRAM } from "@/test/providers";
 import { ModelCommandMenu } from "./ModelCommandMenu";
 
 afterEach(() => {
@@ -22,6 +17,9 @@ const models: ModelInfo[] = [
     adaptive: true,
     alwaysThinks: false,
     codeExec: true,
+    efforts: [],
+    budgetThinking: false,
+    defaultEffort: null,
   },
   {
     id: "claude-haiku-4-5",
@@ -30,6 +28,9 @@ const models: ModelInfo[] = [
     adaptive: false,
     alwaysThinks: false,
     codeExec: false,
+    efforts: [],
+    budgetThinking: false,
+    defaultEffort: null,
   },
 ];
 
@@ -37,26 +38,13 @@ const renderMenu = (overrides: Partial<Parameters<typeof ModelCommandMenu>[0]> =
   const props = {
     open: true,
     onOpenChange: vi.fn(),
-    sttProvider: STT_PROVIDER_GROQ,
-    activeSttModelId: "openai/gpt-4o-mini-transcribe",
-    sttCatalog: {
-      models: [
-        { id: "openai/gpt-4o-mini-transcribe", name: "OpenAI: GPT-4o Mini Transcribe" },
-        { id: "mistralai/voxtral-mini-transcribe", name: "Mistral: Voxtral Mini Transcribe" },
-      ],
-      pending: false,
-      loaded: true,
-      failed: false,
-      refresh: vi.fn(),
-    },
-    onSelectSttModel: vi.fn(),
+    sttProvider: STT_PROVIDER_DEEPGRAM,
     providersMissingKey: [] as readonly string[],
     onSwitchSttProvider: vi.fn(),
     models,
     modelProvidersMissingKey: [] as readonly string[],
     modelsPending: false,
-    modelsRefreshing: false,
-    onRefreshModels: vi.fn(),
+    catalogFailures: [] as readonly CatalogFailure[],
     activeModelId: "claude-haiku-4-5",
     onSelectModel: vi.fn(),
     onRestoreFocus: vi.fn(),
@@ -67,169 +55,41 @@ const renderMenu = (overrides: Partial<Parameters<typeof ModelCommandMenu>[0]> =
 };
 
 describe("ModelCommandMenu", () => {
-  const openrouterModel: ModelInfo = {
-    id: "openrouter/google/gemini-2.5-flash",
-    displayName: "Google: Gemini 2.5 Flash",
-    provider: "openrouter",
-    adaptive: true,
-    alwaysThinks: false,
-    codeExec: false,
-  };
-
-  const textProviders = [
-    { label: "OpenRouter", model: openrouterModel },
-    {
-      label: "Xclis",
-      model: {
-        ...openrouterModel,
-        id: "xclis/gpt-5.6-terra",
-        displayName: "GPT-5.6 Terra",
-        provider: "xclis",
-      },
-    },
-  ];
-
-  it.each(textProviders)(
-    "$label keeps its models in a compact page and selects their namespaced id",
-    async ({ label, model: textModel }) => {
-      const props = renderMenu({ models: [...models, ...textProviders.map((p) => p.model)] });
-      expect(screen.queryByText(textModel.displayName)).toBeNull();
-      fireEvent.click(
-        screen.getByRole("option", { name: `${t("hud.modelMenu.answer")} · ${label}` }),
-      );
-      expect(screen.queryByText("Mistral: Voxtral Mini Transcribe")).toBeNull();
-      for (const other of textProviders.filter((p) => p.model.provider !== textModel.provider)) {
-        expect(screen.queryByText(other.model.displayName)).toBeNull();
-      }
-      fireEvent.keyDown(screen.getByRole("combobox"), { key: "Backspace" });
-      expect(
-        screen.getByRole("option", { name: `${t("hud.modelMenu.answer")} · ${label}` }),
-      ).toBeTruthy();
-      fireEvent.click(
-        screen.getByRole("option", { name: `${t("hud.modelMenu.answer")} · ${label}` }),
-      );
-
-      fireEvent.change(screen.getByRole("combobox"), { target: { value: textModel.id } });
-      await waitFor(() => {
-        expect(screen.getByText(textModel.displayName)).toBeTruthy();
-      });
-      fireEvent.keyDown(screen.getByRole("combobox"), { key: "Enter" });
-      expect(props.onSelectModel).toHaveBeenCalledWith(textModel.id);
-      expect(props.onSelectSttModel).not.toHaveBeenCalled();
-      expect(props.onOpenChange).toHaveBeenCalledWith(false);
-    },
-  );
-
-  it.each(textProviders)(
-    "global search finds $label models without opening their provider page",
-    async ({ model: textModel }) => {
-      const props = renderMenu({ models: [...models, ...textProviders.map((p) => p.model)] });
-      fireEvent.change(screen.getByRole("combobox"), { target: { value: textModel.id } });
-      await waitFor(() => {
-        expect(screen.queryByText("Opus 5")).toBeNull();
-      });
-      fireEvent.click(screen.getByText(textModel.displayName));
-      expect(props.onSelectModel).toHaveBeenCalledWith(textModel.id);
-    },
-  );
-
-  it.each(textProviders)(
-    "$label catalogue can be retried, and an absent key locks its models",
-    ({ label, model: textModel }) => {
-      const props = renderMenu();
-      fireEvent.click(
-        screen.getByRole("option", { name: `${t("hud.modelMenu.answer")} · ${label}` }),
-      );
-      expect(screen.getByRole("status").textContent).toContain(
-        t("hud.modelMenu.catalogUnavailable", { provider: label }),
-      );
-      fireEvent.click(screen.getByRole("button", { name: t("common.retry") }));
-      expect(props.onRefreshModels).toHaveBeenCalledOnce();
-      cleanup();
-      const locked = renderMenu({
-        models: [textModel],
-        modelProvidersMissingKey: [textModel.provider],
-      });
-      fireEvent.click(
-        screen.getByRole("option", { name: `${t("hud.modelMenu.answer")} · ${label}` }),
-      );
-      const row = screen.getByText(textModel.displayName).closest("[cmdk-item]");
-      expect(row?.getAttribute("aria-disabled")).toBe("true");
-      fireEvent.click(screen.getByText(textModel.displayName));
-      expect(locked.onSelectModel).not.toHaveBeenCalled();
-    },
-  );
-
-  it("OpenRouter opens its catalog without switching provider, then selects a model", () => {
-    const props = renderMenu();
-    expect(screen.queryByText("Mistral: Voxtral Mini Transcribe")).toBeNull();
-    fireEvent.click(
-      screen.getByRole("option", { name: `${t("hud.modelMenu.voice")} · OpenRouter` }),
-    );
-    expect(props.onSwitchSttProvider).not.toHaveBeenCalled();
-    expect(props.onOpenChange).not.toHaveBeenCalled();
-    expect(screen.queryByText("Opus 5")).toBeNull();
-    fireEvent.click(screen.getByText("Mistral: Voxtral Mini Transcribe"));
-    expect(props.onSelectSttModel).toHaveBeenCalledWith("mistralai/voxtral-mini-transcribe");
-    expect(props.onOpenChange).toHaveBeenCalledWith(false);
-  });
-
-  it("global search finds an OpenRouter model by ID without entering a submenu", async () => {
-    const props = renderMenu();
-    fireEvent.change(screen.getByRole("combobox"), { target: { value: "mistralai/voxtral" } });
-    await waitFor(() => {
-      expect(screen.queryByText("Opus 5")).toBeNull();
-    });
-    fireEvent.click(screen.getByText("Mistral: Voxtral Mini Transcribe"));
-    expect(props.onSelectSttModel).toHaveBeenCalledWith("mistralai/voxtral-mini-transcribe");
-    expect(props.onSelectModel).not.toHaveBeenCalled();
-  });
-
-  it("can return from the catalog with Backspace and cannot choose without a key", () => {
-    const props = renderMenu({ providersMissingKey: ["openrouter"] });
-    fireEvent.click(
-      screen.getByRole("option", { name: `${t("hud.modelMenu.voice")} · OpenRouter` }),
-    );
-    const item = screen.getByText("Mistral: Voxtral Mini Transcribe").closest("[cmdk-item]");
-    expect(item?.getAttribute("data-disabled")).toBe("true");
-    if (!item) throw new Error("model row missing");
-    fireEvent.click(item);
-    expect(props.onSelectSttModel).not.toHaveBeenCalled();
-    fireEvent.keyDown(screen.getByRole("combobox"), { key: "Backspace" });
-    expect(screen.getByText("Opus 5")).toBeTruthy();
-  });
-
-  it("supports keyboard selection inside the catalog", async () => {
-    const props = renderMenu();
-    fireEvent.click(
-      screen.getByRole("option", { name: `${t("hud.modelMenu.voice")} · OpenRouter` }),
-    );
-    const search = screen.getByRole("combobox");
-    fireEvent.change(search, { target: { value: "Voxtral" } });
-    await waitFor(() => {
-      expect(screen.getAllByRole("option")).toHaveLength(1);
-    });
-    fireEvent.keyDown(search, { key: "ArrowDown" });
-    fireEvent.keyDown(search, { key: "Enter" });
-    expect(props.onSelectSttModel).toHaveBeenCalledWith("mistralai/voxtral-mini-transcribe");
-  });
-
   it("показывает обе группы и все варианты", () => {
     renderMenu();
     expect(screen.getByText("Голосовая модель")).toBeTruthy();
-    expect(screen.getByText("Модель ответа · Claude")).toBeTruthy();
-    expect(screen.getByText("Groq · Whisper")).toBeTruthy();
-    expect(screen.getByText("OpenAI · gpt-4o mini")).toBeTruthy();
+    // One answer vendor in the list: the heading names no vendor.
+    expect(screen.getByText("Модель ответа")).toBeTruthy();
+    expect(screen.getByText("Deepgram · Nova-3")).toBeTruthy();
     expect(screen.getByText("Opus 5")).toBeTruthy();
     expect(screen.getByText("Haiku 4.5")).toBeTruthy();
   });
 
   it("выбор голосовой модели переключает провайдер и закрывает меню", () => {
     const props = renderMenu();
-    fireEvent.click(screen.getByText("OpenAI · gpt-4o mini"));
-    expect(props.onSwitchSttProvider).toHaveBeenCalledWith(STT_PROVIDER_OPENAI);
+    fireEvent.click(screen.getByText("Deepgram · Nova-3"));
+    expect(props.onSwitchSttProvider).toHaveBeenCalledWith(STT_PROVIDER_DEEPGRAM);
     expect(props.onOpenChange).toHaveBeenCalledWith(false);
     expect(props.onSelectModel).not.toHaveBeenCalled();
+  });
+
+  it("вендор, чей каталог не пришёл, подписан причиной, а его модели остаются", () => {
+    renderMenu({
+      catalogFailures: [
+        {
+          provider: PROVIDER_ANTHROPIC,
+          error: { code: "badApiKey", message: "Неверный ключ Anthropic" },
+        },
+      ],
+    });
+    const note = screen.getByRole("note");
+    expect(note.textContent).toContain("Список не обновился");
+    expect(screen.getByText("Opus 5")).toBeTruthy();
+  });
+
+  it("без сбоев подписи нет", () => {
+    renderMenu();
+    expect(screen.queryByRole("note")).toBeNull();
   });
 
   it("доступная модель идёт без замка", () => {
@@ -262,6 +122,9 @@ describe("ModelCommandMenu", () => {
           adaptive: true,
           alwaysThinks: false,
           codeExec: true,
+          efforts: [],
+          budgetThinking: false,
+          defaultEffort: null,
         },
       ],
     });
@@ -282,6 +145,9 @@ describe("ModelCommandMenu", () => {
           adaptive: true,
           alwaysThinks: false,
           codeExec: true,
+          efforts: [],
+          budgetThinking: false,
+          defaultEffort: null,
         },
       ],
       modelProvidersMissingKey: [PROVIDER_OPENAI],
@@ -304,6 +170,9 @@ describe("ModelCommandMenu", () => {
           adaptive: true,
           alwaysThinks: false,
           codeExec: true,
+          efforts: [],
+          budgetThinking: false,
+          defaultEffort: null,
         },
       ],
       modelsPending: false,
@@ -316,20 +185,20 @@ describe("ModelCommandMenu", () => {
 
 describe("ModelCommandMenu пока каталог не пришёл", () => {
   it("не раскладывает модели по группам и показывает заглушки", () => {
-    // Вшитый список не знает моделей вендора с динамическим каталогом, поэтому
-    // выбранная модель попала бы в «Другие» и прыгнула бы в свою группу, когда
-    // приедет живой список. Пока данные предварительные — группы не строим.
-    renderMenu({ modelsPending: true, activeModelId: "xclis/claude-sonnet-5" });
+    // Вшитый список знает не все модели живого каталога, поэтому выбранная
+    // модель попала бы в «Другие» и прыгнула бы в свою группу, когда приедет
+    // живой список. Пока данные предварительные — группы не строим.
+    renderMenu({ modelsPending: true, activeModelId: "claude-sonnet-4-5" });
     // Неизвестная выбранная модель не выдумывает себе группу «Другие»…
     expect(screen.queryByText("Другие")).toBeNull();
-    expect(screen.getByText("xclis/claude-sonnet-5")).toBeTruthy();
+    expect(screen.getByText("claude-sonnet-4-5")).toBeTruthy();
     expect(document.querySelectorAll(".animate-pulse").length).toBeGreaterThan(0);
   });
 
   it("уже известные модели остаются доступными, пока каталог грузится", () => {
-    // Прятать их ради ещё не пришедшего динамического каталога значит
+    // Прятать их ради ещё не пришедшего живого каталога значит
     // заблокировать заведомо рабочий выбор — ровно это и было регрессией.
-    renderMenu({ modelsPending: true, activeModelId: "xclis/claude-sonnet-5" });
+    renderMenu({ modelsPending: true, activeModelId: "claude-sonnet-4-5" });
     const known = screen.getByText(/Haiku/).closest("[data-slot='command-item']");
     expect(known?.getAttribute("data-disabled")).not.toBe("true");
   });

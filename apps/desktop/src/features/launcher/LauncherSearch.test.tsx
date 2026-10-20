@@ -1,7 +1,6 @@
 import i18next from "i18next";
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { API_KEY_IDS } from "@/lib/api-keys";
 import { LauncherSearch } from "./LauncherSearch";
 import type { SearchHit, SearchSources } from "./search";
 
@@ -11,7 +10,6 @@ const SOURCES: SearchSources = {
   presets: [{ id: "preset-1", name: "Мой пресет" }],
   quickActions: [],
   contextDocs: [],
-  apiKeys: API_KEY_IDS,
   recordToggle: true,
 };
 
@@ -64,7 +62,6 @@ describe("LauncherSearch", () => {
       ],
       quickActions: [],
       contextDocs: [],
-      apiKeys: API_KEY_IDS,
       recordToggle: true,
     };
     render(<LauncherSearch sources={presetsOnly} onNavigate={onNavigate} />);

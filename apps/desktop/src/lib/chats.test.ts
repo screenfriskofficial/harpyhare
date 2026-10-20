@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  chatRequestOptions,
   chatTitle,
   createChat,
   createChatFrom,
@@ -80,6 +81,7 @@ describe("createChatFrom", () => {
       draftAttachments: [{ payload: img, preview: "data:image/png;base64,AAAA" }],
       presetId: "golang",
       thinkingEnabled: true,
+      effort: "high",
       model: "claude-opus-4-8",
       webSearch: true,
       context: "справка",
@@ -93,6 +95,7 @@ describe("createChatFrom", () => {
     expect(copy.draftAttachments).toEqual([]);
     expect(copy.presetId).toBe("golang");
     expect(copy.thinkingEnabled).toBe(true);
+    expect(copy.effort).toBe("high");
     expect(copy.model).toBe("claude-opus-4-8");
     expect(copy.webSearch).toBe(true);
     expect(copy.context).toBe("справка");
@@ -312,6 +315,25 @@ describe("serialize/deserialize", () => {
     expect(deserializeChats(serializeChats(chats))?.[0]?.thinkingEnabled).toBe(true);
     const old = deserializeChats('[{"id":"a","title":"Чат 1","messages":[],"draft":""}]');
     expect(old?.[0]?.thinkingEnabled).toBe(false);
+  });
+
+  it("сохраняет effort при round-trip; без поля и с незнакомым уровнем → «авто»", () => {
+    const chats = [chatWith([], { effort: "xhigh" })];
+    expect(deserializeChats(serializeChats(chats))?.[0]?.effort).toBe("xhigh");
+    const old = deserializeChats('[{"id":"a","title":"Чат 1","messages":[],"draft":""}]');
+    expect(old?.[0]?.effort).toBeUndefined();
+    // A level a newer build wrote must not reach the wire of this one.
+    const unknown = deserializeChats('[{"id":"a","title":"Чат 1","messages":[],"effort":"ultra"}]');
+    expect(unknown?.[0]?.effort).toBeUndefined();
+  });
+
+  it("опции запроса несут уровень чата, а «авто» — его отсутствие", () => {
+    expect(chatRequestOptions(chatWith([], { thinkingEnabled: true, effort: "low" }))).toEqual({
+      thinking: true,
+      webSearch: false,
+      effort: "low",
+    });
+    expect(chatRequestOptions(chatWith([])).effort).toBeUndefined();
   });
 
   it("сохраняет model при round-trip; старый json без него → дефолтная модель", () => {
